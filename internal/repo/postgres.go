@@ -191,8 +191,8 @@ func (d pgDialector) Migrator(db *gorm.DB) gorm.Migrator {
 // resolve.
 func postgresCaseInsensitiveIndexes(db *gorm.DB) error {
 	for _, stmt := range []string{
-		"CREATE UNIQUE INDEX IF NOT EXISTS uq_users_login_ci ON users (lower(login_name))",
-		"CREATE UNIQUE INDEX IF NOT EXISTS uq_business_domains_name_ci ON business_domains (lower(name))",
+		"CREATE UNIQUE INDEX IF NOT EXISTS idx_users_login_name_lower ON users (lower(login_name))",
+		"CREATE UNIQUE INDEX IF NOT EXISTS idx_business_domains_name_lower ON business_domains (lower(name))",
 	} {
 		if err := db.Exec(stmt).Error; err != nil {
 			return fmt.Errorf("%s: %w", stmt, err)

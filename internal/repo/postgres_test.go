@@ -2,6 +2,7 @@ package repo
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -46,6 +47,13 @@ func TestPostgresLoginNamesAreCaseInsensitive(t *testing.T) {
 	again, _ := s.UserByLoginName("Alice")
 	if again.ID != first.ID || again.ChineseName != "B" {
 		t.Fatalf("second write = %+v, want id %d refreshed", again, first.ID)
+	}
+	for table, index := range map[string]string{"users": "idx_users_login_name_lower", "business_domains": "idx_business_domains_name_lower"} {
+		var def string
+		s.DB.Raw("SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND tablename = ? AND indexname = ?", table, index).Scan(&def)
+		if !strings.Contains(def, "UNIQUE") || !strings.Contains(def, "lower(") {
+			t.Fatalf("%s index %s = %q, want a unique lower() index", table, index, def)
+		}
 	}
 	// The index itself rejects a case variant, whatever path writes it.
 	err := s.DB.Exec("INSERT INTO users (login_name) VALUES ('aLiCe')").Error
