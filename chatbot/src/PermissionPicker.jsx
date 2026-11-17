@@ -155,7 +155,7 @@ export default function PermissionPicker({ value, onSelect, open, onOpenChange, 
         type="button"
         className="permission-selector"
         data-tone={current.tone}
-        aria-label={label}
+        aria-label={`${label}：${current.label}`}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={identity}

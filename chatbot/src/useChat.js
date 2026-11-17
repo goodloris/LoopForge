@@ -61,6 +61,8 @@ export function sponsoredModelMessage(models = []) {
 }
 
 // The models a user without their own key may chat with, the default first.
+// A guest counts as signed in only where the server does not require login.
+const signedIn = (auth) => !!auth?.user && !(auth.user.isGuest && auth.authRequired);
 export function sponsoredModelList(catalog) {
   const listed = Array.isArray(catalog?.sponsoredModels) ? catalog.sponsoredModels.filter(Boolean) : [];
   if (listed.length) return listed;
@@ -76,6 +78,7 @@ const initialProject =
 export function useChat() {
   const stopRequestRef = useRef(null);
   const [user, setUser] = useState(null),
+    [catalogAllowed, setCatalogAllowed] = useState(false),
     [projects, setProjects] = useState([]),
     [sandboxes, setSandboxes] = useState([]),
     [sandboxProfileId, setSandboxProfileId] = useState(""),
@@ -207,10 +210,17 @@ export function useChat() {
       connectionError = "";
     async function load() {
       try {
+        // The model catalog needs a signed-in user; ask for it as soon as
+        // auth/current says so, while the other requests are in flight.
+        const authRequest = api("/api/auth/current");
         const [auth, projectRows, catalog, users, sandboxRows] = await Promise.all([
-          api("/api/auth/current"),
+          authRequest,
           api("/api/projects"),
-          api("/api/assistant/models"),
+          authRequest.then((auth) => {
+            if (!signedIn(auth)) return {};
+            if (current) setCatalogAllowed(true);
+            return api("/api/assistant/models");
+          }),
           api("/api/users"),
           api("/api/sandboxes"),
         ]);
@@ -222,7 +232,13 @@ export function useChat() {
         setModels(catalog.models || []);
         defaultModel.current = catalog.default || "";
         setSponsoredModels(sponsoredModelList(catalog));
-        setModel(catalog.default);
+        // catalog.default is a CodeBuddy model. Another CLI starts on its own
+        // first model, as open(null) does; open(null) may have run before
+        // the catalog arrived and found none.
+        const preferred = storedExecutor();
+        setModel(preferred === "codebuddy"
+          ? catalog.default
+          : engineModels(catalog.models, preferred)[0]?.id || "default");
         await refreshSessions();
         if (!current) return;
         const recovered = connectionError;
@@ -537,7 +553,7 @@ export function useChat() {
   const activeModel = sponsored ? sharedModelFor(model) : model;
   const activeEffort = modelEffort(executorModels.find((m) => m.id === activeModel), effort);
   useEffect(() => {
-    if (codeBuddy || listedForEngine.length || providerCatalogs[executor]) return;
+    if (!catalogAllowed || codeBuddy || listedForEngine.length || providerCatalogs[executor]) return;
     let current = true;
     api(`/api/assistant/models?executor=${encodeURIComponent(executor)}`)
       .then((catalog) => {
@@ -549,7 +565,7 @@ export function useChat() {
     return () => {
       current = false;
     };
-  }, [codeBuddy, executor, listedForEngine.length, providerCatalogs]);
+  }, [catalogAllowed, codeBuddy, executor, listedForEngine.length, providerCatalogs]);
   const chooseExecutor = useCallback(
     (id) => {
       if (id === "claude") id = "claude-code";

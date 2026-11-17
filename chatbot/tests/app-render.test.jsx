@@ -499,15 +499,19 @@ describe("App", () => {
       { id: "pi", icon: "terminal", label: "Pi", detail: "Pi" },
     ];
     const view = render(<App />);
-    await user.click(screen.getByRole("button", { name: "CLI" }));
+    // Each picker's accessible name carries its current value (P2 a11y).
+    expect(screen.getByRole("button", { name: "CLI：CodeBuddy" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "操作确认方式：请求批准" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "选择模型：Test" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /^CLI：/ }));
     const pi = await screen.findByRole("menuitemradio", { name: "Pi" });
     expect(pi.querySelector('[data-model-provider="pi"] svg')).not.toBeNull();
     await user.click(await screen.findByRole("menuitemradio", { name: "Codex" }));
     expect(chat.setExecutor).toHaveBeenCalledWith("codex");
-    expect(screen.getByRole("button", { name: "思考强度" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^思考强度：/ })).toBeInTheDocument();
     chat.executor = "codex";
     view.rerender(<App />);
-    expect(screen.getByRole("button", { name: "思考强度" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^思考强度：/ })).toBeInTheDocument();
     // A saved reply locks the CLI: the switch leaves the composer and the
     // title shows which CLI this conversation uses.
     Object.assign(chat, {
@@ -519,7 +523,7 @@ describe("App", () => {
       },
     });
     view.rerender(<App />);
-    expect(screen.queryByRole("button", { name: "CLI" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^CLI：/ })).not.toBeInTheDocument();
     expect(document.querySelector(".conversation-engine")).toHaveTextContent("Codex");
     // The first reply, still running, locks it the same way.
     Object.assign(chat, {
@@ -528,7 +532,7 @@ describe("App", () => {
       session: { id: "s2", title: "生成中", executor: "codebuddy", messages: [] },
     });
     view.rerender(<App />);
-    expect(screen.queryByRole("button", { name: "CLI" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^CLI：/ })).not.toBeInTheDocument();
     expect(document.querySelector(".conversation-engine")).toHaveTextContent("CodeBuddy");
     Object.assign(chat, previous);
   });

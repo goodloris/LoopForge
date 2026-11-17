@@ -157,7 +157,7 @@ export default function ModelPicker({ models, value, label, open, onOpenChange, 
         ref={trigger}
         type="button"
         className="model-picker grasp-model-picker"
-        aria-label="选择模型"
+        aria-label={`选择模型：${label || current?.name || "模型"}`}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={presence.mounted ? identity : undefined}
