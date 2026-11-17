@@ -180,6 +180,10 @@ docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" mysql -u loopfor
 
 After it, a run of these SOPs commits and pushes its work branch and opens an MR/PR before 交付汇总, so the Git credentials of the run's responsible user need push access. The installer and `./start.sh pull` do not run it. It rewrites a template only while its node graph and 交付汇总 position are the shipped original, and the 交付汇总 prompt only while unedited; it is safe to repeat. Project SOPs adopted from these templates are copies and are not changed.
 
+`034_generic_test_role_requires_tests.sql` adds `python3-pip` and `python3-venv` to the built-in `generic-backend` Dockerfile and tells the 测试验证 role of the same three SOPs to write 「未通过」 and fail the node when it cannot run the project's tests. Apply it the same way after upgrading to a platform image that includes `python3-pip`; until then the row no longer matches the image and `generic-docker` builds its own image on first use. It rewrites only the unedited shipped Dockerfile and prompts and is safe to repeat.
+
+`scripts/install-schema-extensions.sh` (installer and `./start.sh pull`) and `scripts/dev.sh` end with a read-only check, `scripts/manual-migration-hints.sh`, that names 033 or 034 with this command while a built-in template still lacks the `mr` node or `generic-backend` still holds the pre-034 Dockerfile.
+
 ## GitHub credentials
 
 Users can choose **Connect GitHub** in personal credentials or while adding a repository, copy the displayed PIN, and approve it on GitHub. The platform saves the grant to that signed-in user's existing Git credential slot. The repository picker lists repositories owned by the account, shared with it, or accessible through its organizations, supports pagination and search over loaded repositories, and copies the selected repository's real default branch into the form. PAT entry remains available.
