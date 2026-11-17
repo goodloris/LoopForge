@@ -59,16 +59,39 @@ func (r *AssistantRepo) ListAssistantSessions(userID int64) []domain.AssistantSe
 // Remove transcripts in SQL so list and permission checks never transfer or
 // decode chat history. Retain all other metadata, including legacy fallbacks.
 func (r *AssistantRepo) assistantSessionSummaries() *gorm.DB {
-	summary := "json(" + r.assistantParticipantSummarySQL() + ")"
-	if r.DB.Dialector.Name() != "sqlite" {
-		summary = "CAST((" + r.assistantParticipantSummarySQL() + ") AS JSON)"
+	return r.DB.Table("assistant_sessions").Select(r.assistantSessionSummaryColumns(true))
+}
+
+// assistantSessionSummaryColumns selects session metadata with the transcript
+// replaced by its message count and, when withParticipants, the legacy
+// participant projection.
+func (r *AssistantRepo) assistantSessionSummaryColumns(withParticipants bool) string {
+	const cols = "id, user_id, project_id, title, model, source, task_id, created_at, updated_at, "
+	count := r.assistantExecutionMessageCountSQL()
+	if r.isPostgres() {
+		extra := "'executionMessageCount', " + count
+		if withParticipants {
+			extra += ", 'participantSummaryMessages', (" + r.assistantParticipantSummarySQL() + ")"
+		}
+		return cols + "((payload - 'messages') || jsonb_build_object(" + extra + ")) AS payload"
 	}
-	return r.DB.Table("assistant_sessions").Select("id, user_id, project_id, title, model, source, task_id, created_at, updated_at, JSON_SET(JSON_REMOVE(payload, '$.messages'), '$.executionMessageCount', " + r.assistantExecutionMessageCountSQL() + ", '$.participantSummaryMessages', " + summary + ") AS payload")
+	set := "'$.executionMessageCount', " + count
+	if withParticipants {
+		summary := "json(" + r.assistantParticipantSummarySQL() + ")"
+		if r.DB.Dialector.Name() != "sqlite" {
+			summary = "CAST((" + r.assistantParticipantSummarySQL() + ") AS JSON)"
+		}
+		set += ", '$.participantSummaryMessages', " + summary
+	}
+	return cols + "JSON_SET(JSON_REMOVE(payload, '$.messages'), " + set + ") AS payload"
 }
 
 func (r *AssistantRepo) assistantExecutionMessageCountSQL() string {
-	if r.DB.Dialector.Name() == "sqlite" {
+	switch r.DB.Dialector.Name() {
+	case "sqlite":
 		return "COALESCE(JSON_ARRAY_LENGTH(payload, '$.messages'), 0)"
+	case "postgres":
+		return "jsonb_array_length(" + pgJSONArray("payload->'messages'") + ")"
 	}
 	return "COALESCE(JSON_LENGTH(JSON_EXTRACT(payload, '$.messages')), 0)"
 }
@@ -103,7 +126,7 @@ func (r *AssistantRepo) findAssistantSessionSummaries(where string, args ...any)
 	var err error
 	fallback := func() ([]assistantSessionRow, error) {
 		var out []assistantSessionRow
-		err := r.DB.Table("assistant_sessions").Select("id, user_id, project_id, title, model, source, task_id, created_at, updated_at, JSON_SET(JSON_REMOVE(payload, '$.messages'), '$.executionMessageCount', "+r.assistantExecutionMessageCountSQL()+") AS payload").Where(where, args...).Find(&out).Error
+		err := r.DB.Table("assistant_sessions").Select(r.assistantSessionSummaryColumns(false)).Where(where, args...).Find(&out).Error
 		sortAssistantSessionRows(out)
 		return out, err
 	}
@@ -212,7 +235,11 @@ func (r *AssistantRepo) backfillAssistantParticipants(rows []assistantSessionRow
 			if item.UnknownParticipants {
 				unknown = "true"
 			}
-			res := r.DB.Exec("UPDATE assistant_sessions SET payload = JSON_SET(payload, '$.participants', "+jsonArg+", '$.participantsVersion', 1, '$.unknownParticipants', "+jsonArg+") WHERE id = ? AND updated_at = ?",
+			set := "JSON_SET(payload, '$.participants', " + jsonArg + ", '$.participantsVersion', 1, '$.unknownParticipants', " + jsonArg + ")"
+			if r.isPostgres() {
+				set = "payload || jsonb_build_object('participants', ?::jsonb, 'participantsVersion', 1, 'unknownParticipants', ?::jsonb)"
+			}
+			res := r.DB.Exec("UPDATE assistant_sessions SET payload = "+set+" WHERE id = ? AND updated_at = ?",
 				string(mustJSON(item.Participants)), unknown, row.ID, row.Updated)
 			if res.Error != nil {
 				log.Printf("assistant participant backfill write failed id=%s: %v", row.ID, res.Error)

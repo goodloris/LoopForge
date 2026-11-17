@@ -62,3 +62,23 @@ func postgresCaseInsensitiveIndexes(db *gorm.DB) error {
 	}
 	return nil
 }
+
+// pgJSONArray is the jsonb array at expr, or an empty array when the value is
+// missing or not an array, so jsonb_array_elements/jsonb_array_length never
+// fail on legacy rows the way MySQL's JSON_TABLE/JSON_LENGTH tolerate them.
+func pgJSONArray(expr string) string {
+	return "(CASE WHEN jsonb_typeof(" + expr + ") = 'array' THEN " + expr + " ELSE '[]'::jsonb END)"
+}
+
+// sqlColumnText casts a JSON column to text so LIKE/INSTR can search it.
+// PostgreSQL needs ::text: CAST(x AS CHAR) there is char(1) and keeps a
+// single character, so a LIKE against it silently never matches.
+func sqlColumnText(db *gorm.DB, column string) string {
+	switch db.Dialector.Name() {
+	case "mysql":
+		return "CAST(" + column + " AS CHAR)"
+	case "postgres":
+		return "(" + column + ")::text"
+	}
+	return "CAST(" + column + " AS TEXT)"
+}

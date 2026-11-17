@@ -33,6 +33,8 @@ func (r *AnalyticsRepo) analyticsSessionUsage(ids []string, visit func(string, [
 			expr := `(SELECT json_group_array(json_object('index',CAST(m.key AS INTEGER),'createdAt',json_extract(m.value,'$.createdAt'),'startedAt',json_extract(m.value,'$.startedAt'),'usage',json_extract(m.value,'$.usage'))) FROM json_each(s.payload,'$.messages') m WHERE json_extract(m.value,'$.role')='assistant')`
 			if r.isMySQL() {
 				expr = `(SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT('index',m.pos-1,'createdAt',JSON_EXTRACT(s.payload,CONCAT('$.messages[',m.pos-1,'].createdAt')),'startedAt',JSON_EXTRACT(s.payload,CONCAT('$.messages[',m.pos-1,'].startedAt')),'usage',JSON_EXTRACT(s.payload,CONCAT('$.messages[',m.pos-1,'].usage')))),JSON_ARRAY()) FROM JSON_TABLE(s.payload,'$.messages[*]' COLUMNS(pos FOR ORDINALITY,role VARCHAR(32) PATH '$.role')) m WHERE m.role='assistant')`
+			} else if r.isPostgres() {
+				expr = `(SELECT COALESCE(jsonb_agg(jsonb_build_object('index',m.pos-1,'createdAt',m.value->'createdAt','startedAt',m.value->'startedAt','usage',m.value->'usage') ORDER BY m.pos),'[]'::jsonb) FROM jsonb_array_elements(` + pgJSONArray("s.payload->'messages'") + `) WITH ORDINALITY m(value, pos) WHERE m.value->>'role'='assistant')`
 			}
 			err := r.DB.Table("assistant_sessions s").Select("s.id, "+expr+" AS messages").Where("s.id IN ?", batch).Scan(&rows).Error
 			if err != nil {
@@ -45,7 +47,11 @@ func (r *AnalyticsRepo) analyticsSessionUsage(ids []string, visit func(string, [
 		}
 		if !projected {
 			rows = nil
-			if err := r.DB.Table("assistant_sessions").Select("id, JSON_EXTRACT(payload,'$.messages') AS messages").Where("id IN ?", batch).Scan(&rows).Error; err != nil {
+			messages := "JSON_EXTRACT(payload,'$.messages')"
+			if r.isPostgres() {
+				messages = "payload->'messages'"
+			}
+			if err := r.DB.Table("assistant_sessions").Select("id, "+messages+" AS messages").Where("id IN ?", batch).Scan(&rows).Error; err != nil {
 				return err
 			}
 		}
