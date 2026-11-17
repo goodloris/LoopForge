@@ -449,7 +449,13 @@ async function adoptGenericTemplate(){
   const button=$('#confirmGenericTemplate');button.disabled=true;button.textContent='复制中…';
   try{
     const copied=await api(`/api/workflows/${encodeURIComponent(src.id)}/clone`,{method:'POST',body:JSON.stringify({id:uid('sop'),name:src.name.replace(/^通用/,''),owner:src.owner||'',projectId:state.projectFilter})});
-    state.data.workflows.unshift(copied);
+    // Adoption also creates project roles, rules, skills, MCPs and a sandbox;
+    // reload the catalog before opening the canvas or every node reads as
+    // 「角色不可用」 until a manual refresh. The copy already succeeded, so a
+    // failed reload only leaves the old catalog in place.
+    const shell=await api('/api/bootstrap',{silent:true}).catch(()=>null);
+    if(shell)Object.assign(state.data,shell);
+    if(!state.data.workflows.some(w=>w.id===copied.id))state.data.workflows.unshift(copied);
     state.workflow=clone(copied);state.selectedNode=null;state.sopScope='project';markWorkflowClean();
     $('#genericTemplateModal').classList.remove('open');
     renderAll();switchView('flow');
