@@ -47,7 +47,13 @@ func TestLocalWorkspaceGitDiscoveryCannotReachParent(t *testing.T) {
 	if out, err := exec.Command("git", "-C", checkout, "init", "-q").CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v %s", err, out)
 	}
-	if out, err := sandbox.Exec(context.Background(), CommandSpec{Argv: []string{"git", "-C", checkout, "rev-parse", "--show-toplevel"}}, nil); err != nil || strings.TrimSpace(out) != checkout {
+	// git prints the resolved toplevel; temp dirs can sit behind symlinks
+	// (macOS /var -> /private/var), so compare against the resolved checkout.
+	resolved, err := filepath.EvalSymlinks(checkout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out, err := sandbox.Exec(context.Background(), CommandSpec{Argv: []string{"git", "-C", checkout, "rev-parse", "--show-toplevel"}}, nil); err != nil || strings.TrimSpace(out) != resolved {
 		t.Fatalf("child checkout unavailable: %v %s", err, out)
 	}
 }
