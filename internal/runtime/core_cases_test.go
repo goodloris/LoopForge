@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -362,8 +363,15 @@ func TestProcessSandboxPathsProfilesAndCommands(t *testing.T) {
 	if _, err := sb.command(context.Background(), CommandSpec{Argv: []string{"true"}}, nil); err == nil {
 		t.Fatal("unknown driver accepted")
 	}
-	if _, err := createSeatbelt("x", workspace, domain.SandboxProfile{}, SandboxRequirements{}); err == nil {
-		t.Fatal("seatbelt unexpectedly available on linux")
+	// seatbelt is the macOS driver: it must be available there (sandbox-exec
+	// ships in /usr/bin) and rejected on every other host.
+	seatbelt, err := createSeatbelt("x", workspace, domain.SandboxProfile{}, SandboxRequirements{})
+	if goruntime.GOOS == "darwin" {
+		if err != nil || seatbelt.(*processSandbox).driver != "seatbelt" {
+			t.Fatalf("seatbelt unavailable on darwin: %v", err)
+		}
+	} else if err == nil {
+		t.Fatalf("seatbelt unexpectedly available on %s", goruntime.GOOS)
 	}
 }
 
