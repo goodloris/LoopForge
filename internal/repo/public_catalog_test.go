@@ -2,6 +2,7 @@ package repo
 
 import (
 	"agentflow/internal/domain"
+	"agentflow/internal/runtime"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -112,6 +113,47 @@ func TestPublicCodeSOPsOpenMRBeforeDeliver(t *testing.T) {
 		if node.ID == "mr" {
 			t.Errorf("product SOP delivers documents only and must not open an MR")
 		}
+	}
+}
+
+// A test role that cannot run the project's tests must fail the node rather
+// than pass on manual checks, and the shared sandbox ships pip so it can
+// install Python test tools. The seeded Dockerfile must equal
+// IsolatedDockerfile, or generic-docker builds its own image.
+func TestPublicTestRolesFailWithoutRunningTests(t *testing.T) {
+	templates := publicCatalogTemplates(t)
+	for _, id := range []string{GenericBackendDeliveryWorkflowID, GenericFrontendDeliveryWorkflowID, "issue-fix-production"} {
+		found := false
+		for _, agent := range templates[id].Agents {
+			if agent.ID != id+"-test" {
+				continue
+			}
+			found = true
+			if !strings.Contains(agent.Prompt, "无法实际运行项目测试（例如缺少测试工具且无法安装）时，test-report.md 的结论必须写「未通过」并提交 fail 让本节点失败，不得用手工验证替代自动化测试。") {
+				t.Errorf("%s: test role may pass without running tests: %q", id, agent.Prompt)
+			}
+		}
+		if !found {
+			t.Errorf("%s: test role %s-test missing", id, id)
+		}
+	}
+	raw, err := os.ReadFile("../../migrations/seed/001_public_catalog.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	match := regexp.MustCompile(`(?m)^INSERT IGNORE INTO dockerfiles .*VALUES \('generic-backend','[^']*','(.*)'\);$`).FindSubmatch(raw)
+	if match == nil {
+		t.Fatal("generic-backend Dockerfile missing from the seed")
+	}
+	var dockerfile domain.DockerfileDefinition
+	if err := json.Unmarshal([]byte(strings.NewReplacer(`\\`, `\`, `''`, `'`).Replace(string(match[1]))), &dockerfile); err != nil {
+		t.Fatal(err)
+	}
+	if dockerfile.Content != runtime.IsolatedDockerfile {
+		t.Errorf("seeded generic-backend Dockerfile differs from runtime.IsolatedDockerfile:\n%q\n%q", dockerfile.Content, runtime.IsolatedDockerfile)
+	}
+	if !strings.Contains(dockerfile.Content, " python3-pip python3-venv ") {
+		t.Errorf("generic-backend Dockerfile lacks python3-pip/python3-venv: %q", dockerfile.Content)
 	}
 }
 
