@@ -1614,7 +1614,7 @@ func runAssistantCLI(ctx context.Context, req assistantCLIRequest, user domain.U
 }
 
 func assistantUsageReported(u domain.TokenUsage) bool {
-	return u.InputTokens+u.OutputTokens+u.CacheReadTokens+u.CacheWriteTokens > 0
+	return u.InputTokens+u.OutputTokens+u.CacheReadTokens+u.CacheWriteTokens > 0 || u.Credits > 0
 }
 
 // assistantTurnUsage sums the usage of every CLI invocation behind one reply
@@ -1633,6 +1633,7 @@ func (t *assistantTurnUsage) add(u domain.TokenUsage) {
 	t.total.CacheWriteTokens += u.CacheWriteTokens
 	t.total.ReasoningTokens += u.ReasoningTokens
 	t.total.CostUSD += u.CostUSD
+	t.total.Credits += u.Credits
 	if u.CostStatus != "" {
 		t.total.CostStatus = u.CostStatus
 	}

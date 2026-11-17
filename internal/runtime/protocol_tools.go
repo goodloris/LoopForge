@@ -38,6 +38,7 @@ func tokenUsage(value any) domain.TokenUsage {
 		usage.CostUSD = float64Value(v["total_cost_usd"])
 		usage.CostStatus = "reported"
 	}
+	usage.Credits = float64Value(v["credits"])
 	usage.TotalTokens = first("total_tokens", "totalTokens")
 	if usage.TotalTokens == 0 {
 		usage.TotalTokens = usage.InputTokens + usage.OutputTokens

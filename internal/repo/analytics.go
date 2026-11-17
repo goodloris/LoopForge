@@ -225,6 +225,7 @@ func (r *AnalyticsRepo) analyticsWithRuns(filter domain.AnalyticsFilter, prefetc
 		out.Summary.TotalRuns++
 		out.Summary.TotalTokens += run.Usage.TotalTokens
 		out.Summary.TotalCostUSD += run.Usage.CostUSD
+		out.Summary.TotalCredits += run.Usage.Credits
 		out.Summary.InputTokens += run.Usage.InputTokens
 		out.Summary.OutputTokens += run.Usage.OutputTokens
 		out.Summary.CacheReadTokens += run.Usage.CacheReadTokens
@@ -1427,6 +1428,7 @@ func accumulateConversationRun(summary *domain.AnalyticsSummary, issues map[stri
 	summary.ConversationCostUSD += usage.CostUSD
 	summary.TotalTokens += usage.TotalTokens
 	summary.TotalCostUSD += usage.CostUSD
+	summary.TotalCredits += usage.Credits
 	summary.CostReportedUSD += usage.CostUSD
 	summary.InputTokens += usage.InputTokens
 	summary.OutputTokens += usage.OutputTokens
