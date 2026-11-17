@@ -346,6 +346,19 @@
       trigger.setAttribute('aria-label', label);
       panel.setAttribute('aria-label', label);
     }
+    // Name the trigger "label + current value" so screen readers hear the
+    // selection; aria-labelledby is live, so value changes update the name.
+    // A wrapping <label> would also contain the trigger (its text would repeat
+    // the value), so it references the trigger's own aria-label instead.
+    const labelEl = !select.getAttribute('aria-label') && ownText(select.labels?.[0]) ? select.labels[0] : null;
+    if (labelEl) {
+      value.id = selector.id + 'Value';
+      if (labelEl.contains(select)) trigger.setAttribute('aria-labelledby', trigger.id + ' ' + value.id);
+      else {
+        if (!labelEl.id) labelEl.id = selector.id + 'Label';
+        trigger.setAttribute('aria-labelledby', labelEl.id + ' ' + value.id);
+      }
+    }
     if (select.style?.width) trigger.style.width = select.style.width;
 
     select.classList.add('hui-select-native');

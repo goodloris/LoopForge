@@ -1086,7 +1086,7 @@ function bind(){
   $('#commandResults').onmousemove=e=>{const item=e.target.closest('[data-command-index]');if(!item)return;const idx=Number(item.dataset.commandIndex);if(idx!==commandSelectedIndex){commandSelectedIndex=idx;highlightCommandSelection()}};
   $$('[data-issue-view]').forEach(btn=>btn.onclick=()=>setIssueView(btn.dataset.issueView));
   setIssueView(state.issueView,false);
-  $$('#runModal .modal-close').forEach(b=>b.onclick=()=>$('#runModal').classList.remove('open'));
+  $$('#runModal .run-modal-close').forEach(b=>b.onclick=()=>$('#runModal').classList.remove('open'));
   $$('.generic-template-close').forEach(b=>b.onclick=()=>$('#genericTemplateModal').classList.remove('open'));
   $('#confirmGenericTemplate')&&($('#confirmGenericTemplate').onclick=adoptGenericTemplate);
   $('#runGenericTemplateDirect')&&($('#runGenericTemplateDirect').onclick=()=>{const id=state.genericTemplateId;$('#genericTemplateModal').classList.remove('open');if(!id)return toast('请先选择通用模板');openRunModal(id)});

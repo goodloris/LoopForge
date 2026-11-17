@@ -33,6 +33,7 @@ function selectAIOrchestratorModel(id) {
   localStorage.setItem('agentflow.orchestratorModel.' + engine, id);
 }
 
+let loadAIOrchestratorModels = () => Promise.resolve();
 function bindAIOrchestratorModelPicker() {
   const api = window.AgentFlowAssistantModels;
   const runtime = $('#aiOrchestratorRuntime');
@@ -141,7 +142,9 @@ function bindAIOrchestratorModelPicker() {
   bindPicker($('#aiOrchestratorCLIPicker'), true);
   bindPicker($('#aiOrchestratorModelPicker'), false);
   paintAll();
-  api.load().then(paintAll);
+  // This binds at script load, before the session is known; fetching here
+  // returned 401 on every signed-out page load. Load when the panel opens.
+  loadAIOrchestratorModels = () => api.load().then(paintAll);
 }
 
 function layoutAIGraph(nodes, edges) {
@@ -344,7 +347,7 @@ function setAIOrchestratorOpen(open) {
       ? '直接说要改哪里，例如：补上构建静态站点，其它步骤保持不变'
       : '告诉我你的目标，我来搞定…';
   }
-  if (open) input?.focus();
+  if (open) { input?.focus(); loadAIOrchestratorModels(); }
   else window.HuiPopover?.closeAll();
 }
 

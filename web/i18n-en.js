@@ -178,5 +178,7 @@ Object.assign(window.LF_I18N_EN,{
   "关联的任务、运行记录、日志、产物和执行工作区将一并清理。":"Linked tasks, runs, logs, outputs, and workspaces will be removed as well.",
   "删除后无法恢复。":"This cannot be undone.",
   "外部原单会保留，后续同步可能重新导入。":"The original external record is kept, and a later sync may import it again.",
-  "需求已有执行记录或已完成，请确认强制删除":"This requirement has execution history or is already completed. Confirm force deletion."
+  "需求已有执行记录或已完成，请确认强制删除":"This requirement has execution history or is already completed. Confirm force deletion.",
+  "这是人工确认节点，等待你检查上游产物后决定。":"This is a human approval step. It waits for you to review the upstream artifacts and decide.",
+  "刚开始等待":"Just started waiting"
 });
