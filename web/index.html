@@ -755,7 +755,7 @@
           <li><span class="runner-step-no">3</span><div><b>选择认证来源</b><small>本机登录或个人凭证</small></div></li>
         </ol>
         <div class="runner-command-box">
-          <pre id="bindCliCommand" class="mono">(curl -fsSL --connect-timeout 5 <span id="bindHttpsOrigin">https://</span>/runners/install.sh || curl -fsSL <span id="bindHttpOrigin">http://</span>/runners/install.sh) | bash -s -- --server <span id="bindServerHost"></span> --token <span id="bindToken">生成中…</span> --service</pre>
+          <pre id="bindCliCommand" class="mono">(curl -fsSL --connect-timeout 5 <span id="bindHttpsOrigin">https://</span>/runners/install.sh || curl -fsSL <span id="bindHttpOrigin">http://</span>/runners/install.sh ) | bash -s -- --server <span id="bindServerHost"></span> --token <span id="bindToken">生成中…</span> --service</pre>
           <button id="copyBindCommand" class="button dark small" type="button">复制命令</button>
         </div>
         <div class="runner-command-foot">
@@ -763,7 +763,7 @@
           <details class="runner-uninstall">
             <summary>卸载执行器</summary>
             <div class="runner-command-box compact">
-              <pre class="mono">(curl -fsSL --connect-timeout 5 <span id="uninstallHttpsOrigin">https://</span>/runners/install.sh || curl -fsSL <span id="uninstallHttpOrigin">http://</span>/runners/install.sh) | bash -s -- --uninstall</pre>
+              <pre class="mono">(curl -fsSL --connect-timeout 5 <span id="uninstallHttpsOrigin">https://</span>/runners/install.sh || curl -fsSL <span id="uninstallHttpOrigin">http://</span>/runners/install.sh ) | bash -s -- --uninstall</pre>
               <button id="copyUninstallCommand" class="button ghost small" type="button">复制</button>
             </div>
           </details>
