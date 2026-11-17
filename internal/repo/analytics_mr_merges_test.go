@@ -2,7 +2,6 @@ package repo
 
 import (
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
@@ -15,11 +14,7 @@ func TestMRMergeAnalytics(t *testing.T) {
 			var s *Store
 			var err error
 			if driver == "mysql" {
-				dsn := os.Getenv("AGENTFLOW_TEST_MYSQL_DSN")
-				if dsn == "" {
-					t.Skip("local isolated MySQL required")
-				}
-				s, err = Open(dsn)
+				s = serverTestStore(t)
 			} else {
 				s, err = OpenTest()
 			}

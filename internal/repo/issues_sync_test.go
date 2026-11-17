@@ -2,7 +2,6 @@ package repo
 
 import (
 	"fmt"
-	"os"
 	"testing"
 
 	"agentflow/internal/domain"
@@ -14,11 +13,7 @@ func TestPutSyncedIssuePreservesCurrentLifecycle(t *testing.T) {
 			var s *Store
 			var err error
 			if driver == "mysql" {
-				dsn := os.Getenv("AGENTFLOW_TEST_MYSQL_DSN")
-				if dsn == "" {
-					t.Skip("AGENTFLOW_TEST_MYSQL_DSN is not set")
-				}
-				s, err = Open(dsn)
+				s = serverTestStore(t)
 			} else {
 				s, err = OpenTest()
 			}

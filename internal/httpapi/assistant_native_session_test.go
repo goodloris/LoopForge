@@ -416,15 +416,20 @@ func TestSharedDirectChatExcludesOtherHandlersAndBackgroundGenerations(t *testin
 
 func sharedNativeMySQLFixture(t *testing.T, keys []string) (*assistantHandlers, domain.User, domain.User, domain.AssistantSession) {
 	t.Helper()
-	dsn := os.Getenv("AGENTFLOW_TEST_MYSQL_DSN")
-	if dsn == "" {
-		t.Skip("isolated local Docker MySQL required")
-	}
-	if !loopbackMySQLDSN(dsn) {
-		t.Fatal("native session tests require an isolated loopback MySQL database")
+	var st *repo.Store
+	var err error
+	switch dsn := os.Getenv("AGENTFLOW_TEST_MYSQL_DSN"); {
+	case dsn != "":
+		if !loopbackMySQLDSN(dsn) {
+			t.Fatal("native session tests require an isolated loopback MySQL database")
+		}
+		st, err = repo.Open(dsn)
+	case os.Getenv("AGENTFLOW_TEST_PG_DSN") != "":
+		st, err = repo.OpenTest()
+	default:
+		t.Skip("isolated local Docker MySQL or PostgreSQL required")
 	}
 	t.Setenv("AGENTFLOW_ASSISTANT_SESSION_DIR", t.TempDir())
-	st, err := repo.Open(dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -476,6 +481,10 @@ func TestSharedNativeSessionLive(t *testing.T) {
 	var keys []string
 	if json.Unmarshal(data, &keys) != nil || len(keys) != 2 || keys[0] == "" || keys[1] == "" {
 		t.Fatal("two test keys required")
+	}
+	if os.Getenv("AGENTFLOW_TEST_MYSQL_DSN") == "" {
+		// Real keys go only to the disposable loopback MySQL fixture.
+		t.Skip("isolated local Docker MySQL required")
 	}
 	h, a, b, session := sharedNativeMySQLFixture(t, keys)
 	api := New(h.repo, engine.New(h.repo, runtime.NewManager(filepath.Join(t.TempDir(), "workspaces"))), nil, "", "")

@@ -2,7 +2,6 @@ package repo
 
 import (
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
@@ -15,11 +14,7 @@ func TestAnalyticsMultiRepositoryMRCounts(t *testing.T) {
 			var s *Store
 			var err error
 			if driver == "mysql" {
-				dsn := os.Getenv("AGENTFLOW_BUSINESS_DELIVERY_TEST_MYSQL_DSN")
-				if dsn == "" {
-					t.Skip("local isolated MySQL required")
-				}
-				s, err = Open(dsn)
+				s = serverTestStore(t, "AGENTFLOW_BUSINESS_DELIVERY_TEST_MYSQL_DSN")
 			} else {
 				s, err = OpenTest()
 			}

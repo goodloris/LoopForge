@@ -4,7 +4,6 @@ import (
 	"agentflow/internal/domain"
 	"fmt"
 	"gorm.io/gorm"
-	"os"
 	"sync"
 	"testing"
 	"time"
@@ -51,7 +50,7 @@ func TestNotificationOutboxAtomicAndIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := 0; i < 2; i++ {
-		if err = s.PutRun(run); err != nil {
+		if err := s.PutRun(run); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -128,21 +127,13 @@ func TestWorkflowNotificationValidation(t *testing.T) {
 	}
 }
 func TestMySQLNotificationConcurrentClaims(t *testing.T) {
-	dsn := os.Getenv("AGENTFLOW_TEST_MYSQL_DSN")
-	if dsn == "" {
-		t.Skip("local MySQL DSN not set")
-	}
-	s, err := Open(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
+	s := serverTestStore(t)
 	bot, run := notificationFixture(t, s, fmt.Sprint(time.Now().UnixNano()))
 	t.Cleanup(func() {
 		_ = s.DeleteNotificationBot(bot.ID)
 		_ = s.DB.Where("project_id = ?", bot.ProjectID).Delete(&domain.NotificationDelivery{}).Error
 	})
-	if err = s.PutRun(run); err != nil {
+	if err := s.PutRun(run); err != nil {
 		t.Fatal(err)
 	}
 	var wg sync.WaitGroup
@@ -198,7 +189,7 @@ func TestNotificationHumanDecisionEvents(t *testing.T) {
 			defer s.Close()
 			bot, run := notificationFixture(t, s, tc.kind)
 			run.Events[0].Type = tc.kind
-			if err = s.PutRun(run); err != nil {
+			if err := s.PutRun(run); err != nil {
 				t.Fatal(err)
 			}
 			items, err := s.NotificationDeliveries(bot.ProjectID)
@@ -222,7 +213,7 @@ func TestDisabledBotDoesNotPreventEditingItsWorkflow(t *testing.T) {
 	if err = s.PutWorkflow(run.WorkflowSnapshot); err != nil {
 		t.Fatal(err)
 	}
-	if err = s.PutRun(run); err != nil {
+	if err := s.PutRun(run); err != nil {
 		t.Fatal(err)
 	}
 	items, _ := s.NotificationDeliveries(bot.ProjectID)

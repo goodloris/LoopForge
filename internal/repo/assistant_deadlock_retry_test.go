@@ -41,10 +41,24 @@ func TestRetryAssistantDeadlockRetriesOnlyDeadlocks(t *testing.T) {
 		t.Fatalf("persistent deadlock must stop after 6 attempts and surface the driver error: err=%v calls=%d", err, calls)
 	}
 
+	// On PostgreSQL a unique violation is how two writers that both found
+	// the row missing collide (no gap locks); the replay sees the winner's row.
+	calls = 0
+	duplicate := &pgconn.PgError{Code: "23505"}
+	want := 1
+	if s.isPostgres() {
+		want = 6
+	}
+	if err := s.retryAssistantDeadlock(func() error {
+		calls++
+		return duplicate
+	}); !errors.Is(err, duplicate) || calls != want {
+		t.Fatalf("unique violation on %s: err=%v calls=%d, want %d", s.dialect(), err, calls, want)
+	}
+
 	for _, failure := range []error{
 		&mysqldriver.MySQLError{Number: 1205, Message: "Lock wait timeout exceeded"},
 		&pgconn.PgError{Code: "55P03"},
-		&pgconn.PgError{Code: "23505"},
 		errors.New("connection reset"),
 	} {
 		calls = 0

@@ -16,24 +16,20 @@ import (
 
 // Use only a disposable local MySQL database. SQLite cannot reproduce the
 // gap-lock deadlock caused by creating two previously missing session IDs.
+// PostgreSQL has no gap locks; there the writers must simply not block or
+// fail each other.
 func TestMySQLConcurrentAssistantSessionCreation(t *testing.T) {
-	dsn := os.Getenv("AGENTFLOW_ASSISTANT_CONCURRENCY_TEST_DSN")
-	if dsn == "" {
-		t.Skip("disposable local Docker MySQL required")
+	if dsn := os.Getenv("AGENTFLOW_ASSISTANT_CONCURRENCY_TEST_DSN"); dsn != "" {
+		cfg, err := mysqldriver.ParseDSN(dsn)
+		if err != nil {
+			t.Fatal(err)
+		}
+		host, _, err := net.SplitHostPort(cfg.Addr)
+		if err != nil || cfg.Net != "tcp" || (host != "127.0.0.1" && host != "localhost" && host != "::1") {
+			t.Fatal("a local MySQL DSN is required")
+		}
 	}
-	cfg, err := mysqldriver.ParseDSN(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	host, _, err := net.SplitHostPort(cfg.Addr)
-	if err != nil || cfg.Net != "tcp" || (host != "127.0.0.1" && host != "localhost" && host != "::1") {
-		t.Fatal("a local MySQL DSN is required")
-	}
-	st, err := Open(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(st.Close)
+	st := serverTestStore(t, "AGENTFLOW_ASSISTANT_CONCURRENCY_TEST_DSN")
 	prefix := fmt.Sprintf("zzzz-session-concurrency-%d-", time.Now().UnixNano())
 	ids := []string{prefix + "a", prefix + "b", prefix + "z"}
 	t.Cleanup(func() { st.DB.Where("id IN ?", ids).Delete(&assistantSessionRow{}) })

@@ -35,6 +35,10 @@ func TestAssistantUnlimitedTurnsLive(t *testing.T) {
 	if err != nil || json.Unmarshal(data, &credential) != nil || credential.Key == "" || credential.Network != "ioa" {
 		t.Fatal("private iOA test credential unavailable")
 	}
+	if os.Getenv("AGENTFLOW_TEST_MYSQL_DSN") == "" {
+		// Real keys go only to the disposable loopback MySQL fixture.
+		t.Skip("isolated local Docker MySQL required")
+	}
 	h, actor, _, session := sharedNativeMySQLFixture(t, []string{credential.Key, credential.Key})
 	api := New(h.repo, engine.New(h.repo, runtime.NewManager(filepath.Join(t.TempDir(), "workspaces"))), nil, "", "")
 	server := httptest.NewServer(api)

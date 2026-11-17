@@ -4,7 +4,6 @@ import (
 	"agentflow/internal/domain"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -75,11 +74,7 @@ func TestProviderUserCredentials(t *testing.T) {
 			var st *Store
 			var err error
 			if driver == "mysql" {
-				dsn := os.Getenv("AGENTFLOW_TEST_MYSQL_DSN")
-				if dsn == "" {
-					t.Skip("set AGENTFLOW_TEST_MYSQL_DSN for MySQL integration")
-				}
-				st, err = Open(dsn)
+				st = serverTestStore(t)
 			} else {
 				st, err = OpenTest()
 			}
@@ -120,7 +115,7 @@ func TestProviderUserCredentials(t *testing.T) {
 				if configRows != 1 {
 					t.Fatalf("user config normalization incomplete: configRows=%d", configRows)
 				}
-				if st.isMySQL() {
+				if st.isMySQL() || st.isPostgres() {
 					// The production migration removes legacy credential columns;
 					// querying them after startup would itself be an invalid test.
 					for _, column := range []string{"git_token", "codebuddy_api_key", "codex_api_key", "claude_code_api_key"} {

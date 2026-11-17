@@ -3,7 +3,6 @@ package repo
 import (
 	"crypto/rand"
 	"fmt"
-	"os"
 	"sync"
 	"testing"
 	"time"
@@ -15,31 +14,18 @@ import (
 
 // AGENTFLOW_TEST_MYSQL_DSN must identify a disposable test database. These
 // tests never use AGENTFLOW_MYSQL_DSN or delete the shared admission gate.
+// Without it they run on a fresh AGENTFLOW_TEST_PG_DSN schema.
 func admissionMySQLStores(t *testing.T) ([2]*Store, string) {
 	t.Helper()
-	var stores [2]*Store
-	dsn := os.Getenv("AGENTFLOW_TEST_MYSQL_DSN")
-	if dsn == "" {
-		t.Skip("AGENTFLOW_TEST_MYSQL_DSN is not set")
+	first := serverTestStore(t)
+	if !first.isMySQL() && !first.isPostgres() {
+		t.Fatal("admission acceptance requires a real MySQL or PostgreSQL server")
 	}
 	var suffix [12]byte
 	if _, err := rand.Read(suffix[:]); err != nil {
 		t.Fatal(err)
 	}
-	prefix := fmt.Sprintf("mysql-admit-%x", suffix)
-	for i := range stores {
-		store, err := Open(dsn)
-		if err != nil {
-			// Connection errors can contain credential material from the DSN.
-			t.Fatalf("Open MySQL store %d failed (%T); DSN omitted", i, err)
-		}
-		stores[i] = store
-		t.Cleanup(store.Close)
-		if store.DB.Dialector.Name() != "mysql" {
-			t.Fatal("admission acceptance requires the real MySQL dialect")
-		}
-	}
-	return stores, prefix
+	return [2]*Store{first, serverTestPeer(t, first)}, fmt.Sprintf("mysql-admit-%x", suffix)
 }
 
 func admissionMySQLCleanup(t *testing.T, store *Store, ids []string) {

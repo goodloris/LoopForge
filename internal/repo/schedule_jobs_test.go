@@ -3,7 +3,6 @@ package repo
 import (
 	"errors"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
@@ -60,11 +59,7 @@ func TestScheduleJobDispatchLimitPersistence(t *testing.T) {
 			var st *Store
 			var err error
 			if backend == "mysql" {
-				dsn := os.Getenv("AGENTFLOW_TEST_MYSQL_DSN")
-				if dsn == "" {
-					t.Skip("AGENTFLOW_TEST_MYSQL_DSN is not set")
-				}
-				st, err = Open(dsn)
+				st = serverTestStore(t)
 			} else {
 				st, err = OpenTest()
 			}
