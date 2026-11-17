@@ -36,12 +36,14 @@ func validateAssistantProvider(req *assistantRequest, user domain.User) error {
 		key, label = user.ClaudeCodeAPIKey, "Claude Code"
 	default:
 		if runtime.IsAgentCLI(req.Executor) {
-			key, label = user.AgentCLICredentials[req.Executor].APIKey, runtime.AgentCLILabel(req.Executor)
+			key, label = assistantEngineCredential(user, req.Executor)
+			label = runtime.AgentCLILabel(req.Executor)
 			break
 		}
 		return fmt.Errorf("不支持的执行器")
 	}
-	if strings.TrimSpace(key) == "" {
+	// Kiro has no key; the machine that runs the turn needs the login.
+	if strings.TrimSpace(key) == "" && req.Executor != runtime.AgentCLIKiro {
 		return fmt.Errorf("请先在个人设置中配置 %s API Key", label)
 	}
 	if req.Executor == "codebuddy" {
