@@ -418,6 +418,19 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 		failNode(err, nodeRejects(node))
 		return
 	}
+	// Check the executor key before the sandbox is opened: its first image
+	// build takes minutes. Execution machines check their own credentials
+	// (runner_dispatch.go).
+	if node.Type != "script" && node.Type != "command" && e.defaultExecutionRunner(current) == "" {
+		if agent, ok := workflowAgent(e.repo, wf, node.AgentID); ok {
+			if ex, resolveErr := resolveNodeExecutor(e.repo, node, agent); resolveErr == nil {
+				if err := runtime.MissingProviderCredential(ex.Kind, e.resolveRunCredentials(current)); err != nil {
+					failNode(err, allowRejectOnFailure(node, err, false))
+					return
+				}
+			}
+		}
+	}
 	acquireProfile := profile
 	// A selected execution machine owns the real process sandbox. The control
 	// plane keeps only a local staging workspace for prompt/materialization and

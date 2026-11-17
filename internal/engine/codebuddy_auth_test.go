@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -173,5 +174,62 @@ func TestSponsoredExecutorPinsModelAndExplains(t *testing.T) {
 	}
 	if notes != 1 {
 		t.Fatalf("run notes = %d, events %+v", notes, current.Events)
+	}
+}
+
+// A CodeBuddy node whose responsible user has no key fails before the run
+// sandbox is opened, so no sandbox image is built first. Kiro CLI and the
+// platform shared key pass the check. The passing cases stop at a missing
+// repository after the sandbox is opened, so no agent CLI runs.
+func TestAgentNodeChecksKeyBeforeOpeningSandbox(t *testing.T) {
+	t.Setenv(repo.CodeBuddySponsorLoginEnv, "")
+	cases := []struct {
+		name, executor string
+		sharedKey      bool
+		wantErr        string
+	}{
+		{name: "missing key", executor: "codebuddy", wantErr: "需求责任人未配置 CodeBuddy API Key，请在个人配置中配置"},
+		{name: "kiro login", executor: "kiro", wantErr: "repository checkout"},
+		{name: "shared key", executor: "codebuddy", sharedKey: true, wantErr: "repository checkout"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s, err := repo.OpenTest()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s.Close()
+			if err := s.PutUser(domain.User{ID: 9, LoginName: "owner"}); err != nil {
+				t.Fatal(err)
+			}
+			if tc.sharedKey {
+				if err := s.SetPlatformCodeBuddyKey(repo.PlatformCodeBuddyKeyUpdate{APIKey: "ck_platform", Models: []string{"glm-5.1"}}, 9); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := s.PutAgent(domain.AgentDefinition{ID: "dev", Name: "dev", ExecutorID: tc.executor}); err != nil {
+				t.Fatal(err)
+			}
+			wf := domain.WorkflowDefinition{ID: "key-check", Name: "Key check", SandboxProfileID: "local",
+				Nodes: []domain.WorkflowNode{{ID: "dev", Name: "Dev", Type: "agent", AgentID: "dev", MaxAttempts: 1}}}
+			if err := s.PutWorkflow(wf); err != nil {
+				t.Fatal(err)
+			}
+			e := New(s, runtime.NewManager(t.TempDir()))
+			missing := domain.RepositoryContext{RepositoryID: "repo", Name: "repo", LocalPath: filepath.Join(t.TempDir(), "missing"), BaseBranch: "main"}
+			run, err := e.StartWithExecutionContext(wf.ID, "", missing, domain.TelemetryContext{ResponsibleUserID: 9})
+			if err != nil {
+				t.Fatal(err)
+			}
+			waitFor(t, s, run.ID, "failed")
+			finished, _ := s.Run(run.ID)
+			node := finished.Nodes["dev"]
+			if !strings.Contains(node.Error, tc.wantErr) || (tc.executor == "codebuddy" && !tc.sharedKey && node.Error != tc.wantErr) {
+				t.Fatalf("node error = %q, want %q", node.Error, tc.wantErr)
+			}
+			if opened := finished.SandboxID != ""; opened != (tc.wantErr == "repository checkout") {
+				t.Fatalf("sandbox opened = %v (%q), error %q", opened, finished.SandboxID, node.Error)
+			}
+		})
 	}
 }
