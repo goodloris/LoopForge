@@ -21,7 +21,7 @@ type workspaceCheckpointChunk struct {
 	RunID     string `gorm:"primaryKey;size:64"`
 	ArchiveID string `gorm:"primaryKey;size:64"`
 	Sequence  int    `gorm:"primaryKey"`
-	Data      []byte `gorm:"type:mediumblob"`
+	Data      []byte `gorm:"size:16777215"`
 	CreatedAt time.Time
 }
 

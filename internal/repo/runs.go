@@ -172,6 +172,8 @@ func (r *RunsRepo) runSummariesFor(filter domain.AnalyticsFilter, issueID string
 	snapshotExpr := "json_object('id', json_extract(snapshot, '$.id'), 'name', json_extract(snapshot, '$.name'), 'collaborationMode', json_extract(snapshot, '$.collaborationMode')) AS snapshot"
 	if r.isMySQL() {
 		snapshotExpr = "JSON_OBJECT('id', JSON_UNQUOTE(JSON_EXTRACT(snapshot, '$.id')), 'name', JSON_UNQUOTE(JSON_EXTRACT(snapshot, '$.name')), 'collaborationMode', JSON_UNQUOTE(JSON_EXTRACT(snapshot, '$.collaborationMode'))) AS snapshot"
+	} else if r.isPostgres() {
+		snapshotExpr = "json_build_object('id', snapshot->>'id', 'name', snapshot->>'name', 'collaborationMode', snapshot->>'collaborationMode') AS snapshot"
 	}
 	if err := q.Select("id", "kind", "workflow_id", "status", "admission_state", "queue_entered_at", "quota_exempt", "cancel_requested", "pause_requested", "human_context", "revision", "SUBSTR(input, 1, 500) AS input", "repository", "repositories", snapshotExpr, "execution_context", "usage_json", "tool_calls", "telemetry_sequence", "log_sequence", "owner_instance_id", "lease_until", "execution_generation", "workspace_host", "workspace_root", "workspace_cleaned_at", "created_at", "updated_at").
 		Order("created_at DESC, id DESC").
@@ -467,6 +469,8 @@ func (r *RunsRepo) LiveSandboxDockerfiles() []domain.DockerfileDefinition {
 	expr := "json_extract(snapshot, '$.sandboxSnapshot.dockerfile')"
 	if r.isMySQL() {
 		expr = "JSON_EXTRACT(snapshot, '$.sandboxSnapshot.dockerfile')"
+	} else if r.isPostgres() {
+		expr = "(snapshot #> '{sandboxSnapshot,dockerfile}')::text"
 	}
 	var raws []string
 	if err := r.DB.Model(&runRow{}).Where("workspace_cleaned_at IS NULL").
@@ -556,6 +560,18 @@ func (r *RunsRepo) loadRunNodes(run *domain.Run) error {
 // clipRunText still decides whether to append an ellipsis, including UTF-8.
 // Engine state reads retain the complete payload through loadRunNodes.
 func (r *RunsRepo) runViewNodesQuery() *gorm.DB {
+	if r.isPostgres() {
+		// jsonb "||" overwrites the clipped keys like JSON_SET does.
+		fields := []string{}
+		for _, field := range []struct {
+			name  string
+			limit int
+		}{{"output", 2501}, {"error", 1201}, {"feedback", 801}, {"activity", 301}} {
+			v := "(payload->'" + field.name + "')"
+			fields = append(fields, fmt.Sprintf("'%s', CASE WHEN json_typeof(%s) = 'string' THEN to_jsonb(SUBSTR(payload->>'%s', 1, %d)) ELSE %s::jsonb END", field.name, v, field.name, field.limit, v))
+		}
+		return r.DB.Select("run_id, node_id, (payload::jsonb || jsonb_build_object(" + strings.Join(fields, ", ") + ")) AS payload")
+	}
 	parts := []string{"payload"}
 	for _, field := range []struct {
 		name  string
@@ -608,6 +624,15 @@ func (r *RunsRepo) runNodeSummaries(ids []string) (map[string]map[string]*domain
 	errorExpr := "json_extract(payload, '$.error')"
 	if r.isMySQL() {
 		errorExpr = "JSON_UNQUOTE(JSON_EXTRACT(payload, '$.error'))"
+	} else if r.isPostgres() {
+		// -> keeps the JSON value (like JSON_EXTRACT), ->> unquotes text.
+		projection = `json_build_object(
+		'reworkCount', payload->'reworkCount', 'provider', payload->'provider',
+		'model', payload->'model', 'childRunId', payload->'childRunId',
+		'usage', payload->'usage', 'toolCalls', payload->'toolCalls',
+		'startedAt', payload->'startedAt', 'finishedAt', payload->'finishedAt',
+		'error', SUBSTR(%s, 1, 160)) AS payload`
+		errorExpr = "payload->>'error'"
 	}
 	for start := 0; start < len(ids); start += 500 {
 		batch := ids[start:min(start+500, len(ids))]
@@ -777,10 +802,7 @@ func (r *RunsRepo) TelemetryEventExists(runID, eventID string) bool {
 	if runID == "" || eventID == "" {
 		return false
 	}
-	expr := "json_extract(payload, '$.id')"
-	if r.isMySQL() {
-		expr = "JSON_UNQUOTE(JSON_EXTRACT(payload, '$.id'))"
-	}
+	expr := r.sqlPayloadJSONText("id")
 	var count int64
 	err := r.DB.Table("run_telemetry").Where("run_id = ? AND "+expr+" = ?", runID, eventID).Limit(1).Count(&count).Error
 	return err == nil && count > 0

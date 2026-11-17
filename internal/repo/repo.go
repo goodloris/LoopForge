@@ -1,5 +1,5 @@
-// Package repo is the gorm-backed persistence layer of AgentFlow. MySQL is the
-// only production datasource; tests open an in-process sqlite database through
+// Package repo is the gorm-backed persistence layer of AgentFlow. MySQL and
+// PostgreSQL are the production datasources; tests open an in-process sqlite database through
 // the same gorm code paths. There is no second in-memory implementation.
 package repo
 
@@ -16,6 +16,7 @@ import (
 	"agentflow/internal/domain"
 
 	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"gorm.io/gorm/logger"
@@ -33,8 +34,26 @@ type deps struct {
 	DB *gorm.DB
 }
 
-func (d *deps) isMySQL() bool {
-	return d.DB != nil && d.DB.Dialector.Name() == "mysql"
+// dialect is gorm's dialector name: "mysql", "postgres" or "sqlite".
+func (d *deps) dialect() string {
+	if d.DB == nil {
+		return ""
+	}
+	return d.DB.Dialector.Name()
+}
+
+func (d *deps) isMySQL() bool { return d.dialect() == "mysql" }
+
+func (d *deps) isPostgres() bool { return d.dialect() == "postgres" }
+
+// pgJSONText extracts text at a MySQL-style JSON path ("$.a.b[0]") on
+// PostgreSQL. The jsonpath syntax accepts the same paths the MySQL branches
+// use, so callers keep one path constant. arg is either a bound "?" or a
+// quoted literal.
+// ponytail: json columns are cast to jsonb per call and not indexable; switch
+// the columns to jsonb (or add expression indexes) once PG is the default.
+func pgJSONText(column, arg string) string {
+	return "(jsonb_path_query_first(" + column + "::jsonb, " + arg + "::jsonpath) #>> '{}')"
 }
 
 // sqlJSONText returns a portable "extract text at JSON path" expression.
@@ -43,6 +62,9 @@ func (d *deps) isMySQL() bool {
 func (d *deps) sqlJSONText(path string) string {
 	if d.isMySQL() {
 		return "JSON_UNQUOTE(JSON_EXTRACT(payload, ?))"
+	}
+	if d.isPostgres() {
+		return pgJSONText("payload", "?")
 	}
 	return "json_extract(payload, ?)"
 }
@@ -54,6 +76,9 @@ func (d *deps) sqlPayloadJSONText(path string) string {
 	if d.isMySQL() {
 		return "JSON_UNQUOTE(JSON_EXTRACT(payload, '$." + path + "'))"
 	}
+	if d.isPostgres() {
+		return pgJSONText("payload", "'$."+path+"'")
+	}
 	return "json_extract(payload, '$." + path + "')"
 }
 
@@ -64,13 +89,17 @@ func (d *deps) sqlExecutionContextJSONText(path string) string {
 	if d.isMySQL() {
 		return "JSON_UNQUOTE(JSON_EXTRACT(execution_context, '$." + path + "'))"
 	}
+	if d.isPostgres() {
+		return pgJSONText("execution_context", "'$."+path+"'")
+	}
 	return "json_extract(execution_context, '$." + path + "')"
 }
 
-// locking returns the query with a row-lock clause on MySQL. sqlite serializes
-// writers already (single connection in tests), so no clause is needed there.
+// locking returns the query with a row-lock clause on MySQL and PostgreSQL.
+// sqlite serializes writers already (single connection in tests), so no
+// clause is needed there.
 func (d *deps) locking(q *gorm.DB) *gorm.DB {
-	if d.isMySQL() {
+	if d.isMySQL() || d.isPostgres() {
 		return q.Clauses(clause.Locking{Strength: "UPDATE"})
 	}
 	return q
@@ -222,36 +251,32 @@ func newStore(db *gorm.DB) *Store {
 	return s
 }
 
-// Open connects the store to MySQL, which is where all state lives. An empty
-// DSN is a configuration error, not a reason to invent state somewhere else.
+// Open connects the store to its database, MySQL or PostgreSQL chosen by the
+// DSN: "postgres://" / "postgresql://" URLs select PostgreSQL, anything else
+// is a go-sql-driver/mysql DSN. An empty DSN falls back to
+// AGENTFLOW_DATABASE_DSN, then the legacy AGENTFLOW_MYSQL_DSN; with neither
+// set it is a configuration error, not a reason to invent state elsewhere.
 func Open(dsn string) (*Store, error) {
 	dsn = strings.TrimSpace(dsn)
-	if dsn == "" {
-		dsn = strings.TrimSpace(os.Getenv("AGENTFLOW_MYSQL_DSN"))
-	}
-	if dsn == "" {
-		return nil, errors.New("AGENTFLOW_MYSQL_DSN 未配置：MySQL 是唯一数据源，缺少 DSN 时拒绝启动")
-	}
-	if !strings.Contains(dsn, "charset=") {
-		if strings.Contains(dsn, "?") {
-			dsn += "&charset=utf8mb4&collation=utf8mb4_unicode_ci"
-		} else {
-			dsn += "?charset=utf8mb4&collation=utf8mb4_unicode_ci"
+	for _, env := range []string{"AGENTFLOW_DATABASE_DSN", "AGENTFLOW_MYSQL_DSN"} {
+		if dsn == "" {
+			dsn = strings.TrimSpace(os.Getenv(env))
 		}
 	}
-	if !strings.Contains(dsn, "parseTime=") {
-		dsn += "&parseTime=true&loc=UTC"
+	if dsn == "" {
+		return nil, errors.New("AGENTFLOW_DATABASE_DSN（或 AGENTFLOW_MYSQL_DSN）未配置：缺少数据库 DSN 时拒绝启动")
 	}
-	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{TranslateError: true, Logger: logger.Default.LogMode(logger.Silent)})
+	dialector, name := openDialector(dsn)
+	db, err := gorm.Open(dialector, &gorm.Config{TranslateError: true, Logger: logger.Default.LogMode(logger.Silent)})
 	if err != nil {
-		return nil, fmt.Errorf("mysql open: %w", err)
+		return nil, fmt.Errorf("%s open: %w", name, err)
 	}
 	if sqlDB, err := db.DB(); err == nil {
 		sqlDB.SetMaxOpenConns(32)
 		sqlDB.SetMaxIdleConns(8)
 		sqlDB.SetConnMaxLifetime(30 * time.Minute)
 		if err := sqlDB.Ping(); err != nil {
-			return nil, fmt.Errorf("mysql ping: %w", err)
+			return nil, fmt.Errorf("%s ping: %w", name, err)
 		}
 	}
 	s := newStore(db)
@@ -264,6 +289,40 @@ func Open(dsn string) (*Store, error) {
 		return nil, fmt.Errorf("auto migrate: %w", err)
 	}
 	return s, nil
+}
+
+// isPostgresDSN reports a libpq URL DSN. Key/value libpq DSNs ("host=...")
+// are not detected; they would be mistaken for MySQL DSNs.
+func isPostgresDSN(dsn string) bool {
+	lower := strings.ToLower(dsn)
+	return strings.HasPrefix(lower, "postgres://") || strings.HasPrefix(lower, "postgresql://")
+}
+
+// openDialector picks the gorm dialector for dsn. MySQL DSNs get the utf8mb4
+// charset and UTC time parsing the schema relies on; PostgreSQL connections
+// are pinned to UTC so timestamp text round-trips like MySQL's loc=UTC.
+func openDialector(dsn string) (gorm.Dialector, string) {
+	if isPostgresDSN(dsn) {
+		if !strings.Contains(dsn, "timezone=") {
+			if strings.Contains(dsn, "?") {
+				dsn += "&timezone=UTC"
+			} else {
+				dsn += "?timezone=UTC"
+			}
+		}
+		return postgres.Open(dsn), "postgres"
+	}
+	if !strings.Contains(dsn, "charset=") {
+		if strings.Contains(dsn, "?") {
+			dsn += "&charset=utf8mb4&collation=utf8mb4_unicode_ci"
+		} else {
+			dsn += "?charset=utf8mb4&collation=utf8mb4_unicode_ci"
+		}
+	}
+	if !strings.Contains(dsn, "parseTime=") {
+		dsn += "&parseTime=true&loc=UTC"
+	}
+	return mysql.Open(dsn), "mysql"
 }
 
 // Close releases the underlying connection pool. The gorm handle is kept so

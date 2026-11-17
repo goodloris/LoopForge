@@ -19,6 +19,9 @@ var localIntegrationLocks sync.Map
 // returned function releases it.
 func (r *DeliveryRepo) LockIntegration(ctx context.Context, repositoryID string, wait time.Duration) (func(), error) {
 	name := integrationLockName(repositoryID)
+	if r.isPostgres() {
+		return r.lockIntegrationPostgres(ctx, repositoryID, name, wait)
+	}
 	if !r.isMySQL() {
 		m, _ := localIntegrationLocks.LoadOrStore(name, &sync.Mutex{})
 		mu := m.(*sync.Mutex)
@@ -44,6 +47,41 @@ func (r *DeliveryRepo) LockIntegration(ctx context.Context, repositoryID string,
 	}
 	return func() {
 		_, _ = conn.ExecContext(context.Background(), "SELECT RELEASE_LOCK(?)", name)
+		_ = conn.Close()
+	}, nil
+}
+
+// lockIntegrationPostgres is the PostgreSQL counterpart of GET_LOCK: a
+// session-level advisory lock keyed by hashtext(name) on a dedicated
+// connection, so the lock also ends if the holder dies. lock_timeout bounds
+// the wait like GET_LOCK's timeout argument.
+// ponytail: hashtext is 32-bit; two repository names can collide and then
+// merely serialize each other, which is safe.
+func (r *DeliveryRepo) lockIntegrationPostgres(ctx context.Context, repositoryID, name string, wait time.Duration) (func(), error) {
+	db, err := r.DB.DB()
+	if err != nil {
+		return nil, err
+	}
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	ms := max(wait.Milliseconds(), 1)
+	if _, err := conn.ExecContext(ctx, fmt.Sprintf("SET lock_timeout = %d", ms)); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	_, err = conn.ExecContext(ctx, "SELECT pg_advisory_lock(hashtext($1))", name)
+	_, _ = conn.ExecContext(context.Background(), "RESET lock_timeout")
+	if err != nil {
+		_ = conn.Close()
+		if strings.Contains(err.Error(), "55P03") {
+			return nil, fmt.Errorf("等待仓库 %s 的合入锁超时（%s）", repositoryID, wait)
+		}
+		return nil, err
+	}
+	return func() {
+		_, _ = conn.ExecContext(context.Background(), "SELECT pg_advisory_unlock(hashtext($1))", name)
 		_ = conn.Close()
 	}, nil
 }

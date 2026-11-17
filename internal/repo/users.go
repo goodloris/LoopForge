@@ -190,6 +190,11 @@ func (r *UsersRepo) writeUser(v domain.User) (domain.User, error) {
 			"dept_id": v.DeptID, "dept_name": v.DeptName, "platform_role": v.PlatformRole,
 			"created_at": timePtr(v.CreatedAt), "updated_at": timePtr(v.UpdatedAt),
 		})
+		if err == nil && r.isPostgres() {
+			// MySQL AUTO_INCREMENT follows explicit ids; a PG sequence does not,
+			// and the next id-less insert would collide with this row.
+			err = r.DB.Exec("SELECT setval(pg_get_serial_sequence('users', 'id'), GREATEST((SELECT MAX(id) FROM users), 1))").Error
+		}
 		return v, err
 	}
 	inserted, err := insertIgnore(r.DB, "users", map[string]any{

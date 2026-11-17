@@ -21,7 +21,7 @@ type WorkspaceCheckpoint struct {
 	SaveFailures   int        `json:"-"`
 	SaveRetryAt    *time.Time `json:"nextSaveAttemptAt,omitempty"`
 	RunID          string     `gorm:"primaryKey;size:64" json:"-"`
-	Archive        []byte     `gorm:"type:mediumblob" json:"-"`
+	Archive        []byte     `gorm:"size:16777215" json:"-"`
 	SHA256         string     `gorm:"size:64" json:"-"`
 	LastUsedAt     time.Time  `json:"lastUsedAt"`
 	SavedAt        *time.Time `json:"savedAt,omitempty"`

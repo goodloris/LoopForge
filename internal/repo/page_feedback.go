@@ -46,7 +46,7 @@ type pageFeedbackImageRow struct {
 	MimeType   string     `gorm:"column:mime_type;size:64"`
 	Size       int64      `gorm:"column:size"`
 	SHA256     string     `gorm:"column:sha256;size:64"`
-	Data       []byte     `gorm:"column:data;type:longblob"`
+	Data       []byte     `gorm:"column:data"` // no size: longblob on MySQL, bytea on PG
 	Created    *time.Time `gorm:"column:created_at"`
 }
 
