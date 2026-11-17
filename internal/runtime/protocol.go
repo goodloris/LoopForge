@@ -216,7 +216,7 @@ func usageMetrics(usage domain.TokenUsage) []domain.MetricPoint {
 		name  string
 		value float64
 		unit  string
-	}{{"tokens.input", float64(usage.InputTokens), "count"}, {"tokens.output", float64(usage.OutputTokens), "count"}, {"tokens.cache_read", float64(usage.CacheReadTokens), "count"}, {"tokens.cache_write", float64(usage.CacheWriteTokens), "count"}, {"tokens.reasoning", float64(usage.ReasoningTokens), "count"}, {"cost", usage.CostUSD, "USD"}}
+	}{{"tokens.input", float64(usage.InputTokens), "count"}, {"tokens.output", float64(usage.OutputTokens), "count"}, {"tokens.cache_read", float64(usage.CacheReadTokens), "count"}, {"tokens.cache_write", float64(usage.CacheWriteTokens), "count"}, {"tokens.reasoning", float64(usage.ReasoningTokens), "count"}, {"cost", usage.CostUSD, "USD"}, {"credits", usage.Credits, "credit"}}
 	out := []domain.MetricPoint{}
 	for _, v := range values {
 		if v.value != 0 {
