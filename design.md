@@ -155,7 +155,7 @@
 | 上传 | 只增强可见的 `input[type="file"]`：虚线拖拽区、「选择文件」（或「选择文件夹」）按钮和文件列表（最多列 5 个）。拖放按 `accept` 和 `multiple` 校验，错误以 `role="alert"` 显示；文件夹只能点按钮选择。由自定义按钮打开的隐藏文件输入不改动，按钮使用 Harness 按钮规格 |
 | 提示（Tooltip） | 接管所有 `title`：悬停约 400ms、键盘聚焦立即显示，显示期间 `title` 暂存到 `data-hui-title` 并设 `aria-describedby`，离开、失焦、按下、滚动、Escape 或元素被移除时隐藏并恢复。单个 `role="tooltip"` 气泡，上方优先、空间不足时翻到下方，最大宽 280px。触屏不显示；`data-hui-tooltip="off"` 和 Monaco 编辑器内部跳过 |
 
-下拉有两种模式。默认的原地模式：`select` 本身就是触发器（样式由 `hui-controls.css` 统一为 Harness 外观），文档级的 mousedown / 触摸 / 键盘监听把浏览器弹出层换成 Harness 面板。面板只在打开期间存在，退出动画结束后从 `<body>` 移除，所以重绘视图不会留下实例，现有布局样式也不需要改。显式调用 `enhanceSelect(select)` 进入触发器模式：隐藏 `select`，在后面插入 `.hui-select-trigger` 按钮，同步 `disabled`、`hidden`、内联宽度和 `label` 名称；需求列表筛选、MCP 安装范围和资产页仍使用此模式。
+下拉有两种模式。默认的原地模式：`select` 本身就是触发器（样式由 `hui-controls.css` 统一为 Harness 外观），文档级的 mousedown / 触摸 / 键盘监听把浏览器弹出层换成 Harness 面板。面板只在打开期间存在，退出动画结束后从 `<body>` 移除，所以重绘视图不会留下实例，现有布局样式也不需要改。显式调用 `enhanceSelect(select)` 进入触发器模式：隐藏 `select`，在后面插入 `.hui-select-trigger` 按钮，同步 `disabled`、`hidden`、内联宽度和 `label` 名称；有关联 `<label>` 时触发器用 `aria-labelledby` 指向标签和当前值，读屏能听到选中项（标签包住 `select` 时引用触发器自己的 `aria-label`），没有标签时只用 `aria-label`。需求列表筛选、新建需求弹窗的 SOP 下拉、顶栏项目切换器、MCP 安装范围、资产页、研发效能筛选和技能市场使用此模式。
 
 浮层共用 `window.HuiPopover`（`hui-select.js`）：同一时刻只开一个（下拉、日期、需求页「更多」菜单互斥），单例的外部按下、窗口缩放和外部滚动监听负责关闭，定位时限制在视口内，层级高于 `.modal`。`window.HuiAuto` 用一个文档级 MutationObserver（按微任务合并）自动增强新插入的日期和上传输入，并在原生元素离开文档后销毁实例、移除浮层和监听。因此 `hui-select.js` 必须先于 `hui-date.js`、`hui-upload.js`、`hui-tooltip.js` 加载，四者都在 `app/issues.js` 之前，`app/start.js` 仍最后。
 

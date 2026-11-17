@@ -119,3 +119,25 @@ test('role usage ignores generic templates that share a copied role id', async (
   })()`);
   assert.equal(JSON.stringify(uses), '[1,3,2]');
 });
+
+test('trigger-mode selects include the current value in their accessible name', async (t) => {
+  const app = await loadApp();
+  t.after(app.close);
+  const doc = app.document;
+  // Concatenate aria-labelledby targets; a self-reference contributes its aria-label (accname 2C).
+  const name = (el) => el.getAttribute('aria-labelledby').split(' ')
+    .map((id) => (id === el.id ? el.getAttribute('aria-label') : doc.getElementById(id).textContent.trim())).join(' ');
+  const host = doc.body.appendChild(doc.createElement('div'));
+  host.innerHTML = `<label for="a11yFor">SOP 流程</label><select id="a11yFor"><option value="a">后端交付</option><option value="b">缺陷修复</option></select>
+    <label>负责人<select id="a11yWrap"><option value="">全部责任人</option><option value="u1">胡</option></select></label>
+    <select id="a11yOwn" aria-label="切换项目"><option>LOOP</option></select>`;
+  const forApi = app.window.enhanceSelect(doc.getElementById('a11yFor'));
+  assert.equal(name(forApi.trigger), 'SOP 流程 后端交付');
+  app.evaluate("(s=>{s.options[1].selected=true;s.dispatchEvent(new Event('change'))})(document.getElementById('a11yFor'))");
+  assert.equal(name(forApi.trigger), 'SOP 流程 缺陷修复', 'the name follows the selected value');
+  const wrapApi = app.window.enhanceSelect(doc.getElementById('a11yWrap'));
+  assert.equal(name(wrapApi.trigger), '负责人 全部责任人');
+  const ownApi = app.window.enhanceSelect(doc.getElementById('a11yOwn'));
+  assert.equal(ownApi.trigger.getAttribute('aria-labelledby'), null, 'no <label>: keep the aria-label behaviour');
+  assert.equal(ownApi.trigger.getAttribute('aria-label'), '切换项目');
+});
