@@ -54,8 +54,8 @@ function runnerStatusLabel(status){
     default:return `<span class="runner-status"><i></i>${escapeHTML(status||'unknown')}</span>`;
   }
 }
-const runnerCLILabels={'claude-code':'Claude Code','codex':'Codex','codebuddy':'CodeBuddy',opencode:'OpenCode',cursor:'Cursor CLI',agy:'Antigravity',kimi:'Kimi Code',pi:'Pi',dsh:'DeepSeek Harness',zcode:'ZCode'};
-const runnerCLIGlyphs={'claude-code':'C','codex':'X','codebuddy':'B',opencode:'O',cursor:'Cu',agy:'A',kimi:'K',pi:'P',dsh:'D',zcode:'Z'};
+const runnerCLILabels={'claude-code':'Claude Code','codex':'Codex','codebuddy':'CodeBuddy',opencode:'OpenCode',cursor:'Cursor CLI',agy:'Antigravity',kimi:'Kimi Code',pi:'Pi',dsh:'DeepSeek Harness',zcode:'ZCode',kiro:'Kiro CLI'};
+const runnerCLIGlyphs={'claude-code':'C','codex':'X','codebuddy':'B',opencode:'O',cursor:'Cu',agy:'A',kimi:'K',pi:'P',dsh:'D',zcode:'Z',kiro:'Ki'};
 const runnerOSLabels={darwin:'macOS',linux:'Linux',windows:'Windows'};
 function runnerPersonalCredentialConfigured(provider){
   const user=userById(state.currentUser?.id)||{};
@@ -142,8 +142,11 @@ function renderRunnersView(){
       const credentialReady=runnerPersonalCredentialConfigured(rt.provider);
       const personalLabel=credentialReady?'个人凭证':'个人凭证（未配置）';
       const credentialMissing=authMode==='personal'&&!credentialReady;
+      // Kiro CLI only runs on this machine's kiro-cli login (subscription).
       const authControl=rt.provider==='codebuddy'
         ?runnerCodeBuddyAuthHTML(credentialReady)
+        :rt.provider==='kiro'
+        ?'<span class="runner-auth-fixed" title="Kiro CLI 使用这台机器上 kiro-cli login 的订阅登录，不使用 API Key">本机登录（订阅）</span>'
         :`<select class="runner-auth-select ${credentialMissing?'missing':''}" data-runner-auth="${escapeHTML(r.id)}|${escapeHTML(rt.provider)}" aria-label="${runnerCLILabels[rt.provider]} 认证来源"${credentialMissing?` title="到个人配置补充 ${runnerCLILabels[rt.provider]} API Key"`:''}>
             <option value="local" ${authMode==='local'?'selected':''}>本机登录</option>
             <option value="personal" ${authMode==='personal'?'selected':''}>${personalLabel}</option>
