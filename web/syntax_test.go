@@ -2683,7 +2683,8 @@ func TestApprovalBadgeRefreshesOutsideApprovals(t *testing.T) {
 	for file, want := range map[string]string{
 		"app/issues.js": "state.data.runs=runs;updateApprovalBadge();renderIssues();",
 		"app/runs.js":   "state.data.runs=list;updateApprovalBadge();renderRuns();",
-		"app/sops.js":   "state.data.runs=runs;updateApprovalBadge();renderSOPCatalog()",
+		// refreshWorkflowMetrics also stores the reloaded workflows before the badge refresh.
+		"app/sops.js": "state.data.runs=runs;state.data.workflows=workflows;updateApprovalBadge();renderSOPCatalog()",
 	} {
 		if !strings.Contains(read(file), want) {
 			t.Fatalf("%s must refresh the approval badge after loading runs: missing %q", file, want)
