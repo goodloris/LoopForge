@@ -484,12 +484,14 @@ func (r *RunsRepo) LiveSandboxDockerfiles() []domain.DockerfileDefinition {
 }
 
 // IdleSandboxRunIDs returns runs that keep their workspace for a retry or a
-// human decision but have not changed since the given cutoffs.
+// human decision but have not changed since the given cutoffs. A succeeded
+// run under domain.UndeliveredWorkspaceHold uses the failed cutoff.
 func (r *RunsRepo) IdleSandboxRunIDs(failedBefore, waitingBefore time.Time) []string {
 	var ids []string
 	if err := r.DB.Model(&runRow{}).
 		Where("workspace_cleaned_at IS NULL").
-		Where("(status = ? AND updated_at < ?) OR (status = ? AND updated_at < ?)", "failed", failedBefore, "waiting", waitingBefore).
+		Where("(status = ? AND updated_at < ?) OR (status = ? AND updated_at < ?) OR (status = ? AND workspace_cleanup_not_before >= ? AND updated_at < ?)",
+			"failed", failedBefore, "waiting", waitingBefore, "succeeded", domain.UndeliveredWorkspaceHold, failedBefore).
 		Pluck("id", &ids).Error; err != nil {
 		return nil
 	}

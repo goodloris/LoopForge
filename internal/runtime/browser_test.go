@@ -324,3 +324,33 @@ func TestBrowserViewCapturesLighterFramesWhileScrolling(t *testing.T) {
 		t.Fatalf("drag frames: %v", got)
 	}
 }
+
+func TestRunRejectsMissingKeyBeforePreparingBrowser(t *testing.T) {
+	t.Setenv("AGENTFLOW_BROWSER", "always")
+	t.Setenv("AGENTFLOW_CHROMIUM", filepath.Join(t.TempDir(), "missing-chromium"))
+	workspace := t.TempDir()
+	sb := testSandboxWrapper{Sandbox: WithSandboxCredentials(&localSandbox{id: "x", workspace: workspace}, RunCredentials{})}
+	var events []domain.TelemetryEvent
+	_, err := NewExecutorRunner().Run(context.Background(), sb, "invoke-1", domain.ExecutorDefinition{Kind: "codex", Binary: "codex"}, domain.AgentDefinition{ID: "probe", Name: "Probe"}, domain.AgentAssetBundle{}, "probe", InvocationOptions{RunID: "run-key"}, func(e domain.TelemetryEvent) { events = append(events, e) })
+	if err == nil || err.Error() != "需求责任人未配置 Codex API Key，请在个人配置中配置" {
+		t.Fatalf("err=%v", err)
+	}
+	for _, e := range events {
+		if strings.HasPrefix(e.Name, "browser.") {
+			t.Fatalf("browser prepared before the credential check: %+v", e)
+		}
+	}
+	for _, kind := range []string{"codebuddy", "codex", "claude-code", AgentCLIOpenCode} {
+		if checkProviderCredential(sb, kind) == nil {
+			t.Fatalf("%s without a key passed the precheck", kind)
+		}
+	}
+	for _, kind := range []string{AgentCLIKiro, "mock"} {
+		if err := checkProviderCredential(sb, kind); err != nil {
+			t.Fatalf("%s needs no key: %v", kind, err)
+		}
+	}
+	if err := checkProviderCredential(&localSandbox{workspace: workspace}, "codex"); err != nil {
+		t.Fatalf("sandbox without credentials must be skipped: %v", err)
+	}
+}

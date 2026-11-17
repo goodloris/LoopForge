@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -1160,6 +1161,85 @@ func TestFinishFailedKeepsPersistentSandbox(t *testing.T) {
 	e.finish(runID, "failed", "test failed")
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("failed run wiped persist workspace: %v", err)
+	}
+}
+
+// 绑定仓库的 SOP 成功但没有 MR：需求不能标成已交付，工作区（含清扫）要保留；
+// 有 MR 时照常交付并清理。
+func TestFinishSucceededWithoutDeliveryMRKeepsWorkspace(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		mr     bool
+		noRepo bool
+	}{{"no-mr", false, false}, {"with-mr", true, false}, {"document-sop", false, true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, err := repo.OpenTest()
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { s.Close() })
+			m := runtime.NewManager(filepath.Join(t.TempDir(), "workspaces"))
+			e := New(s, m)
+			e.FindBranchMR = func(project, branch string) (domain.DeliveryMR, bool, error) {
+				if !tc.mr {
+					return domain.DeliveryMR{}, false, nil
+				}
+				return domain.DeliveryMR{URL: "https://git.example.com/g/a/-/merge_requests/3", IID: 3, GongfengState: "opened"}, true, nil
+			}
+			issue := domain.Issue{ID: "issue-" + tc.name, ProjectID: "p", Title: "t", Status: "todo", Kind: "requirement"}
+			if err := s.PutIssue(issue); err != nil {
+				t.Fatal(err)
+			}
+			runID := "run-delivery-" + tc.name
+			run := domain.Run{
+				ID: runID, Status: "running", Nodes: map[string]*domain.NodeRun{},
+				Repositories:     []domain.RepositoryContext{{RepositoryID: "a", GongfengProjectID: "g/a", WorkBranch: "feature/x"}},
+				ExecutionContext: domain.TelemetryContext{IssueID: issue.ID},
+			}
+			if tc.noRepo {
+				run.Repositories = nil
+			}
+			if err := s.PutRun(run); err != nil {
+				t.Fatal(err)
+			}
+			sb, err := m.AcquirePersistent(context.Background(), runID, domain.SandboxProfile{ID: "local", Driver: "local"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := sb.Workspace()
+			if err := os.WriteFile(filepath.Join(path, "uncommitted.go"), []byte("package x"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := sb.Close(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			e.finish(runID, "succeeded", "done")
+			e.reconcileTerminalWorkspaceCleanup()
+			finished, _ := s.Run(runID)
+			got, _ := s.Issue(issue.ID)
+			_, statErr := os.Stat(path)
+			if tc.mr || tc.noRepo {
+				if got.DeliveryState != "merged" || !os.IsNotExist(statErr) || finished.WorkspaceCleanedAt.IsZero() {
+					t.Fatalf("delivered run: delivery=%q stat=%v cleaned=%v", got.DeliveryState, statErr, finished.WorkspaceCleanedAt)
+				}
+				return
+			}
+			if finished.Status != "succeeded" || got.DeliveryState == "merged" || statErr != nil || !finished.WorkspaceCleanedAt.IsZero() {
+				t.Fatalf("undelivered run: status=%s delivery=%q stat=%v cleaned=%v", finished.Status, got.DeliveryState, statErr, finished.WorkspaceCleanedAt)
+			}
+			if !slices.ContainsFunc(finished.Events, func(ev domain.RunEvent) bool { return ev.Type == "run.delivery_missing" }) {
+				t.Fatalf("missing run.delivery_missing event: %+v", finished.Events)
+			}
+			later := time.Now().Add(time.Hour)
+			if !runContainerIdle(finished, later) {
+				t.Fatal("held succeeded run must be an idle container candidate")
+			}
+			finished.WorkspaceCleanupNotBefore = time.Time{}
+			if runContainerIdle(finished, later) {
+				t.Fatal("plain succeeded run must not be an idle container candidate")
+			}
+		})
 	}
 }
 

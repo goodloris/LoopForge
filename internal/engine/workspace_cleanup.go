@@ -140,7 +140,7 @@ func (e *Engine) recoverMissingPreviewFinalizers() {
 		return
 	}
 	for _, run := range e.repo.TerminalWorkspaceCleanupRuns() {
-		if run.Status != "succeeded" || !run.WorkspaceCleanedAt.IsZero() {
+		if run.Status != "succeeded" || !run.WorkspaceCleanedAt.IsZero() || run.WorkspaceCleanupNotBefore.Equal(domain.UndeliveredWorkspaceHold) {
 			continue
 		}
 		if !run.WorkflowSnapshot.Preview.Static() {
@@ -400,7 +400,8 @@ func (e *Engine) reclaimSandboxes() {
 	}
 }
 
-// Failed and waiting runs keep their workspace for a retry or a human
+// Failed and waiting runs, and succeeded runs under
+// domain.UndeliveredWorkspaceHold, keep their workspace for a retry or a human
 // decision, so the live set never releases them. Their containers only sit on
 // `sleep infinity` holding memory and a writable layer; after these idle
 // periods the container goes and the workspace stays. The next retry, approval
@@ -485,6 +486,11 @@ func runContainerIdle(run domain.Run, now time.Time) bool {
 		return false
 	}
 	switch run.Status {
+	case "succeeded":
+		// Only an undelivered code run keeps its workspace after success.
+		if !run.WorkspaceCleanupNotBefore.Equal(domain.UndeliveredWorkspaceHold) || run.UpdatedAt.After(now.Add(-idleFailedRunContainerTTL)) {
+			return false
+		}
 	case "failed":
 		if run.UpdatedAt.After(now.Add(-idleFailedRunContainerTTL)) {
 			return false
