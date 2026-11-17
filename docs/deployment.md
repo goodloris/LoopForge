@@ -158,7 +158,7 @@ For an external MySQL deployment, review that migration and check column existen
 
 | Kind | Example | What an operator does |
 | --- | --- | --- |
-| Already applied by the installer and `./start.sh pull` | `001_run_obs_generated_columns.sql`, `migrations/seed/*.sql`, `031_generic_backend_openssh.sql` | Nothing; the script above covers it |
+| Already applied by the installer and `./start.sh pull` | `001_run_obs_generated_columns.sql`, `migrations/seed/*.sql`, `031_generic_backend_openssh.sql`, `034_generic_backend_pip.sql` | Nothing; the script above covers it |
 | Must run once when upgrading | `009_bot_interactions_utf8mb4.sql` (`CONVERT TO` an existing table), new tables and columns added by hand | Run it on the database after reviewing prerequisites |
 | Backfills and one-time rewrites of existing rows | `016_public_optional_repositories.sql`, `021_assistant_session_sources.sql` | Run it if the history matters; skipping it changes no schema but leaves old rows unconverted |
 
@@ -180,9 +180,15 @@ docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" mysql -u loopfor
 
 After it, a run of these SOPs commits and pushes its work branch and opens an MR/PR before 交付汇总, so the Git credentials of the run's responsible user need push access. The installer and `./start.sh pull` do not run it. It rewrites a template only while its node graph and 交付汇总 position are the shipped original, and the 交付汇总 prompt only while unedited; it is safe to repeat. Project SOPs adopted from these templates are copies and are not changed.
 
-`034_generic_test_role_requires_tests.sql` adds `python3-pip` and `python3-venv` to the built-in `generic-backend` Dockerfile and tells the 测试验证 role of the same three SOPs to write 「未通过」 and fail the node when it cannot run the project's tests. Apply it the same way after upgrading to a platform image that includes `python3-pip`; until then the row no longer matches the image and `generic-docker` builds its own image on first use. It rewrites only the unedited shipped Dockerfile and prompts and is safe to repeat.
+To make the 测试验证 role of the same three SOPs write 「未通过」 and fail the node when it cannot run the project's tests, apply `035_generic_test_role_requires_tests.sql` the same way:
 
-`scripts/install-schema-extensions.sh` (installer and `./start.sh pull`) and `scripts/dev.sh` end with a read-only check, `scripts/manual-migration-hints.sh`, that names 033 or 034 with this command while a built-in template still lacks the `mr` node or `generic-backend` still holds the pre-034 Dockerfile.
+```bash
+docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" mysql -u loopforge loopforge' < migrations/035_generic_test_role_requires_tests.sql
+```
+
+The installer and `./start.sh pull` do not run it. It rewrites only unedited shipped prompts and is safe to repeat. They do run `034_generic_backend_pip.sql`, which adds `python3-pip` and `python3-venv` to the unedited built-in `generic-backend` Dockerfile to match the platform image.
+
+`scripts/install-schema-extensions.sh` (installer and `./start.sh pull`) and `scripts/dev.sh` end with a read-only check, `scripts/manual-migration-hints.sh`, that names 033 or 035 with this command while a built-in template still lacks the `mr` node or still holds the pre-035 测试验证 prompt.
 
 ## GitHub credentials
 
