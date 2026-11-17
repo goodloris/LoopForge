@@ -24,7 +24,7 @@ func sqliteDeps(t *testing.T) *deps {
 
 func postgresDeps(t *testing.T) *deps {
 	t.Helper()
-	db, err := gorm.Open(newPostgresDialector("postgres://u:p@127.0.0.1:1/x"), &gorm.Config{DisableAutomaticPing: true})
+	db, err := gorm.Open(mustPostgresDialector(t), &gorm.Config{DisableAutomaticPing: true})
 	if err != nil {
 		t.Fatal(err)
 	}

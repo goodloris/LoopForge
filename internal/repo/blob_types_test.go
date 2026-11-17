@@ -59,7 +59,7 @@ func TestJSONColumnsAreJSONBOnPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pg, err := gorm.Open(newPostgresDialector("postgres://u:p@127.0.0.1:1/x"), &gorm.Config{DisableAutomaticPing: true})
+	pg, err := gorm.Open(mustPostgresDialector(t), &gorm.Config{DisableAutomaticPing: true})
 	if err != nil {
 		t.Fatal(err)
 	}

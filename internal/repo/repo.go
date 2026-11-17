@@ -258,7 +258,10 @@ func Open(dsn string) (*Store, error) {
 	if dsn == "" {
 		return nil, errors.New("AGENTFLOW_DATABASE_DSN（或 AGENTFLOW_MYSQL_DSN）未配置：缺少数据库 DSN 时拒绝启动")
 	}
-	dialector, name := openDialector(dsn)
+	dialector, name, err := openDialector(dsn)
+	if err != nil {
+		return nil, fmt.Errorf("%s dsn: %w", name, err)
+	}
 	db, err := gorm.Open(dialector, &gorm.Config{TranslateError: true, Logger: logger.Default.LogMode(logger.Silent)})
 	if err != nil {
 		return nil, fmt.Errorf("%s open: %w", name, err)
@@ -304,7 +307,7 @@ func isPostgresDSN(dsn string) bool {
 // openDialector picks the gorm dialector for dsn. MySQL DSNs get the utf8mb4
 // charset and UTC time parsing the schema relies on; PostgreSQL connections
 // are pinned to UTC so timestamp text round-trips like MySQL's loc=UTC.
-func openDialector(dsn string) (gorm.Dialector, string) {
+func openDialector(dsn string) (gorm.Dialector, string, error) {
 	if isPostgresDSN(dsn) {
 		if !strings.Contains(dsn, "timezone=") {
 			if strings.Contains(dsn, "?") {
@@ -313,7 +316,8 @@ func openDialector(dsn string) (gorm.Dialector, string) {
 				dsn += "?timezone=UTC"
 			}
 		}
-		return newPostgresDialector(dsn), "postgres"
+		d, err := newPostgresDialector(dsn)
+		return d, "postgres", err
 	}
 	if !strings.Contains(dsn, "charset=") {
 		if strings.Contains(dsn, "?") {
@@ -325,7 +329,7 @@ func openDialector(dsn string) (gorm.Dialector, string) {
 	if !strings.Contains(dsn, "parseTime=") {
 		dsn += "&parseTime=true&loc=UTC"
 	}
-	return mysql.Open(dsn), "mysql"
+	return mysql.Open(dsn), "mysql", nil
 }
 
 // Close releases the underlying connection pool. The gorm handle is kept so

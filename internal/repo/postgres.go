@@ -1,9 +1,18 @@
 package repo
 
 import (
+	"bytes"
+	"context"
+	"database/sql"
+	"database/sql/driver"
+	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/stdlib"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/migrator"
@@ -18,14 +27,143 @@ import (
 // jsonb over json: queries use jsonb operators without a per-row cast, and
 // the columns can carry GIN or expression indexes. jsonb does not keep key
 // order or duplicate keys (nothing here relies on either) and rejects
-// \u0000, which writes handle explicitly (see pgSafeJSON).
+// \u0000, which writes handle explicitly (see nulEscapingCodec).
 //
 // Migrator is overridden because the driver's own Migrator() embeds the
 // inner dialector, whose DataTypeOf would still say json.
 type pgDialector struct{ *postgres.Dialector }
 
-func newPostgresDialector(dsn string) gorm.Dialector {
-	return pgDialector{postgres.Open(dsn).(*postgres.Dialector)}
+// newPostgresDialector opens the pgx pool itself rather than letting the
+// driver do it: the driver installs its own AfterConnect hook when the DSN
+// names a timezone, and pgx keeps only one, which would drop
+// registerPostgresTypes.
+func newPostgresDialector(dsn string) (gorm.Dialector, error) {
+	config, err := pgx.ParseConfig(dsn)
+	if err != nil {
+		return nil, err
+	}
+	pool := sql.OpenDB(nulEscapingConnector{stdlib.GetConnector(*config, stdlib.OptionAfterConnect(registerPostgresTypes))})
+	return pgDialector{&postgres.Dialector{Config: &postgres.Config{DSN: dsn, Conn: pool}}}, nil
+}
+
+// registerPostgresTypes adjusts how every pooled connection converts values.
+//
+// Time: pgx returns timestamptz in time.Local even when the session timezone
+// is UTC, so a row serialized to JSON would say +08:00 where MySQL's loc=UTC
+// gives Z. Scanning in UTC here fixes every read in one place; the session
+// timezone=UTC (openDialector) still governs server-side date arithmetic.
+//
+// NUL: text and jsonb reject NUL (0x00 in text, \u0000 in jsonb), which
+// agent output and logs can contain, and MySQL accepts. []byte parameters
+// bound to text or JSON go through nulEscapingCodec here; pgx encodes string
+// parameters without consulting any codec, so nulEscapingConn handles those.
+// Together no write path can fail on, or drop, the content.
+func registerPostgresTypes(_ context.Context, conn *pgx.Conn) error {
+	m := conn.TypeMap()
+	m.RegisterType(&pgtype.Type{Name: "timestamptz", OID: pgtype.TimestamptzOID, Codec: &pgtype.TimestamptzCodec{ScanLocation: time.UTC}})
+	m.RegisterType(&pgtype.Type{Name: "timestamp", OID: pgtype.TimestampOID, Codec: &pgtype.TimestampCodec{ScanLocation: time.UTC}})
+	for _, oid := range []uint32{pgtype.TextOID, pgtype.VarcharOID, pgtype.BPCharOID, pgtype.JSONOID, pgtype.JSONBOID} {
+		t, ok := m.TypeForOID(oid)
+		if !ok {
+			return fmt.Errorf("postgres type %d not registered", oid)
+		}
+		json := oid == pgtype.JSONOID || oid == pgtype.JSONBOID
+		m.RegisterType(&pgtype.Type{Name: t.Name, OID: oid, Codec: nulEscapingCodec{Codec: t.Codec, json: json}})
+	}
+	return nil
+}
+
+// nulEscapingConnector hands out connections whose CheckNamedValue, the
+// database/sql hook for converting arguments, escapes NUL in strings. Strings
+// carry text, so only a raw 0x00 is rewritten (valid JSON never holds one).
+// []byte is left to nulEscapingCodec, which knows whether the parameter is
+// bytea and must stay byte-exact.
+type nulEscapingConnector struct{ driver.Connector }
+
+func (c nulEscapingConnector) Connect(ctx context.Context) (driver.Conn, error) {
+	conn, err := c.Connector.Connect(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return nulEscapingConn{conn.(*stdlib.Conn)}, nil
+}
+
+type nulEscapingConn struct{ *stdlib.Conn }
+
+func (c nulEscapingConn) CheckNamedValue(nv *driver.NamedValue) error {
+	if v, ok := nv.Value.(string); ok && strings.IndexByte(v, 0) >= 0 {
+		nv.Value = string(escapeNUL([]byte(v), false))
+	}
+	return c.Conn.CheckNamedValue(nv)
+}
+
+// nulEscapingCodec rewrites NUL in encoded parameters as the six visible
+// characters \u0000: a raw 0x00 in text, and the JSON escape \u0000 (which
+// becomes the escaped text \\u0000) in JSON. Escaping over rejecting: a
+// failed write would lose a whole run node or transcript over one byte, and
+// over dropping: the marker stays visible where the NUL was. The cost is that
+// such values read back as the marker, not the original byte, and cannot be
+// told apart from text that literally contained \u0000.
+type nulEscapingCodec struct {
+	pgtype.Codec
+	json bool
+}
+
+func (c nulEscapingCodec) PlanEncode(m *pgtype.Map, oid uint32, format int16, value any) pgtype.EncodePlan {
+	plan := c.Codec.PlanEncode(m, oid, format, value)
+	if plan == nil {
+		return nil
+	}
+	return nulEscapingPlan{next: plan, json: c.json}
+}
+
+type nulEscapingPlan struct {
+	next pgtype.EncodePlan
+	json bool
+}
+
+func (p nulEscapingPlan) Encode(value any, buf []byte) ([]byte, error) {
+	switch v := value.(type) {
+	case []byte:
+		value = escapeNUL(v, p.json)
+	case json.RawMessage:
+		value = json.RawMessage(escapeNUL(v, p.json))
+	}
+	return p.next.Encode(value, buf)
+}
+
+// nulEscape is both the JSON escape for NUL and the visible marker for it.
+var nulEscape = []byte(`\u0000`)
+
+// escapeNUL returns b with NUL replaced by the visible marker. b is returned
+// unchanged (not copied) when it holds no NUL.
+func escapeNUL(b []byte, isJSON bool) []byte {
+	if !isJSON {
+		if bytes.IndexByte(b, 0) < 0 {
+			return b
+		}
+		return bytes.ReplaceAll(b, []byte{0}, nulEscape)
+	}
+	if !bytes.Contains(b, nulEscape) {
+		return b
+	}
+	// Only a real escape is rewritten: in `\\u0000` the backslash before u
+	// is itself escaped, so walk escapes pairwise instead of replacing.
+	out := make([]byte, 0, len(b)+8)
+	for i := 0; i < len(b); i++ {
+		if b[i] != '\\' || i+1 >= len(b) {
+			out = append(out, b[i])
+			continue
+		}
+		if bytes.HasPrefix(b[i:], nulEscape) {
+			out = append(out, `\\u0000`...)
+			i += len(nulEscape) - 1
+			continue
+		}
+		out = append(out, b[i], b[i+1])
+		i++
+	}
+	return out
 }
 
 func (d pgDialector) DataTypeOf(field *schema.Field) string {
