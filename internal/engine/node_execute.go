@@ -425,7 +425,8 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 		if agent, ok := workflowAgent(e.repo, wf, node.AgentID); ok {
 			if ex, resolveErr := resolveNodeExecutor(e.repo, node, agent); resolveErr == nil {
 				if err := runtime.MissingProviderCredential(ex.Kind, e.resolveRunCredentials(current)); err != nil {
-					failNode(err, allowRejectOnFailure(node, err, false))
+					// Sending the work back upstream cannot add a key.
+					failNode(err, false)
 					return
 				}
 			}

@@ -233,3 +233,43 @@ func TestAgentNodeChecksKeyBeforeOpeningSandbox(t *testing.T) {
 		})
 	}
 }
+
+// A missing key fails the node outright: sending the work back upstream
+// cannot add a key, so the upstream node must not run again.
+func TestMissingKeyDoesNotRejectUpstream(t *testing.T) {
+	t.Setenv(repo.CodeBuddySponsorLoginEnv, "")
+	s, err := repo.OpenTest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.PutUser(domain.User{ID: 9, LoginName: "owner"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutAgent(domain.AgentDefinition{ID: "dev", Name: "dev", ExecutorID: "codebuddy"}); err != nil {
+		t.Fatal(err)
+	}
+	wf := domain.WorkflowDefinition{ID: "key-reject", Name: "Key reject", SandboxProfileID: "local",
+		Nodes: []domain.WorkflowNode{
+			{ID: "prep", Name: "Prep", Type: "command", Command: "printf ready > ready.txt", MaxAttempts: 1},
+			{ID: "dev", Name: "Dev", Type: "agent", AgentID: "dev", RejectTo: "prep", MaxAttempts: 1, MaxReworks: 3},
+		},
+		Edges: []domain.WorkflowEdge{{ID: "prep-dev", Source: "prep", Target: "dev", When: "success"}},
+	}
+	if err := s.PutWorkflow(wf); err != nil {
+		t.Fatal(err)
+	}
+	e := New(s, runtime.NewManager(t.TempDir()))
+	run, err := e.StartWithExecutionContext(wf.ID, "", domain.RepositoryContext{}, domain.TelemetryContext{ResponsibleUserID: 9})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, s, run.ID, "failed")
+	finished, _ := s.Run(run.ID)
+	if got := finished.Nodes["dev"].Error; got != "需求责任人未配置 CodeBuddy API Key，请在个人配置中配置" {
+		t.Fatalf("dev error = %q", got)
+	}
+	if got := finished.Nodes["prep"].Attempt; got != 1 {
+		t.Fatalf("prep attempt = %d, want 1 (no rework)", got)
+	}
+}
