@@ -487,5 +487,7 @@ function renderSOPCatalog(){
   restoreSOPCatalogFocus(sopCatalog,focus);
   syncSOPCardMenu(sopCatalog);
 }
-async function refreshWorkflowMetrics(){try{const opt={silent:true};const [metrics,runs]=await Promise.all([api('/api/workflow-metrics'+projectQuery(),opt),api('/api/runs',opt)]);state.data.workflowMetrics=metrics;state.data.runs=runs;updateApprovalBadge();renderSOPCatalog()}catch(e){toast(e.message)}}
+// Entering 流程模板 also reloads workflows: a copy deleted via the API or another
+// tab must stop showing 「查看项目副本」 on its generic card without a page reload.
+async function refreshWorkflowMetrics(){try{const opt={silent:true};const [metrics,runs,workflows]=await Promise.all([api('/api/workflow-metrics'+projectQuery(),opt),api('/api/runs',opt),api('/api/workflows',opt)]);state.data.workflowMetrics=metrics;state.data.runs=runs;state.data.workflows=workflows;updateApprovalBadge();renderSOPCatalog()}catch(e){toast(e.message)}}
 

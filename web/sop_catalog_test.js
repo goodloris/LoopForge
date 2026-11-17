@@ -281,5 +281,30 @@ assert.ok(!menuOpen());
   assert.deepStrictEqual(agentsAtRender, ['p1-dev'], 'cloned roles must be loaded before the canvas renders');
   assert.strictEqual(ctx.state.data.workflows.filter(w => w.id === 'sop-new').length, 1, 'no duplicate SOP after reload');
   assert.strictEqual(ctx.state.workflow.id, 'sop-new');
+
+  // ---------- A copy deleted elsewhere frees its generic card on view entry ----------
+  // The copy is in state; the server no longer has it (API / another tab).
+  ctx.state.data.workflows = [gen, { ...copied, tags: ['generic-source:gen-adopt'] }];
+  assert.ok(ctx.genericSOPCard(gen).includes('查看项目副本'), 'precondition: copy is known');
+  calls.length = 0;
+  let rendered = 0;
+  Object.assign(ctx, {
+    projectQuery: () => '?projectId=p1',
+    updateApprovalBadge() {},
+    renderSOPCatalog: () => { rendered++; },
+    toast: msg => { throw new Error('unexpected toast ' + msg); },
+    api: async url => {
+      calls.push(url);
+      if (url === '/api/workflows') return [gen];
+      if (url.startsWith('/api/workflow-metrics') || url === '/api/runs') return [];
+      throw new Error('unexpected ' + url);
+    },
+  });
+  await ctx.refreshWorkflowMetrics();
+  assert.ok(calls.includes('/api/workflows'), calls.join());
+  assert.strictEqual(rendered, 1);
+  const freed = ctx.genericSOPCard(gen);
+  assert.ok(freed.includes('data-adopt-generic="gen-adopt"') && freed.includes('复制到本项目'), freed);
+  assert.ok(!freed.includes('查看项目副本'), freed);
   console.log('sop catalog ok');
 })().catch(e => { console.error(e); process.exit(1); });
