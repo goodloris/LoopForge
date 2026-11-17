@@ -74,6 +74,35 @@ describe("conversation hooks", () => {
     history.replaceState({}, "", "/");
   });
 
+  test("asks for the model catalog only after auth/current reports a signed-in user", async () => {
+    const original = apiMock.getMockImplementation();
+    const modelCalls = () => apiMock.mock.calls.filter(([path]) => path.startsWith("/api/assistant/models"));
+    // A non-CodeBuddy CLI also exercises the per-executor catalog request.
+    localStorage.setItem("loopforge.assistant.executor", "codex");
+    try {
+      apiMock.mockImplementation((path, options) => path === "/api/auth/current"
+        ? Promise.resolve({ authRequired: true, user: { id: 0, loginName: "guest", isGuest: true } })
+        : original(path, options));
+      const guest = renderHook(() => useChat());
+      await waitFor(() => expect(guest.result.current.ready).toBe(true));
+      expect(modelCalls()).toEqual([]);
+      expect(guest.result.current.error).toBe("");
+      guest.unmount();
+
+      apiMock.mockImplementation(original);
+      apiMock.mockClear();
+      const { result } = renderHook(() => useChat());
+      await waitFor(() => expect(result.current.ready).toBe(true));
+      await waitFor(() => expect(modelCalls().map(([path]) => path)).toEqual([
+        "/api/assistant/models",
+        "/api/assistant/models?executor=codex",
+      ]));
+    } finally {
+      apiMock.mockImplementation(original);
+      localStorage.removeItem("loopforge.assistant.executor");
+    }
+  });
+
   test("switches Main Bot to another CLI and sends its executor", async () => {
     localStorage.removeItem("loopforge.assistant.executor");
     const { result } = renderHook(() => useChat());
