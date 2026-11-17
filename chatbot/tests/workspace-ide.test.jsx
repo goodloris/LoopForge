@@ -21,6 +21,15 @@ describe("side panel IDE tab", () => {
     expect(screen.getByRole("tab", { name: /IDE/ })).toBeDisabled();
   });
 
+  test("the changes tab counts uncommitted files and never claims 0", () => {
+    // chat-e7c1b6b903da779f474ce3131f3990a8 committed and opened PR #1, so its
+    // working tree was clean and the tab read "改动 0".
+    const { rerender } = render(panel({ view: "artifacts", workspaceRunId: "run-9", workspaceChanges: { files: [] } }));
+    expect(screen.getByRole("tab", { name: "改动" })).toBeEnabled();
+    rerender(panel({ view: "artifacts", workspaceRunId: "run-9", workspaceChanges: { files: [{ path: "a.py" }, { path: "b.py" }] } }));
+    expect(screen.getByRole("tab", { name: "改动 2" })).toBeInTheDocument();
+  });
+
   test("embeds the workspace in VS Code and follows workspace switches", () => {
     const onViewChange = vi.fn();
     const { rerender } = render(panel({ view: "artifacts", workspaceRunId: "run-9", onViewChange }));
