@@ -40,6 +40,9 @@ export const cfg = {
   model: flag('AGENTFLOW_E2E_MODEL', false),
   executor: process.env.AGENTFLOW_E2E_EXECUTOR || 'codebuddy',
   modelID: process.env.AGENTFLOW_E2E_MODEL_ID || '',
+  // The AI assistant model, "<cli>:<model>" for a CLI other than CodeBuddy
+  // (for example kiro:claude-haiku-5.5). Empty keeps the CodeBuddy default.
+  assistantModel: (process.env.AGENTFLOW_E2E_ASSISTANT_MODEL || '').trim(),
   sandbox: process.env.AGENTFLOW_E2E_SANDBOX || 'local',
   keep: flag('AGENTFLOW_E2E_KEEP', false),
   // Repository-bound scenarios clone this repository read-only; they never

@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -37,6 +38,13 @@ func main() {
 	reuseSandbox := flag.Bool("reuse-run-sandbox", true, "run all nodes of a run in one sandbox per definition instead of one per task")
 	flag.Parse()
 	loadDotEnv()
+	// Docker sandboxes mount this directory read-only for CLIs their image
+	// lacks (Kiro CLI); it must be a host path the Docker daemon can bind.
+	if strings.TrimSpace(os.Getenv("AGENTFLOW_RUNTIME_CLI_DIR")) == "" {
+		if home, err := os.UserHomeDir(); err == nil && home != "" {
+			os.Setenv("AGENTFLOW_RUNTIME_CLI_DIR", filepath.Join(home, ".agentflow-runner", "cli"))
+		}
+	}
 
 	cfg := runner.Config{
 		ServerURL:              firstNonEmpty(*server, os.Getenv("AGENTFLOW_SERVER_URL")),

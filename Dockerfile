@@ -51,6 +51,28 @@ RUN case "${TARGETARCH:-amd64}" in \
  && rm -f /tmp/python.tar.gz \
  && rm -rf /app/python/share/terminfo \
  && /app/python/bin/python3 -c 'import json,urllib.request,ctypes'
+# Kiro CLI, pinned and checked like the Python above (versions and sums match
+# internal/runtime/kiro_login.go). Its 415 MB runtime unpacks into a shared
+# read-only KIRO_RUNTIME_DIR here instead of each private HOME; an invalid key
+# makes kiro-cli unpack it without a login and then exit.
+ARG KIRO_CLI_VERSION=3.3.0
+ARG KIRO_CLI_SHA256_AMD64=018e7d19124ebf5088bc33b12dcafa5c7e8de745ae491df024afebcd19f36b62
+ARG KIRO_CLI_SHA256_ARM64=5e85a1fcc107f4cd72cbbf1f8e69463bf9673814014c0056636d8433150b18d4
+ENV KIRO_RUNTIME_DIR=/opt/kiro-runtime
+RUN case "${TARGETARCH:-amd64}" in \
+      amd64) arch=x86_64 sum="${KIRO_CLI_SHA256_AMD64}" ;; \
+      arm64) arch=aarch64 sum="${KIRO_CLI_SHA256_ARM64}" ;; \
+      *) echo "unsupported arch ${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+ && curl -fsSL -o /tmp/kirocli.zip "https://desktop-release.q.us-east-1.amazonaws.com/${KIRO_CLI_VERSION}/kirocli-${arch}-linux.zip" \
+ && echo "${sum}  /tmp/kirocli.zip" | sha256sum -c - \
+ && python3 -c 'import sys,zipfile; zipfile.ZipFile(sys.argv[1]).extract("kirocli/bin/kiro-cli", "/tmp/kirocli-x")' /tmp/kirocli.zip \
+ && install -m 0755 /tmp/kirocli-x/kirocli/bin/kiro-cli /usr/local/bin/kiro-cli \
+ && rm -rf /tmp/kirocli.zip /tmp/kirocli-x \
+ && (HOME=/tmp/kiro-build KIRO_API_KEY=loopforge-build-unpack timeout 180 kiro-cli chat --v3 --no-interactive hi >/dev/null 2>&1 || true) \
+ && ls -d "${KIRO_RUNTIME_DIR}/${KIRO_CLI_VERSION}"-* \
+ && rm -rf /tmp/kiro-build "${KIRO_RUNTIME_DIR}/data.sqlite3" \
+ && chmod -R a+rX "${KIRO_RUNTIME_DIR}"
 COPY --from=docker:27-cli /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=docker:27-cli /usr/local/libexec/docker/cli-plugins/docker-buildx /usr/local/libexec/docker/cli-plugins/docker-buildx
 WORKDIR /app

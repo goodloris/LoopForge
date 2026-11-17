@@ -21,7 +21,9 @@ type ClaudeStream struct {
 	started  map[string]bool
 	usage    map[string]int64
 	credits  float64
-	done     bool
+	// turnCredits is the invocation's share when credits is a session total.
+	turnCredits float64
+	done        bool
 }
 
 func (s *ClaudeStream) line(v map[string]any) string {
@@ -139,6 +141,10 @@ func (s *ClaudeStream) SetUsage(input, output, cacheRead, cacheWrite, reasoning 
 // bill in credits instead of tokens.
 func (s *ClaudeStream) SetCredits(credits float64) { s.credits = credits }
 
+// SetTurnCredits records this invocation's credits when SetCredits holds a
+// session total (Kiro CLI); it travels as usage.turn_credits.
+func (s *ClaudeStream) SetTurnCredits(credits float64) { s.turnCredits = credits }
+
 // Result ends the turn once; an empty text falls back to LastText.
 func (s *ClaudeStream) Result(text string, failed bool) []string {
 	if s.done {
@@ -160,6 +166,9 @@ func (s *ClaudeStream) Result(text string, failed bool) []string {
 		}
 		if s.credits > 0 {
 			usage["credits"] = s.credits
+		}
+		if s.turnCredits > 0 {
+			usage["turn_credits"] = s.turnCredits
 		}
 		event["usage"] = usage
 	}
@@ -188,6 +197,8 @@ func NewAgentCLITranslator(kind string) func(string) []string {
 		translate = (&dshStream{}).translate
 	case AgentCLIZCode:
 		translate = (&zcodeStream{}).translate
+	case AgentCLIKiro:
+		translate = (&kiroStream{}).translate
 	default:
 		return nil
 	}

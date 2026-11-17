@@ -32,6 +32,10 @@ func prepareAssistantAgentCLIInvocation(kind string, o assistantEngineInvocation
 		}
 		entries[id] = entry
 	}
+	ids := make([]string, 0, len(entries))
+	for id := range entries {
+		ids = append(ids, id)
+	}
 	if err := runtime.WriteAgentCLIMCPConfig(kind, runtime.AgentCLIHome{Base: o.Root, Rel: "home"}, entries, runtime.AgentCLIMCPOptions{ReadOnly: !o.Workspace}); err != nil {
 		return assistantCLIInvocation{}, err
 	}
@@ -57,6 +61,7 @@ func prepareAssistantAgentCLIInvocation(kind string, o assistantEngineInvocation
 	command := runtime.AgentCLICommand(kind, runtime.AgentCLICommandOptions{
 		Binary: o.Bin, Model: o.Model, Effort: o.Effort, Resume: resume, Prompt: o.Prompt,
 		SystemPrompt: o.SystemPrompt, SystemPromptFile: systemFile, Chat: true, Workspace: o.Workspace, AgentFile: agentFile,
+		MCPServers: ids,
 	})
 	command.CredentialBindings = []runtime.CredentialBinding{runtime.BindAgentCLI}
 	translate := runtime.NewAgentCLITranslator(kind)
@@ -99,6 +104,9 @@ func assistantAgentCLILine(kind, line string, native *string) string {
 	}
 	if id := strings.TrimSpace(event.SessionID); id != "" {
 		*native = id
+	}
+	if kind == runtime.AgentCLIKiro && event.Type == "result" {
+		line = kiroTurnCreditsLine(line)
 	}
 	if event.Type != "result" || !event.IsError {
 		return line
@@ -146,4 +154,28 @@ func writeAgentCLISession(root, kind, sessionID, native string) error {
 		return err
 	}
 	return os.WriteFile(agentCLISessionsPath(root), data, 0o600)
+}
+
+// kiroTurnCreditsLine replaces a Kiro result's session credits with this
+// invocation's: chat adds up every invocation of a turn and every turn of a
+// conversation, while the session total repeats earlier turns.
+func kiroTurnCreditsLine(line string) string {
+	var event map[string]any
+	if json.Unmarshal([]byte(line), &event) != nil {
+		return line
+	}
+	usage, _ := event["usage"].(map[string]any)
+	if usage == nil {
+		return line
+	}
+	usage["credits"] = usage["turn_credits"]
+	delete(usage, "turn_credits")
+	if usage["credits"] == nil {
+		delete(usage, "credits")
+	}
+	data, err := json.Marshal(event)
+	if err != nil {
+		return line
+	}
+	return string(data)
 }

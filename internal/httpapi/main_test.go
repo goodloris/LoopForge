@@ -11,5 +11,6 @@ import (
 // them to a real directory shared by every test.
 func TestMain(m *testing.M) {
 	os.Unsetenv("AGENTFLOW_CONVERSATION_DIR")
+	kiroCLIInstalled = func() bool { return false }
 	os.Exit(m.Run())
 }

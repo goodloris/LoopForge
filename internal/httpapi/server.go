@@ -123,6 +123,7 @@ func NewWithNotificationsAndBackground(ctx context.Context, s *repo.Store, e *en
 
 func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Service, basicUser, basicPass string, notifications *notification.Service, bg *Background, startBackground func(*assistantHandlers, *runsHandlers)) *gin.Engine {
 	d := &deps{repo: s, engine: e, sync: syncSvc, authClient: auth.NewClientFromEnv(), passwordAttempts: newPasswordLimiter()}
+	installKiroRunnerReady(s)
 	if trustGatewayIdentityHeaders() && strings.TrimSpace(os.Getenv("AGENTFLOW_IDENTITY_HEADER_SECRET")) == "" {
 		log.Printf("warning: AGENTFLOW_TRUST_IDENTITY_HEADERS is on without AGENTFLOW_IDENTITY_HEADER_SECRET; any loopback caller without forwarding headers, including a proxy that passes client headers through, can sign in as any user")
 	}

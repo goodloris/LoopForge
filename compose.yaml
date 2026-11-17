@@ -48,6 +48,9 @@ services:
       AGENTFLOW_GATE_MCP_BINARY: /app/bin/agentflow-gate-mcp-{os}-{arch}
       # Claude Code is not bundled; it is installed from npm here on first use.
       AGENTFLOW_RUNTIME_CLI_DIR: ${LOOPFORGE_DATA_DIR}/cli
+      # Kiro CLI runs on the host's subscription login (`kiro-cli login`);
+      # each run copies only the login out of this read-only mount.
+      AGENTFLOW_KIRO_DATA_DIR: /kiro-host
     command: ["-workspaces", "${LOOPFORGE_DATA_DIR}/workspaces"]
     volumes:
       - platform-data:/data
@@ -55,6 +58,10 @@ services:
       # directory keeps the same absolute path inside the container.
       - ${LOOPFORGE_DATA_DIR}:${LOOPFORGE_DATA_DIR}
       - ${LOOPFORGE_DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
+      # The host's kiro-cli data directory: ~/.local/share/kiro-cli on Linux,
+      # ~/Library/Application Support/kiro-cli on macOS. Unset leaves Kiro
+      # CLI unconfigured.
+      - ${LOOPFORGE_KIRO_DATA_DIR:-${LOOPFORGE_DATA_DIR}/kiro-host}:/kiro-host:ro
     depends_on:
       mysql:
         condition: service_healthy

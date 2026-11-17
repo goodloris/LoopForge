@@ -99,6 +99,38 @@ func renderRoleAgentFile(item roleSubagent, workspace bool) string {
 	return runtime.InertCLIText(b.String())
 }
 
+// kiroRoleAgentFile is a role as a Kiro CLI V3 Markdown agent: Kiro names
+// blocked tools in excludedTools (@server/tool) and skills as skill:// resources.
+func kiroRoleAgentFile(item roleSubagent, workspace bool) string {
+	quote := func(v string) string {
+		raw, _ := json.Marshal(v)
+		return string(raw)
+	}
+	description := strings.TrimSpace(item.Role.Description)
+	if description == "" {
+		description = item.Role.Name
+	}
+	var b strings.Builder
+	b.WriteString("---\nname: " + roleSubagentName(item.Role.ID) + "\n")
+	b.WriteString("description: " + quote("角色「"+item.Role.Name+"」："+description) + "\n")
+	b.WriteString("tools: [\"*\"]\nexcludedTools:\n")
+	for _, tool := range subagentBlockedTools {
+		b.WriteString("  - " + quote("@"+agentToolSessionMCPName+"/"+strings.TrimPrefix(tool, "mcp__"+agentToolSessionMCPName+"__")) + "\n")
+	}
+	if len(item.Skills) > 0 {
+		b.WriteString("resources:\n")
+		for _, skill := range item.Skills {
+			b.WriteString("  - " + quote("skill://"+runtime.SkillName(skill.ID)) + "\n")
+		}
+	}
+	b.WriteString("---\n")
+	full := conversationRoleAgentFile(item, workspace)
+	if _, body, ok := strings.Cut(strings.TrimPrefix(full, "---\n"), "\n---\n"); ok {
+		b.WriteString(body)
+	}
+	return b.String()
+}
+
 // subagentChatNotes tells a role subagent what Main Bot's system prompt tells
 // Main Bot, which a subagent does not receive: where the code is, and that a
 // chat dispatch is not an SOP node.
@@ -237,6 +269,10 @@ func (h *assistantHandlers) writeConversationAssets(root string, req assistantRe
 	if engine == runtime.AgentCLIAntigravity {
 		home = filepath.Join(root, "home", ".gemini", "config")
 	}
+	if engine == runtime.AgentCLIKiro {
+		// KIRO_HOME (kiroEnvironment) holds skills/ and agents/.
+		home = filepath.Join(root, "home", ".kiro")
+	}
 	writer := runtime.WriteInertSkillTree
 	if req.workspaceMode {
 		writer = runtime.WriteSkillTree
@@ -256,7 +292,11 @@ func (h *assistantHandlers) writeConversationAssets(root string, req assistantRe
 	}
 	for _, role := range req.roles {
 		name := roleSubagentName(role.Role.ID)
-		if err := os.WriteFile(filepath.Join(agents, name+".md"), []byte(conversationRoleAgentFile(role, req.workspaceMode)), 0o644); err != nil {
+		body := conversationRoleAgentFile(role, req.workspaceMode)
+		if engine == runtime.AgentCLIKiro {
+			body = kiroRoleAgentFile(role, req.workspaceMode)
+		}
+		if err := os.WriteFile(filepath.Join(agents, name+".md"), []byte(body), 0o644); err != nil {
 			return err
 		}
 	}

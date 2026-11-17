@@ -122,7 +122,10 @@ func (h *agentToolGateway) approveNativeTool(ctx context.Context, s *AgentToolSe
 		return nativeToolApprovalResult{Allow: true}
 	}
 	switch strings.ToLower(action.Name) {
-	case "skill", "read", "read_file", "readfile", "glob", "grep", "list", "ls", "list_directory", "list_resources", "view_image", "todowrite", "todo_read", "todoread":
+	case "skill", "read", "read_file", "readfile", "glob", "grep", "list", "ls", "list_directory", "list_resources", "view_image", "todowrite", "todo_read", "todoread",
+		// Kiro CLI: schema/skill loading, and a sub-agent dispatch whose own
+		// calls come back through this hook.
+		"tool_load", "disclose_context", "invoke_sub_agent":
 		return nativeToolApprovalResult{Allow: true}
 	}
 	if s.RuntimeMode != domain.AssistantModeWorkspace {
@@ -241,7 +244,8 @@ const nativeApprovalWait = 9 * time.Minute
 // Permit only the session gateway's aliases/wrappers here; tools/call still
 // checks the current catalog, token, mode and concrete action permissions.
 func (h *agentToolGateway) nativeGatewayTool(ctx context.Context, s *AgentToolSession, name string, input json.RawMessage) bool {
-	for _, prefix := range []string{"mcp__" + agentToolSessionMCPName + "__", agentToolSessionMCPName + "_"} {
+	// Kiro CLI hooks see mcp_<server>_<tool>.
+	for _, prefix := range []string{"mcp__" + agentToolSessionMCPName + "__", "mcp_" + agentToolSessionMCPName + "_", agentToolSessionMCPName + "_"} {
 		if strings.HasPrefix(name, prefix) && len(name) > len(prefix) {
 			return true
 		}

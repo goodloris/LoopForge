@@ -93,10 +93,14 @@ function sopRunRequirements(w){
     const role=(state.data?.agents||[]).find(a=>a.id===node.agentId);
     const id=role?.executorId||node.executorId||'codebuddy';
     const kind=(state.data?.executors||[]).find(e=>e.id===id)?.kind||id;
-    if(['codebuddy','codex','claude','claude-code','opencode','cursor','agy','kimi','pi','dsh','zcode'].includes(kind))providers.add(kind==='claude'?'claude-code':kind);
+    if(['codebuddy','codex','claude','claude-code','opencode','cursor','agy','kimi','pi','dsh','zcode','kiro'].includes(kind))providers.add(kind==='claude'?'claude-code':kind);
   }
-  const agentLabels={opencode:'OpenCode',cursor:'Cursor CLI',agy:'Antigravity',kimi:'Kimi Code',pi:'Pi',dsh:'DeepSeek Harness',zcode:'ZCode'};
+  const agentLabels={opencode:'OpenCode',cursor:'Cursor CLI',agy:'Antigravity',kimi:'Kimi Code',pi:'Pi',dsh:'DeepSeek Harness',zcode:'ZCode',kiro:'Kiro CLI'};
   for(const kind of providers){
+    if(kind==='kiro'){
+      rows.push({key:'run-kiro-login',fix:'',label:'Kiro CLI 本机登录',ok:true,hint:lfT('Kiro CLI 节点使用 kiro-cli login 的订阅登录，不读取个人 API Key：在执行机器上运行时用该机器的登录，在平台上运行时用部署时挂载的登录（LOOPFORGE_KIRO_DATA_DIR）。Docker 等沙箱只拿到登录的一份副本。运行前请确认对应机器已执行 kiro-cli login。','Kiro CLI nodes use the kiro-cli login subscription, not a personal API key: the execution machine\'s own login, or on the platform the login mounted at deployment (LOOPFORGE_KIRO_DATA_DIR). Docker and other sandboxes get a copy of the login only. Make sure that machine ran kiro-cli login.')});
+      continue;
+    }
     const known={codebuddy:['CodeBuddy','codeBuddyApiKey','codeBuddyApiKeyConfigured'],codex:['Codex','codexApiKey','codexApiKeyConfigured'],'claude-code':['Claude Code','claudeCodeApiKey','claudeCodeApiKeyConfigured']}[kind];
     const [label,field,flag]=known||[agentLabels[kind]||kind,'agentCli.'+kind,'agentCliConfigured'];
     if(!known){

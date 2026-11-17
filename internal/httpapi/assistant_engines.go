@@ -109,6 +109,14 @@ func assistantEngineCredential(user domain.User, engine string) (apiKey, baseURL
 		return strings.TrimSpace(user.ClaudeCodeAPIKey), strings.TrimSpace(user.ClaudeCodeBaseURL)
 	case assistantEngineCodeBuddy:
 		return strings.TrimSpace(user.CodeBuddyAPIKey), ""
+	case runtime.AgentCLIKiro:
+		// The CLI runs on a machine's `kiro-cli login`; there is no key, so
+		// it counts as configured where a chat can run it: on this server,
+		// or on one of the user's execution machines.
+		if kiroCLIInstalled() || kiroRunnerReady(user.ID) {
+			return kiroMachineLogin, ""
+		}
+		return "", ""
 	}
 	cred := user.AgentCLICredentials[engine]
 	if runtime.IsAgentCLI(engine) && engine != runtime.AgentCLICursor {
@@ -239,7 +247,41 @@ func assistantEngineSwitchRefusal(locked, model string) string {
 	return fmt.Sprintf("这个对话由 %s 回复，不能中途切换 CLI；请新建对话后使用 %s", assistantEngineLabel(locked), assistantEngineLabel(engine))
 }
 
+// kiroMachineLogin stands in for a key: Kiro CLI never receives one.
+const kiroMachineLogin = "kiro-cli login"
+
+// kiroCLIInstalled reports whether this server can run kiro-cli on a
+// subscription login. A variable so tests stay independent of the developer
+// machine.
+var kiroCLIInstalled = func() bool {
+	_, err := resolveAssistantEngineBin(runtime.AgentCLIKiro)
+	return err == nil && runtime.KiroLoginAvailable()
+}
+
+// kiroRunnerReady reports whether one of the user's execution machines is
+// online and reports kiro-cli; the server installs it (installKiroRunnerReady).
+// It only marks Kiro as configured in the engine list: a turn is never
+// refused for it (assistantTurnUser), because where the turn runs decides,
+// and that machine names a missing kiro-cli or login itself.
+// ponytail: one lookup per process, set by the last server built. Upgrade
+// by passing the store through assistantEngineCredential.
+var kiroRunnerReady = func(int64) bool { return false }
+
+func installKiroRunnerReady(store interface{ Runners() []domain.Runner }) {
+	kiroRunnerReady = func(userID int64) bool {
+		for _, runner := range store.Runners() {
+			if runner.OwnerUserID == userID && runner.Status == domain.RunnerStatusOnline && runner.SupportsProvider(runtime.AgentCLIKiro) {
+				return true
+			}
+		}
+		return false
+	}
+}
+
 func assistantEngineMissingKey(engine string) string {
+	if engine == runtime.AgentCLIKiro {
+		return "Kiro CLI 不可用：请在平台或默认执行机器上安装 kiro-cli 并运行 kiro-cli login（订阅登录）"
+	}
 	return fmt.Sprintf("请先在个人配置中配置 %s API Key 后再使用 %s 模型", assistantEngineLabel(engine), assistantEngineLabel(engine))
 }
 
@@ -251,7 +293,7 @@ func assistantEngineMissingKey(engine string) string {
 func (h *assistantHandlers) assistantTurnUser(stored domain.User, model string) (domain.User, string, string) {
 	engine, _ := assistantModelEngine(model)
 	if engine != assistantEngineCodeBuddy {
-		if key, _ := assistantEngineCredential(stored, engine); key == "" {
+		if key, _ := assistantEngineCredential(stored, engine); key == "" && engine != runtime.AgentCLIKiro {
 			return stored, "", assistantEngineMissingKey(engine)
 		}
 		user, _, _ := h.assistantChatUser(stored)

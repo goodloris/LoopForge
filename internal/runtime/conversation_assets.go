@@ -78,13 +78,14 @@ var conversationAssetTrees = []string{
 	"home/.claude/skills", "home/.claude/agents",
 	"home/.codex/skills", "home/.agents/skills", "home/.pi/agent/skills",
 	"home/.gemini/config/skills",
+	"home/.kiro/skills", "home/.kiro/agents",
 	"attachments",
 }
 
 var conversationAssetFiles = []string{
 	"current-mcp.json", "current-settings.json", "claude-mcp.json", "claude-settings.json", "mcp.json", "codex-native-guard.py", "kimi-agent.md",
 	"home/.config/opencode/opencode.json", "home/.cursor/mcp.json", "home/.cursor/cli-config.json", "home/.gemini/config/mcp_config.json", "home/.kimi-code/mcp.json", "home/.pi/agent/mcp.json", "home/.dsh/agentflow-mcp.json",
-	"home/.zcode/cli/config.json",
+	"home/.zcode/cli/config.json", "home/.kiro/settings/mcp.json",
 }
 
 // ConversationAssetDirectory permits only ancestors of generated inputs and

@@ -167,12 +167,19 @@ func ensureConversationCLI(ctx context.Context, sandbox Sandbox, provider, home 
 		return "", fmt.Errorf("对话工作区只支持 Docker 或 native 沙箱")
 	}
 	binary := conversationBinary(provider)
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	defer cancel()
 	setup, err := conversationCLISetup(provider, binary)
 	if err != nil {
 		return "", err
 	}
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
-	defer cancel()
+	if provider == AgentCLIKiro {
+		// The machine's cached kiro-cli is mounted read-only at the same
+		// path, so the workspace links it instead of downloading its own.
+		if cached, cacheErr := EnsureKiroCLICache(ctx); cacheErr == nil {
+			setup = strings.Replace(setup, kiroInstallScript("/opt/loopforge/conversation-cli/bin"), "ln -sf "+shellSingleQuote(cached)+" /opt/loopforge/conversation-cli/bin/kiro-cli", 1)
+		}
+	}
 	// Probe the actual execution user, including numeric Docker USER values.
 	// Root preparation must preserve that identity when the native CLI starts.
 	identity, err := exec.CommandContext(ctx, "docker", "exec", "--workdir", "/", s.name, "sh", "-c", "id -u; id -g").CombinedOutput()
@@ -229,6 +236,8 @@ func conversationCLISetup(provider, binary string) (string, error) {
 			// The official CLI is shipped with ZCode or built from its source;
 			// it has no standalone npm package. Never install a namesake.
 			installer = "echo 'ZCode CLI 未安装；请在工作区镜像中预装官方 ZCode CLI 并将 zcode 加入 PATH' >&2; exit 1"
+		case AgentCLIKiro:
+			installer = kiroInstallScript("/opt/loopforge/conversation-cli/bin")
 		case AgentCLICursor:
 			installer = "curl -fsSL https://cursor.com/install | HOME=/opt/loopforge/conversation-cli bash >&2"
 		case AgentCLIAntigravity:
