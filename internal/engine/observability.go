@@ -62,7 +62,7 @@ func billedTokens(usage domain.TokenUsage) int64 {
 }
 
 func usageHasValues(usage domain.TokenUsage) bool {
-	return usage.InputTokens > 0 || usage.OutputTokens > 0 || usage.CacheReadTokens > 0 || usage.CacheWriteTokens > 0 || usage.ReasoningTokens > 0 || usage.CostUSD != 0
+	return usage.InputTokens > 0 || usage.OutputTokens > 0 || usage.CacheReadTokens > 0 || usage.CacheWriteTokens > 0 || usage.ReasoningTokens > 0 || usage.CostUSD != 0 || usage.Credits != 0
 }
 
 func addUsage(dst *domain.TokenUsage, src domain.TokenUsage) {
@@ -72,6 +72,7 @@ func addUsage(dst *domain.TokenUsage, src domain.TokenUsage) {
 	dst.CacheWriteTokens += src.CacheWriteTokens
 	dst.ReasoningTokens += src.ReasoningTokens
 	dst.CostUSD += src.CostUSD
+	dst.Credits += src.Credits
 }
 
 func subUsage(cur, prev domain.TokenUsage) domain.TokenUsage {
@@ -82,6 +83,7 @@ func subUsage(cur, prev domain.TokenUsage) domain.TokenUsage {
 		CacheWriteTokens: clampNonNeg(cur.CacheWriteTokens - prev.CacheWriteTokens),
 		ReasoningTokens:  clampNonNeg(cur.ReasoningTokens - prev.ReasoningTokens),
 		CostUSD:          cur.CostUSD - prev.CostUSD,
+		Credits:          cur.Credits - prev.Credits,
 	}
 }
 

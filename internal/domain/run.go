@@ -187,6 +187,9 @@ type TokenUsage struct {
 	CostUSD          float64 `json:"costUsd"`
 	ReasoningTokens  int64   `json:"reasoningTokens,omitempty"`
 	ContextWindow    int64   `json:"contextWindow,omitempty"`
+	// Credits is subscription usage for CLIs that bill in credits instead of
+	// tokens (for example Kiro CLI); it is never priced into CostUSD.
+	Credits float64 `json:"credits,omitempty"`
 	// CostStatus 区分"成本为 0"与"成本未知"：reported（适配器上报）、estimated（按 token 估算）、
 	// unknown（未识别，展示为"未识别"而不是 ¥0）。空值视为 unknown，旧数据向后兼容。
 	CostStatus string `json:"costStatus,omitempty"`

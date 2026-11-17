@@ -49,6 +49,7 @@ type AnalyticsSummary struct {
 	TotalTokens       int64     `json:"totalTokens"`
 	TotalCostUSD      float64   `json:"totalCostUsd"`
 	TotalCostCNY      float64   `json:"totalCostCny"`
+	TotalCredits      float64   `json:"totalCredits,omitempty"` // Kiro CLI subscription credits, never priced
 	ToolCalls         int       `json:"toolCalls"`
 	Artifacts         int       `json:"artifacts"`
 	TelemetryEvents   int       `json:"telemetryEvents"`

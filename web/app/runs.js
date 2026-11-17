@@ -445,7 +445,7 @@ function bindRunScrollLocks(host,runId,nodeId){
 }
 function liveUsageHTML(r){
   const usage=r.usage||{};
-  return `<span>资源消耗</span><b>${formatTokens(usage.totalTokens)} tokens · ${r.toolCalls||0} tools</b><small>${formatTokens(usage.inputTokens)} 输入 / ${formatTokens(usage.outputTokens)} 输出 · cache ${formatTokens(usage.cacheReadTokens)} 命中 / ${formatTokens(usage.cacheWriteTokens)} 写入 · $${Number(usage.costUsd||0).toFixed(4)}</small><small class="usage-source">实时 stream-json · Hook / OTEL 只进轨迹</small>`;
+  return `<span>资源消耗</span><b>${formatTokens(usage.totalTokens)} tokens · ${r.toolCalls||0} tools</b><small>${formatTokens(usage.inputTokens)} 输入 / ${formatTokens(usage.outputTokens)} 输出 · cache ${formatTokens(usage.cacheReadTokens)} 命中 / ${formatTokens(usage.cacheWriteTokens)} 写入 · $${Number(usage.costUsd||0).toFixed(4)}${usage.credits?` · ${Number(usage.credits).toFixed(2)} credits`:''}</small><small class="usage-source">实时 stream-json · Hook / OTEL 只进轨迹</small>`;
 }
 function gateResultCardHTML(nr){
   const gate=nr?.gateResult;

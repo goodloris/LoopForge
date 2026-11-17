@@ -76,7 +76,7 @@ func (r *RunsRepo) AddConversationRunUsage(runID, model string, usage domain.Tok
 		if len(row.UsageJSON) > 0 {
 			_ = json.Unmarshal(row.UsageJSON, &total)
 		}
-		first := total.TotalTokens == 0 && total.InputTokens == 0 && total.OutputTokens == 0 && total.CostUSD == 0
+		first := total.TotalTokens == 0 && total.InputTokens == 0 && total.OutputTokens == 0 && total.CostUSD == 0 && total.Credits == 0
 		total.InputTokens += usage.InputTokens
 		total.OutputTokens += usage.OutputTokens
 		total.CacheReadTokens += usage.CacheReadTokens
@@ -84,6 +84,7 @@ func (r *RunsRepo) AddConversationRunUsage(runID, model string, usage domain.Tok
 		total.ReasoningTokens += usage.ReasoningTokens
 		total.TotalTokens += usage.TotalTokens
 		total.CostUSD += usage.CostUSD
+		total.Credits += usage.Credits
 		// The total is only as known as its least known turn.
 		switch {
 		case first || usage.CostStatus == "unknown" || total.CostStatus == "":

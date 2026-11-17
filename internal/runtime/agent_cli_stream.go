@@ -20,6 +20,7 @@ type ClaudeStream struct {
 	block    string
 	started  map[string]bool
 	usage    map[string]int64
+	credits  float64
 	done     bool
 }
 
@@ -134,6 +135,10 @@ func (s *ClaudeStream) SetUsage(input, output, cacheRead, cacheWrite, reasoning 
 	s.AddUsage(input, output, cacheRead, cacheWrite, reasoning)
 }
 
+// SetCredits records the session's subscription credits, for CLIs that
+// bill in credits instead of tokens.
+func (s *ClaudeStream) SetCredits(credits float64) { s.credits = credits }
+
 // Result ends the turn once; an empty text falls back to LastText.
 func (s *ClaudeStream) Result(text string, failed bool) []string {
 	if s.done {
@@ -148,8 +153,15 @@ func (s *ClaudeStream) Result(text string, failed bool) []string {
 		subtype = "error"
 	}
 	event := map[string]any{"type": "result", "subtype": subtype, "is_error": failed, "result": text}
-	if s.usage != nil {
-		event["usage"] = s.usage
+	if s.usage != nil || s.credits > 0 {
+		usage := map[string]any{}
+		for key, value := range s.usage {
+			usage[key] = value
+		}
+		if s.credits > 0 {
+			usage["credits"] = s.credits
+		}
+		event["usage"] = usage
 	}
 	return append(s.CloseBlock(), s.line(event))
 }
