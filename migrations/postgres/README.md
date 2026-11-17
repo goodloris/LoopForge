@@ -25,7 +25,19 @@ done
 
 三个脚本都可以重复执行：DDL 都带 `IF NOT EXISTS`，seed 用 `INSERT ... ON CONFLICT DO NOTHING`，已存在的行（包括运维改过的定义）保持不变。体验项目在 `admin` 账号存在时归它所有，所以先建管理员再执行 `002`，项目就有负责人；之后再执行不会改变已有项目。
 
-数据库编码必须是 UTF8（seed 里有中文）。要求 PostgreSQL 12 或更高版本（STORED 生成列）。
+## 建库要求
+
+要求 PostgreSQL 12 或更高版本（STORED 生成列）。数据库编码必须是 UTF8（seed 里有中文），collation 和 ctype 固定为 `C.UTF-8`，与 CI 的 PG 测试库一致：
+
+```sql
+CREATE DATABASE loopforge
+  ENCODING 'UTF8' LC_COLLATE 'C.UTF-8' LC_CTYPE 'C.UTF-8'
+  TEMPLATE template0;
+```
+
+`TEMPLATE template0` 是必须的：`template1` 的 locale 跟随服务器，不能在建库时改。用官方镜像初始化整个实例时，也可以设 `POSTGRES_INITDB_ARGS=--locale=C.UTF-8`，之后默认建出的库就是这个 collation。`C.UTF-8` 按字节（码点）排序，结果不受操作系统 locale 版本影响，升级 glibc/ICU 不会导致索引失效；代价是字符串排序与 MySQL 的 `utf8mb4_unicode_ci` 不同（大写字母排在小写前面，中文按码点而不是拼音）。大小写不敏感比较由 `repo.Open` 建的 `lower()` 唯一索引和代码里的 `LOWER()` 负责，不依赖 collation。
+
+检查已有库：`SELECT datcollate, datctype FROM pg_database WHERE datname = current_database();`。glibc 镜像（`postgres:17`）两列都显示 `C.UTF-8`；Alpine 镜像（`postgres:17-alpine`，musl）把同样的请求记成 `datcollate = C`、`datctype = C.UTF-8`，两者都按字节排序，结果相同（`SELECT 'a' < 'B'` 返回 false）。
 
 ## 约定
 
@@ -89,4 +101,4 @@ MySQL 的 `utf8mb4_unicode_ci` 让 `uq_users_login`、`uq_business_domains_name`
 ## 已知限制
 
 - 生成列表达式只用 `->`、`->>`，payload 是 json 或 jsonb 都能建成。但生成列会固定 `payload` 列的类型：对已经执行过 baseline 的库改 `run_telemetry.payload` 或 `run_logs.payload` 的类型（例如 `json` 改 `jsonb`），需要先删掉 `adapter`、`level` 列，改完再执行一次 baseline。gorm 的增量 DDL 只加不改，不会自己触发这个问题。
-- 排序规则（collation）沿用建库时的设置，中文排序会和 MySQL 不同。
+- collation 固定为 `C.UTF-8`（见「建库要求」），字符串排序会和 MySQL 不同。
