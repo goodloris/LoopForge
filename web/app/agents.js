@@ -3,10 +3,18 @@ function renderAgentsLegacy(){
   list.querySelectorAll('.agent-card').forEach(el=>el.onclick=()=>selectAgent(state.data.agents.find(a=>a.id===el.dataset.id)));
   if(!state.selectedAgent&&state.data.agents[0])selectAgent(state.data.agents[0],false);
 }
+// Same rule as CatalogRepo.WorkflowNamesUsingAgent: a project role copied from a
+// generic template keeps the template role id, but SOPs outside its project
+// (the template itself included) still run the built-in role.
+function agentNodeUses(a){
+  const workflows=state.data.workflows||[];
+  const shadows=!!a.projectId&&!a.shared&&workflows.some(w=>catalogGeneric(w)&&(w.nodes||[]).some(n=>n.agentId===a.id));
+  return workflows.filter(w=>!shadows||w.projectId===a.projectId).reduce((sum,w)=>sum+(w.nodes||[]).filter(n=>n.agentId===a.id).length,0);
+}
 function renderAgents(){
   const list=$('#agentList');if(!list)return;renderCatalogScopes();
   const query=($('#agentSearch')?.value||'').trim().toLowerCase(),agents=scopedAgents().filter(a=>!query||`${a.name} ${a.id} ${a.description} ${(a.rules||[]).join(' ')} ${(a.skills||[]).join(' ')}`.toLowerCase().includes(query));
-  const used=new Map();(state.data.workflows||[]).forEach(w=>(w.nodes||[]).forEach(n=>{if(n.agentId)used.set(n.agentId,(used.get(n.agentId)||0)+1)}));
+  const used=new Map((state.data.agents||[]).map(a=>[a.id,agentNodeUses(a)]));
   $('#agentCatalogStats').innerHTML=`<span><b>${agents.length}</b> 个${state.agentScope==='shared'?'共享':'项目'}角色</span><span><b>${agents.reduce((n,a)=>n+(a.skills?.length||0),0)}</b> 项技能绑定</span><span><b>${agents.reduce((n,a)=>n+(a.mcpServers?.length||0),0)}</b> 个 MCP 连接</span>`;
   const empty=state.agentScope==='shared'?'还没有共享给当前项目的角色。':'当前项目还没有角色。可以新建，或从共享角色复制后改。';
   closeAgentRowMenu();

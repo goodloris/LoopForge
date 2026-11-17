@@ -19,10 +19,13 @@ test('requirement composer: create, find and dispatch a requirement from its dra
   await expect(page.locator('#requirementModal')).toHaveClass(/open/);
   await page.locator('#chatInput').fill(`${title}\n\n自动化 UI 测试创建，会被关闭。`);
   await expect(page.locator('#reqCreate')).toBeEnabled();
-  await page.getByRole('button', { name: 'SOP 流程', exact: true }).click();
+  // The trigger is named "<label> <current value>", so match the label prefix.
+  const sopTrigger = page.getByRole('button', { name: /^SOP 流程(\s|$)/ });
+  await sopTrigger.click();
   await page.getByRole('listbox', { name: 'SOP 流程', exact: true })
     .getByRole('option', { name: /E2E ui-requirement/ }).click();
   await expect(page.locator('#reqWorkflow')).toHaveValue(wf);
+  await expect(sopTrigger).toHaveAccessibleName(/^SOP 流程 .*E2E ui-requirement/);
   const [created] = await Promise.all([
     page.waitForResponse(r => new URL(r.url()).pathname === '/api/issues' && r.request().method() === 'POST'),
     page.locator('#reqCreate').click(),

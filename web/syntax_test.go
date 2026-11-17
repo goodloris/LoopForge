@@ -116,8 +116,10 @@ assert.ok(waiting.includes('去确认'));
 assert.equal((waiting.match(/class="issue-act /g)||[]).length, 1);
 state.data.workflows = [{id:'wf',version:2,revision:1}];
 assert.equal(refreshRunSOPButtonHTML({...run,workflowSnapshot:{}}), '');
-assert.ok(refreshRunSOPButtonHTML({...run,workflowSnapshot:{id:'wf',version:1,revision:1}}).includes('更新为最新 SOP'));
-assert.equal(refreshRunSOPButtonHTML({...run,workflowSnapshot:{id:'wf',version:2,revision:1}}), '');
+assert.ok(refreshRunSOPButtonHTML({...run,workflowSnapshot:{id:'wf',version:1,revision:1,nodes:[{id:'a'}]}}).includes('更新为最新 SOP'));
+assert.equal(refreshRunSOPButtonHTML({...run,workflowSnapshot:{id:'wf',version:2,revision:1,nodes:[{id:'a'}]}}), '');
+// /api/runs summaries keep only {id,name}; their version 0 is unknown, not outdated.
+assert.equal(refreshRunSOPButtonHTML({...run,workflowSnapshot:{id:'wf',version:0,revision:0}}), '');
 assert.ok(!code.includes('function issueMoreActionsHTML('));
 assert.ok(code.includes('data-rerun-from-here'));
 assert.ok(!code.includes('data-rerun-from-node-issue'));
@@ -2681,7 +2683,8 @@ func TestApprovalBadgeRefreshesOutsideApprovals(t *testing.T) {
 	for file, want := range map[string]string{
 		"app/issues.js": "state.data.runs=runs;updateApprovalBadge();renderIssues();",
 		"app/runs.js":   "state.data.runs=list;updateApprovalBadge();renderRuns();",
-		"app/sops.js":   "state.data.runs=runs;updateApprovalBadge();renderSOPCatalog()",
+		// refreshWorkflowMetrics also stores the reloaded workflows before the badge refresh.
+		"app/sops.js": "state.data.runs=runs;state.data.workflows=workflows;updateApprovalBadge();renderSOPCatalog()",
 	} {
 		if !strings.Contains(read(file), want) {
 			t.Fatalf("%s must refresh the approval badge after loading runs: missing %q", file, want)

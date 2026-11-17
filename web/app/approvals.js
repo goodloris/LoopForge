@@ -74,7 +74,7 @@ function humanGateSectionsHTML(nr,run,node){
     if(why)sections.push(`<div class="callout-section"><strong class="callout-label">为什么需要人工确认</strong><p class="callout-text">${escapeHTML(why)}</p></div>`);
   }
   if(!sections.length){
-    const err=nr?.error||nr?.feedback||'门禁未通过。请看产物和日志后决定。';
+    const err=nr?.error||nr?.feedback||(node?.type==='approval'?'这是人工确认节点，等待你检查上游产物后决定。':'门禁未通过。请看产物和日志后决定。');
     sections.push(`<div class="callout-section"><strong class="callout-label">判断依据</strong><p class="callout-text">${escapeHTML(err)}</p></div>`);
   }
   return sections.join('');
@@ -206,12 +206,12 @@ function refreshRunSOPButtonHTML(run){
     Object.values(run.nodes||{}).some(n=>['running','pending_input'].includes(n?.status)))return '';
   const latest=(state.data.workflows||[]).find(w=>w.id===run.workflowId);
   if(!latest)return '';
-  const snapshot=run.workflowSnapshot?.id?run.workflowSnapshot:cachedRun(run.id)?.workflowSnapshot;
-  const current=snapshot?.id?snapshot:null;
+  // List summaries carry only {id,name} in workflowSnapshot; without the full
+  // snapshot the run's version is unknown, so don't offer an update.
+  const current=[run.workflowSnapshot,cachedRun(run.id)?.workflowSnapshot].find(s=>s?.id&&s.nodes?.length);
   if(!current)return '';
-  const same=
-    (Number(latest.version||0)===Number(current.version||0)&&Number(latest.revision||0)===Number(current.revision||0));
-  if(same)return '';
+  const lv=Number(latest.version||0),lr=Number(latest.revision||0),cv=Number(current.version||0),cr=Number(current.revision||0);
+  if(lv<cv||(lv===cv&&lr<=cr))return '';
   const version=`v${latest.version||1} #${latest.revision||0}`;
   return `<button class="button ghost small" data-refresh-run-sop="${escapeHTML(run.id)}">更新为最新 SOP（${escapeHTML(version)}）</button>`;
 }
@@ -461,6 +461,8 @@ function bindApprovalBatch(){
 
 // The decision / paused panels are shared with the issue drawer and run detail, so
 // only the card shell changes here; #approvalsView CSS reorders their buttons.
+// relativeTime 返回「N 分钟前」，接在「已等待」后要去掉「前」。
+function approvalWaitedText(value){const t=relativeTime(value);return t==='刚刚'?'刚开始等待':`已等待 ${t.replace(/前$/,'')}`}
 function approvalCardHTML(r){
   const nodeId=waitingNodeId(r),node=r.workflowSnapshot?.nodes?.find(n=>n.id===nodeId);
   const task=(state.data.tasks||[]).find(t=>t.runId===r.id),issue=task&&(state.data.issues||[]).find(i=>i.id===task.issueId);
@@ -473,7 +475,7 @@ function approvalCardHTML(r){
   const sideButton=issue?`<button class="button ghost small" data-open-issue="${escapeHTML(issue.id)}">打开需求</button>`:`<button class="button ghost small" data-open-logs="${escapeHTML(r.id)}">${alignRun?'查看对齐详情':'排查日志'}</button>`;
   const more=`<div class="ap-more"><button type="button" class="ap-more-toggle" data-ap-more title="更多操作" aria-label="更多操作" aria-haspopup="menu" aria-expanded="false">${huiIcon('more-horizontal')}</button><div class="ap-more-menu" role="menu" hidden><button type="button" class="ap-menu-item danger" role="menuitem" data-cancel-run="${escapeHTML(r.id)}">${huiIcon('close')}<span>取消流程</span></button></div></div>`;
   const decision=r.pauseRequested?pausedRunPanelHTML(r):humanDecisionPanelHTML(r.id,nodeId,r.nodes?.[nodeId],node,r.workflowSnapshot?.nodes||[]);
-  return `<div class="ap-card${approvalSelectable(r)&&approvalSelection().has(approvalKey(r.id,waitingNodeId(r)))?' is-selected':''}"><div class="ap-card-head">${approvalSelectBoxHTML(r)}<div class="ap-main"><div class="ap-head"><b>${escapeHTML(title)}</b>${approvalStatusBadgeHTML(r.pauseRequested)}</div><div class="ap-meta">${keyHTML}${sep}${r.pauseRequested?'暂停于':'卡在'}「${escapeHTML(node?.name||nodeId||'确认')}」${sep}已等待 ${relativeTime(r.createdAt)}</div></div><div class="ap-side">${sideButton}${!r.pauseRequested?refreshRunSOPButtonHTML(r):''}${more}</div></div>${decision?`<div class="ap-body">${decision}</div>`:''}</div>`;
+  return `<div class="ap-card${approvalSelectable(r)&&approvalSelection().has(approvalKey(r.id,waitingNodeId(r)))?' is-selected':''}"><div class="ap-card-head">${approvalSelectBoxHTML(r)}<div class="ap-main"><div class="ap-head"><b>${escapeHTML(title)}</b>${approvalStatusBadgeHTML(r.pauseRequested)}</div><div class="ap-meta">${keyHTML}${sep}${r.pauseRequested?'暂停于':'卡在'}「${escapeHTML(node?.name||nodeId||'确认')}」${sep}${approvalWaitedText(r.createdAt)}</div></div><div class="ap-side">${sideButton}${!r.pauseRequested?refreshRunSOPButtonHTML(r):''}${more}</div></div>${decision?`<div class="ap-body">${decision}</div>`:''}</div>`;
 }
 function closeApprovalMoreMenus(except){
   document.querySelectorAll('#approvalsView .ap-more.is-open').forEach(more=>{
@@ -509,7 +511,8 @@ async function renderApprovals(background=false){
   if(!background){try{const [runs,tasks,issues]=await Promise.all([api('/api/runs'),api('/api/tasks'),api('/api/issues')]);state.data.runs=runs;state.data.tasks=tasks;state.data.issues=issues}catch(e){toast(e.message,'err')}}
   const items=(await Promise.all(approvalItems().map(async summary=>{
     const cached=cachedRun(summary.id);
-    if(cached?.workflowSnapshot?.id)return {...cached,...summary,workflowSnapshot:cached.workflowSnapshot};
+    // /api/runs summaries keep only {id,name} of the snapshot; fetch the full run unless nodes are cached.
+    if(cached?.workflowSnapshot?.nodes?.length)return {...cached,...summary,workflowSnapshot:cached.workflowSnapshot};
     try{
       const full=await api(`/api/runs/${encodeURIComponent(summary.id)}`,{silent:true});
       if(full?.id){

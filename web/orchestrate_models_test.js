@@ -8,6 +8,7 @@ const html = fs.readFileSync('index.html', 'utf8');
 dom.html(html.slice(html.indexOf('<aside id="aiOrchestrator"'), html.indexOf('</aside>', html.indexOf('<aside id="aiOrchestrator"')) + 8));
 const store = new Map([['agentflow.assistantModel', 'cb-model']]);
 const requests = [];
+let modelFetches = 0;
 const catalog = {
   default: 'cb-model',
   engines: [{id: 'codebuddy', name: 'CodeBuddy', configured: true}, {id: 'codex', name: 'Codex', configured: true}, {id: 'claude-code', name: 'Claude Code', configured: true}, {id: 'pi', name: 'Pi', configured: true}, {id: 'opencode', name: 'OpenCode', configured: false}],
@@ -25,7 +26,7 @@ Object.assign(dom.window, {
   state: {projectFilter: 'project-a', workflow: null},
   AbortController,
   fetch: async (url, options) => {
-    if (url === '/api/assistant/models') return {ok: true, json: async () => catalog};
+    if (url === '/api/assistant/models') { modelFetches++; return {ok: true, json: async () => catalog}; }
     assert.equal(url, '/api/assistant/chat');
     requests.push(JSON.parse(options.body));
     dom.document.querySelectorAll('[data-model-toggle]').forEach(toggle => assert.equal(toggle.disabled, true));
@@ -50,6 +51,11 @@ dom.run(`
 
 (async () => {
   await dom.settle();
+  // Binding runs at script load, before sign-in is known: no catalog request until the panel opens.
+  assert.equal(modelFetches, 0, 'binding the picker must not fetch /api/assistant/models');
+  dom.run('setAIOrchestratorOpen(true)');
+  await dom.settle();
+  assert.equal(modelFetches, 1, 'opening the panel loads the catalog');
   function picker(id) {
     const host = dom.document.querySelector(id);
     return {host, toggle: host.querySelector('[data-model-toggle]'), menu: host.querySelector('.ai-model-menu'), search: host.querySelector('[data-model-search]'), list: host.querySelector('[role="listbox"]')};
