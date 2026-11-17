@@ -140,7 +140,7 @@ func (e *Engine) recoverMissingPreviewFinalizers() {
 		return
 	}
 	for _, run := range e.repo.TerminalWorkspaceCleanupRuns() {
-		if run.Status != "succeeded" || !run.WorkspaceCleanedAt.IsZero() {
+		if run.Status != "succeeded" || !run.WorkspaceCleanedAt.IsZero() || run.WorkspaceCleanupNotBefore.Equal(undeliveredWorkspaceHold) {
 			continue
 		}
 		if !run.WorkflowSnapshot.Preview.Static() {

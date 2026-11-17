@@ -354,13 +354,30 @@ func (e *Engine) finishAt(id string, generation int, status, msg string) {
 		if status == "succeeded" && r.ExecutionContext.IssueID != "" && r.ExecutionContext.ParentRunID == "" {
 			snapshot := *r
 			delivered, deliveredAt = &snapshot, time.Now().UTC()
+			// Hold the workspace before the run turns succeeded, so the cleanup
+			// sweep cannot delete undelivered code until the MR lookup decides.
+			if deliversCode(*r) {
+				_ = e.repo.SetRunWorkspaceCleanupHold(r.ID, undeliveredWorkspaceHold)
+			}
 		}
 	}) || ignored {
 		return
 	}
 	// Resolving MRs calls Gongfeng, so it runs outside the run state lock.
 	if delivered != nil {
-		_ = e.repo.MarkIssueDeliveredFromSOPMRs(delivered.ExecutionContext.IssueID, e.deliveryMRsFromRun(*delivered), deliveredAt)
+		mrs := e.deliveryMRsFromRun(*delivered)
+		if len(mrs) == 0 && deliversCode(*delivered) {
+			// A code SOP that pushed no MR has not delivered: the issue stays
+			// undelivered and the workspace is kept like a failed run's.
+			e.updateRun(id, func(r *domain.Run) {
+				e.event(r, "", "run.delivery_missing", "SOP 已成功但没有交付 MR，需求未标记交付，工作区已保留")
+			})
+			return
+		}
+		if deliversCode(*delivered) {
+			_ = e.repo.ClearRunWorkspaceCleanupHold(id)
+		}
+		_ = e.repo.MarkIssueDeliveredFromSOPMRs(delivered.ExecutionContext.IssueID, mrs, deliveredAt)
 	}
 	// Failed runs can be retried in the same workspace. Successful and
 	// cancelled runs release their workspace immediately to keep control-plane
@@ -374,6 +391,20 @@ func (e *Engine) finishAt(id string, generation int, status, msg string) {
 		}
 		e.cleanupRunWorkspace(id)
 	}
+}
+
+// undeliveredWorkspaceHold is the cleanup hold of a code run that succeeded
+// without a delivery MR. It never expires; a later delivered settle clears it.
+var undeliveredWorkspaceHold = time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)
+
+// deliversCode reports whether the run checked out a repository it may push.
+func deliversCode(r domain.Run) bool {
+	for _, rc := range r.RepositoryContexts() {
+		if !rc.ReadOnly && !rc.AlignOnly {
+			return true
+		}
+	}
+	return false
 }
 
 // hasActiveNode reports whether any node is still executing or waiting on a
