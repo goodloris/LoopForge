@@ -2317,13 +2317,6 @@ func TestProjectAgentGitIndexWaitsForBriefLiveLock(t *testing.T) {
 // Cancelling the preparation (pause, run cancel) stops waiting on a live
 // .git/index.lock instead of holding the caller for the whole wait window.
 func TestProjectAgentGitIndexLockWaitStopsOnCancel(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		// Off Linux the lock inspection is an lsof run (~150-300ms) bound to
-		// ctx, so the deadline nearly always kills lsof and the wait returns
-		// "cannot safely inspect index lock" instead of the context error.
-		// Remove once clearLegacyProjectAgentGitIndex surfaces ctx.Err() in that case.
-		t.Skip("lock inspection via lsof does not yet report cancellation as the context error")
-	}
 	workspace := t.TempDir()
 	testRuntimeGit(t, workspace, "init", "-b", "main")
 	testRuntimeGit(t, workspace, "config", "user.email", "agentflow@test.local")
