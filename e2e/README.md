@@ -32,7 +32,8 @@ AGENTFLOW_E2E_CODEBUDDY_API_KEY=ck_... ./local.sh api/40-model.test.mjs   # 带�
 | `AGENTFLOW_E2E_BASE` | 验收环境，默认 localhost:8090 |
 | `AGENTFLOW_E2E_MODEL` | 显式设为 `1` 启用付费模型测试，默认关闭 |
 | `AGENTFLOW_E2E_MODEL_ID` | 真实 Agent 节点使用的模型 ID，例如 `deepseek-v4.1-flash` |
-| `AGENTFLOW_E2E_EXECUTOR` | 执行器，默认 `codebuddy` |
+| `AGENTFLOW_E2E_EXECUTOR` | 执行器，默认 `codebuddy`。`local.sh` 下设为 `kiro` 时，用本机 `kiro-cli login` 的订阅登录跑真实模型用例，不需要 CodeBuddy Key；运行评估固定用 CodeBuddy，会跳过 |
+| `AGENTFLOW_E2E_ASSISTANT_MODEL` | AI 助手用例的模型，形如 `kiro:claude-haiku-5.5`；为空时用 CodeBuddy 默认模型 |
 | `AGENTFLOW_E2E_SANDBOX` | 沙箱，默认 `local`，仅对可信的验收任务使用 |
 | `AGENTFLOW_E2E_MODEL_SANDBOX` | 真实模型用例使用的沙箱，镜像里要有执行器 CLI；默认同 `AGENTFLOW_E2E_SANDBOX` |
 | `AGENTFLOW_E2E_REPO_CLONE_URL` | 带代码仓库的用例克隆这个仓库（只读，不推送）。不设置就跳过这些用例；`local.sh` 会自动设成本机裸仓库 |

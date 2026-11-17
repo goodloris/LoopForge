@@ -12,6 +12,11 @@
 #
 # Optional environment:
 #   AGENTFLOW_E2E_CODEBUDDY_API_KEY  enables the real-model scenarios
+#   AGENTFLOW_E2E_EXECUTOR=kiro      enables them on this machine's Kiro CLI
+#                                    subscription login (kiro-cli login)
+#                                    instead; the assistant then runs on
+#                                    AGENTFLOW_E2E_ASSISTANT_MODEL (default
+#                                    kiro:claude-haiku-5.5)
 #   AGENTFLOW_E2E_CODEBUDDY_INTERNET CodeBuddy network environment (default
 #                                    empty: the international site)
 #   AGENTFLOW_E2E_LOCAL_PORT         platform port (default 18090)
@@ -138,7 +143,12 @@ export AGENTFLOW_E2E_REPO_CLONE_URL="$REPO/remote.git" AGENTFLOW_E2E_REPO_BRANCH
 export AGENTFLOW_E2E_MODEL_SANDBOX=${AGENTFLOW_E2E_MODEL_SANDBOX:-local}
 # A fresh database has no data-rich project to tour; tour the e2e project.
 export AGENTFLOW_E2E_VIEW_PROJECT=${AGENTFLOW_E2E_VIEW_PROJECT:-e2e-auto}
-[ -n "${AGENTFLOW_E2E_CODEBUDDY_API_KEY:-}" ] || export AGENTFLOW_E2E_MODEL=0
+if [ "${AGENTFLOW_E2E_EXECUTOR:-}" = kiro ]; then
+  export AGENTFLOW_E2E_MODEL=${AGENTFLOW_E2E_MODEL:-1}
+  export AGENTFLOW_E2E_ASSISTANT_MODEL=${AGENTFLOW_E2E_ASSISTANT_MODEL:-kiro:claude-haiku-5.5}
+elif [ -z "${AGENTFLOW_E2E_CODEBUDDY_API_KEY:-}" ]; then
+  export AGENTFLOW_E2E_MODEL=0
+fi
 unset AGENTFLOW_E2E_CODEBUDDY_API_KEY
 if [ "${AGENTFLOW_E2E_KEEP:-0}" = 1 ]; then
   (umask 077 && printf 'export AGENTFLOW_E2E_BASE=%q AGENTFLOW_E2E_TOKEN=%q AGENTFLOW_E2E_TOKEN_B=%q AGENTFLOW_E2E_REPO_CLONE_URL=%q AGENTFLOW_E2E_REPO_BRANCH=main AGENTFLOW_E2E_MODEL_SANDBOX=%q AGENTFLOW_E2E_MODEL=%q AGENTFLOW_E2E_VIEW_PROJECT=%q\n' \

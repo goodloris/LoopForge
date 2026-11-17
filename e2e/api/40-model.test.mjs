@@ -8,6 +8,10 @@ import { cfg } from '../lib/env.mjs';
 import { createWorkflow, createAgent, agentNode, script, startRun, repoSkip, childSOPHandoffScenario } from '../lib/fixtures.mjs';
 
 const skip = cfg.model ? false : 'AGENTFLOW_E2E_MODEL=0';
+// Run evaluation always runs on CodeBuddy, whatever executor the run used.
+const evalSkip = skip || (cfg.executor !== 'codebuddy' && 'run evaluation runs on CodeBuddy');
+// Every chat turn names the assistant model when one is configured.
+const chat = body => (cfg.assistantModel ? { model: cfg.assistantModel, ...body } : body);
 let agentRunId;
 
 before(ensureProject);
@@ -30,7 +34,8 @@ test('agent node: the real executor writes the declared artifact', { skip, timeo
   const run = await waitRun(id, r => r.status === 'succeeded', { label: 'succeeded', timeoutMs: 840_000 });
   const node = nodeOf(run, 'write');
   assert.equal(node.status, 'succeeded');
-  assert.ok((run.usage?.totalTokens || node.usage?.totalTokens || 0) > 0, `no token usage recorded: ${JSON.stringify(run.usage)}`);
+  // Subscription CLIs (Kiro) report credits instead of tokens.
+  assert.ok((run.usage?.totalTokens || node.usage?.totalTokens || run.usage?.credits || node.usage?.credits || 0) > 0, `no usage recorded: ${JSON.stringify(run.usage)}`);
   const artifact = (run.artifacts || []).find(a => a.name === 'answer');
   assert.ok(artifact, 'declared artifact missing');
   const body = await api('GET', `/api/runs/${id}/artifacts/${encodeURIComponent(artifact.id)}`, undefined, { raw: true });
@@ -58,7 +63,7 @@ test('agent node in a child SOP edits the parent checkout', { skip: skip || repo
   assert.equal(run.status, 'succeeded');
 });
 
-test('AI run evaluation completes for a finished run', { skip, timeout: 600_000 }, async () => {
+test('AI run evaluation completes for a finished run', { skip: evalSkip, timeout: 600_000 }, async () => {
   assert.ok(agentRunId, 'depends on the agent node run');
   await post(`/api/runs/${agentRunId}/eval`, {}, { expect: [200, 201, 202] });
   await api('POST', `/api/runs/${agentRunId}/eval`, {}, { expect: [200, 201, 202, 409] });
@@ -72,7 +77,7 @@ test('AI run evaluation completes for a finished run', { skip, timeout: 600_000 
   assert.ok(current);
 });
 
-test('evaluation refuses a run that is still active', { skip, timeout: 120_000 }, async () => {
+test('evaluation refuses a run that is still active', { skip: evalSkip, timeout: 120_000 }, async () => {
   const wf = await createWorkflow('eval-active', [script('slow', 'sleep 30')]);
   const { id } = await startRun(wf);
   await waitRun(id, r => r.nodes?.slow?.status === 'running', { label: 'running' });
@@ -85,10 +90,10 @@ test('AI assistant answers a read-only question and keeps the session', { skip, 
   assert.ok(models);
   await api('POST', '/api/assistant/chat', { projectId: cfg.projectId, messages: [] }, { expect: 400 });
   await api('POST', '/api/assistant/chat', { projectId: cfg.projectId, messages: [{ role: 'assistant', content: 'x' }] }, { expect: 400 });
-  const reply = await post('/api/assistant/chat', {
+  const reply = await post('/api/assistant/chat', chat({
     projectId: cfg.projectId,
     messages: [{ role: 'user', content: '这是自动化测试。请只回答一句话：当前项目叫什么名字？不要创建、修改或删除任何东西。' }],
-  }, { timeoutMs: 280_000 });
+  }), { timeoutMs: 280_000 });
   assert.ok(reply.message && reply.message.length > 0, 'empty assistant reply');
   assert.equal((reply.drafts || []).filter(d => d.saved).length, 0, 'a read-only question must not save anything');
   if (reply.sessionId) {
@@ -104,7 +109,7 @@ test('AI assistant streams over SSE', { skip, timeout: 300_000 }, async () => {
   const res = await fetch(`${cfg.base}/api/assistant/chat`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${cfg.token}`, Accept: 'text/event-stream', 'Content-Type': 'application/json' },
-    body: JSON.stringify({ projectId: cfg.projectId, messages: [{ role: 'user', content: '自动化测试，请只回复：OK' }] }),
+    body: JSON.stringify(chat({ projectId: cfg.projectId, messages: [{ role: 'user', content: '自动化测试，请只回复：OK' }] })),
     signal: AbortSignal.timeout(280_000),
   });
   assert.equal(res.status, 200);
@@ -133,11 +138,11 @@ test('AI assistant: a new project asked for inside a project chat is drafted as 
   // projects have no delete endpoint.
   const tag = Date.now().toString(36);
   const id = `e2e-auto-np-${tag}`;
-  const reply = await post('/api/assistant/chat', {
+  const reply = await post('/api/assistant/chat', chat({
     projectId: cfg.projectId,
     approvalMode: 'confirm',
     messages: [{ role: 'user', content: `这是自动化测试。帮我新建一个独立项目：id 用 ${id}，名称「E2E 新建项目 ${tag}」，key 用 E2E${tag.slice(-4).toUpperCase()}。直接提交创建项目的草稿，不要做其他事情。` }],
-  }, { timeoutMs: 280_000 });
+  }), { timeoutMs: 280_000 });
   if (reply.sessionId) track(`assistant session ${reply.sessionId}`, () => del(`/api/assistant/sessions/${reply.sessionId}`));
   const draft = (reply.drafts || []).find(d => d.tool === 'projects_save');
   assert.ok(draft, `no projects_save draft: ${JSON.stringify(reply).slice(0, 500)}`);
@@ -150,11 +155,11 @@ test('AI assistant: a new project asked for inside a project chat is drafted as 
 test('AI assistant: a confirmed draft is applied once and the follow-up turn does not repeat it', { skip, timeout: 600_000 }, async () => {
   const id = `e2e-auto-rule-${Date.now().toString(36)}`;
   track(`rule ${id}`, () => del(`/api/rules?id=${id}`));
-  const first = await post('/api/assistant/chat', {
+  const first = await post('/api/assistant/chat', chat({
     projectId: cfg.projectId,
     approvalMode: 'confirm',
     messages: [{ role: 'user', content: `这是自动化测试。在当前项目新建一条规则：id 用 ${id}，名称「E2E 助手规则」，内容「回答必须以 E2E-OK 结尾。」，priority 50。直接提交草稿，不要做其他事情。` }],
-  }, { timeoutMs: 280_000 });
+  }), { timeoutMs: 280_000 });
   assert.ok(first.sessionId, 'no session');
   track(`assistant session ${first.sessionId}`, () => del(`/api/assistant/sessions/${first.sessionId}`));
   const draft = (first.drafts || []).find(d => d.tool === 'rules_save');
@@ -177,12 +182,12 @@ test('AI assistant: a confirmed draft is applied once and the follow-up turn doe
   session.messages[index].content = JSON.stringify(stored);
   const saved = await put(`/api/assistant/sessions/${first.sessionId}`, session);
 
-  const next = await post('/api/assistant/chat', {
+  const next = await post('/api/assistant/chat', chat({
     projectId: cfg.projectId,
     sessionId: first.sessionId,
     approvalMode: 'confirm',
     messages: [...saved.messages, { role: 'user', content: '已确认并执行 rules_save。请核对这条草稿的保存回执，继续完成原始请求；不要重复刚才的写入，下一项需要确认时提交草稿，全部完成时总结实际结果。' }],
-  }, { timeoutMs: 280_000 });
+  }), { timeoutMs: 280_000 });
   assert.ok(next.message, 'empty follow-up reply');
   assert.equal((next.drafts || []).some(d => d.tool === 'rules_save' && d.body?.id === id && !d.saved), false, `follow-up repeated the write: ${JSON.stringify(next.drafts)}`);
   assert.equal(list(await get('/api/rules')).filter(r => r.id === id).length, 1);
