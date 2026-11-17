@@ -229,6 +229,10 @@ jobs:
         image: postgres:17
         env:
           POSTGRES_PASSWORD: pg
+          # Byte-order collation like sqlite and the Alpine image used
+          # locally; the Debian default en_US.utf8 sorts case-insensitively.
+          # Production collation is decided with the PG baseline.
+          POSTGRES_INITDB_ARGS: --locale=C.UTF-8
         ports:
           - 5432:5432
         options: >-
@@ -240,6 +244,8 @@ jobs:
           --health-retries 30
     env:
       AGENTFLOW_TEST_PG_DSN: postgres://postgres:pg@127.0.0.1:5432/postgres?sslmode=disable
+      # Real-Chromium tests need core's sandbox setup and test no SQL; core runs them.
+      REAL_BROWSER_TESTS: '^(TestMainBotBrowserStartsAndDrivesRunBrowser|TestBrowserStreamPushesFramesAndRunsCommands|TestRunnerStartsPanelBrowserInRunSandbox|TestBrowserAgentOperationsDriveRealChromium|TestBrowserScrollEndsOnASharpFrame)$'
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-go@v6
@@ -256,7 +262,7 @@ jobs:
           docker restart ${{ job.services.postgres.id }}
           until docker exec ${{ job.services.postgres.id }} pg_isready -U postgres; do sleep 1; done
       - name: Go tests on PostgreSQL
-        run: go test ./internal/repo/... ./internal/engine/... ./internal/httpapi/... -count=1 -timeout=1200s
+        run: go test ./internal/repo/... ./internal/engine/... ./internal/httpapi/... -count=1 -timeout=1200s -skip "$REAL_BROWSER_TESTS"
   platform-required:
     # Stable check name for branch protection. An admin marks this required
     # in GitHub; the workflow does not change repository settings.
