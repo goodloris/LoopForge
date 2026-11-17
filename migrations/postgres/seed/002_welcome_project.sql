@@ -4,8 +4,8 @@
 -- 001_public_catalog.sql (the project points at its welcome-workflow).
 -- ON CONFLICT DO NOTHING keeps an existing project, so the script is safe to
 -- repeat. login_name is compared through lower() because MySQL's collation
--- matches it case-insensitively; this also uses uq_users_login_lower from
--- ../001_baseline_extensions.sql.
+-- matches it case-insensitively; repo.Open's idx_users_login_name_lower
+-- serves the lookup.
 SET client_encoding = 'UTF8';
 BEGIN;
 INSERT INTO projects (id,project_key,name,owner_user_id,payload,created_at,updated_at)

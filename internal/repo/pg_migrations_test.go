@@ -261,22 +261,7 @@ func TestPostgresBaselineAndSeed(t *testing.T) {
 		t.Errorf("welcome maintainers = %d, want 1", got)
 	}
 
-	// Generated columns: same defaults as MySQL migration 001.
-	exec(`INSERT INTO run_telemetry (run_id, seq, payload) VALUES ('r', 1, '{"source":{"adapter":"otel"}}'), ('r', 2, '{"source":{"adapter":""}}');
-	      INSERT INTO run_logs (run_id, seq, payload) VALUES ('r', 1, '{"level":"error"}'), ('r', 2, '{}')`)
-	if got := count("SELECT count(*) FROM run_telemetry WHERE (seq, adapter) IN ((1, 'otel'), (2, 'unknown'))"); got != 2 {
-		t.Errorf("run_telemetry.adapter matched %d rows, want 2", got)
-	}
-	if got := count("SELECT count(*) FROM run_logs WHERE (seq, level) IN ((1, 'error'), (2, 'info'))"); got != 2 {
-		t.Errorf("run_logs.level matched %d rows, want 2", got)
-	}
-	if got := count(`SELECT count(*) FROM pg_indexes WHERE schemaname = current_schema() AND indexname IN
-	  ('idx_run_telemetry_run_adapter', 'idx_run_logs_run_level', 'uq_users_login_lower', 'uq_business_domains_name_lower')`); got != 4 {
-		t.Errorf("baseline indexes found: %d, want 4", got)
-	}
-	if _, err := db.Exec("INSERT INTO users (login_name) VALUES ('ADMIN')"); err == nil {
-		t.Error("login names differing only in case must collide, as under MySQL's collation")
-	}
+	checkGeneratedColumns(t, db)
 
 	// A restart after the baseline runs production Open's incremental DDL,
 	// which must accept the extra columns and indexes.
@@ -296,4 +281,49 @@ func TestPostgresBaselineAndSeed(t *testing.T) {
 		t.Fatalf("Open after baseline: %v", err)
 	}
 	reopened.Close()
+
+	// PG-1 stores payload as jsonb; the baseline must build on either type.
+	t.Run("payload jsonb", func(t *testing.T) {
+		s, err := OpenTest()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer s.Close()
+		db, err := s.DB.DB()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, table := range []string{"run_telemetry", "run_logs"} {
+			if _, err := db.Exec("ALTER TABLE " + table + " ALTER COLUMN payload TYPE jsonb USING payload::jsonb"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := db.Exec(file("001_baseline_extensions.sql")); err != nil {
+			t.Fatalf("baseline on jsonb payload: %v", err)
+		}
+		checkGeneratedColumns(t, db)
+	})
+}
+
+// checkGeneratedColumns asserts the 001 generated columns and their indexes,
+// with the same defaults as MySQL migration 001.
+func checkGeneratedColumns(t *testing.T, db *sql.DB) {
+	t.Helper()
+	if _, err := db.Exec(`INSERT INTO run_telemetry (run_id, seq, payload) VALUES ('r', 1, '{"source":{"adapter":"otel"}}'), ('r', 2, '{"source":{"adapter":""}}');
+	      INSERT INTO run_logs (run_id, seq, payload) VALUES ('r', 1, '{"level":"error"}'), ('r', 2, '{}')`); err != nil {
+		t.Fatal(err)
+	}
+	for query, want := range map[string]int{
+		"SELECT count(*) FROM run_telemetry WHERE (seq, adapter) IN ((1, 'otel'), (2, 'unknown'))":                                                         2,
+		"SELECT count(*) FROM run_logs WHERE (seq, level) IN ((1, 'error'), (2, 'info'))":                                                                  2,
+		"SELECT count(*) FROM pg_indexes WHERE schemaname = current_schema() AND indexname IN ('idx_run_telemetry_run_adapter', 'idx_run_logs_run_level')": 2,
+	} {
+		var n int
+		if err := db.QueryRow(query).Scan(&n); err != nil {
+			t.Fatalf("%v: %s", err, query)
+		}
+		if n != want {
+			t.Errorf("%s = %d, want %d", query, n, want)
+		}
+	}
 }

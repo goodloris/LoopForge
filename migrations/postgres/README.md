@@ -4,7 +4,7 @@ PostgreSQL 只支持全新安装，不迁移存量数据。表、列和普通索
 
 ```
 postgres/
-  001_baseline_extensions.sql   # gorm 建不出来的结构：001 的生成列、大小写不敏感唯一索引
+  001_baseline_extensions.sql   # gorm 建不出来的结构：001 的生成列及索引
   seed/
     001_public_catalog.sql      # 公共目录，等价于 ../seed/001_public_catalog.sql
     002_welcome_project.sql     # 体验项目，等价于 ../seed/002_welcome_project.sql
@@ -32,7 +32,7 @@ done
 - **seed 必须和 MySQL seed 同步修改。** `internal/repo/pg_migrations_test.go` 的 `TestPostgresSeedMatchesMySQLSeed` 逐行比较两边的表、列和解码后的 JSON，只改一边时测试会失败。这个测试不连数据库，每次 `go test` 都会运行。
 - seed 的字符串按 PG 默认的 `standard_conforming_strings` 书写：反斜杠不转义，JSON 里的 `\n`、`\"` 只写一个反斜杠；MySQL 版写成 `\\n`、`\\"`。单引号两边都写成 `''`。
 - 以后改动已有数据（MySQL 那边的 `0NN_*.sql` 数据修补）时，PG 版本按序号在本目录新增 `002_*.sql`，和 MySQL 脚本放在同一个提交里。新安装直接用 seed 拿到最新内容，所以 seed 也要同步改。
-- `TestPostgresBaselineAndSeed` 在设置 `AGENTFLOW_TEST_PG_DSN` 时运行：在 gorm 建出的 schema 上按上面的顺序执行两遍，检查行数、jsonb 能否接受 payload、生成列取值、索引、体验项目负责人，最后用生产 `Open` 重新打开，确认增量 DDL 能接受这些额外结构。
+- `TestPostgresBaselineAndSeed` 在设置 `AGENTFLOW_TEST_PG_DSN` 时运行：在 gorm 建出的 schema 上按上面的顺序执行两遍，检查行数、jsonb 能否接受 payload、生成列取值、索引、体验项目负责人，最后用生产 `Open` 重新打开，确认增量 DDL 能接受这些额外结构。子用例 `payload jsonb` 先把 `run_telemetry`、`run_logs` 的 payload 改成 jsonb 再执行 baseline，确认生成列在 json 和 jsonb 上都能建成。
 
 ## MySQL 001–035 在 PG 全新安装下的结论
 
@@ -82,11 +82,11 @@ done
 
 MySQL 脚本里有些列是 `NOT NULL DEFAULT ''` / `DEFAULT 0`（如 005 的 `source_id`、018 的 `thread_id`、011 的 `workspace_editor_id`），gorm 在 PG 上建成可空、无默认值。MySQL 全新安装同样只执行 001 和 seed（见 `scripts/install-schema-extensions.sh`），这些列在 MySQL 新库上也是 gorm 的定义，所以 PG 不需要补。
 
-## 不来自迁移脚本、但 baseline 一并补上的结构
+## 大小写不敏感的唯一索引
 
-`001_baseline_extensions.sql` 第 2 节：MySQL 的 `utf8mb4_unicode_ci` 让 `uq_users_login`、`uq_business_domains_name` 不区分大小写，PG 上 gorm 建的唯一索引区分大小写。baseline 加了 `lower(login_name)`、`lower(name)` 的唯一表达式索引，行为和 MySQL 一致；`UsersRepo.UserByLoginName` 在 PG 上按 `LOWER(login_name)` 查找，也会用到这个索引。
+MySQL 的 `utf8mb4_unicode_ci` 让 `uq_users_login`、`uq_business_domains_name` 不区分大小写。PG 上的等价索引 `idx_users_login_name_lower`、`idx_business_domains_name_lower`（`lower(...)` 唯一表达式索引）由 `repo.Open` 在 PG 分支用增量 DDL 自动创建，不放在本目录：正确性不依赖人工执行 SQL，测试走 `OpenTest` 也会建上。
 
 ## 已知限制
 
-- 生成列会固定 `payload` 列的类型。以后如果把 `run_telemetry.payload` 或 `run_logs.payload` 的类型改掉（例如 `json` 改 `jsonb`），需要先删掉 `adapter`、`level` 列，改完再执行一次 baseline。gorm 的增量 DDL 只加不改，不会自己触发这个问题。
+- 生成列表达式只用 `->`、`->>`，payload 是 json 或 jsonb 都能建成。但生成列会固定 `payload` 列的类型：对已经执行过 baseline 的库改 `run_telemetry.payload` 或 `run_logs.payload` 的类型（例如 `json` 改 `jsonb`），需要先删掉 `adapter`、`level` 列，改完再执行一次 baseline。gorm 的增量 DDL 只加不改，不会自己触发这个问题。
 - 排序规则（collation）沿用建库时的设置，中文排序会和 MySQL 不同。
