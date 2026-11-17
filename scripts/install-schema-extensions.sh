@@ -3,7 +3,8 @@
 # AutoMigrate cannot create: the generated columns from migration 001, the
 # INSERT IGNORE starter catalog and the built-in Dockerfile update from
 # migration 031. All steps are safe to repeat, so the installer and
-# `./start.sh pull` run it after the platform is healthy.
+# `./start.sh pull` run it after the platform is healthy. It ends by naming
+# the manual migrations (033, 034) this database still lacks.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 source scripts/docker-access.sh
@@ -14,3 +15,4 @@ if ! bash scripts/install-observability-schema.sh; then
   exit 1
 fi
 cat migrations/seed/*.sql migrations/031_generic_backend_openssh.sql | docker_access compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" mysql -u loopforge loopforge'
+bash scripts/manual-migration-hints.sh
