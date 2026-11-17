@@ -16,7 +16,6 @@ import (
 	"agentflow/internal/domain"
 
 	"gorm.io/driver/mysql"
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"gorm.io/gorm/logger"
@@ -46,14 +45,12 @@ func (d *deps) isMySQL() bool { return d.dialect() == "mysql" }
 
 func (d *deps) isPostgres() bool { return d.dialect() == "postgres" }
 
-// pgJSONText extracts text at a MySQL-style JSON path ("$.a.b[0]") on
-// PostgreSQL. The jsonpath syntax accepts the same paths the MySQL branches
-// use, so callers keep one path constant. arg is either a bound "?" or a
-// quoted literal.
-// ponytail: json columns are cast to jsonb per call and not indexable; switch
-// the columns to jsonb (or add expression indexes) once PG is the default.
+// pgJSONText extracts text at a MySQL-style JSON path ("$.a.b[0]") from a
+// jsonb column on PostgreSQL. The jsonpath syntax accepts the same paths the
+// MySQL branches use, so callers keep one path constant. arg is either a
+// bound "?" or a quoted literal.
 func pgJSONText(column, arg string) string {
-	return "(jsonb_path_query_first(" + column + "::jsonb, " + arg + "::jsonpath) #>> '{}')"
+	return "(jsonb_path_query_first(" + column + ", " + arg + "::jsonpath) #>> '{}')"
 }
 
 // sqlJSONText returns a portable "extract text at JSON path" expression.
@@ -316,7 +313,7 @@ func openDialector(dsn string) (gorm.Dialector, string) {
 				dsn += "?timezone=UTC"
 			}
 		}
-		return postgres.Open(dsn), "postgres"
+		return newPostgresDialector(dsn), "postgres"
 	}
 	if !strings.Contains(dsn, "charset=") {
 		if strings.Contains(dsn, "?") {

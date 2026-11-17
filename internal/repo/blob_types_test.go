@@ -50,3 +50,39 @@ func TestBlobColumnTypesPerDialect(t *testing.T) {
 		}
 	}
 }
+
+// Every `type:json` column is jsonb on PostgreSQL and stays json on MySQL.
+// Both the dialector and its migrator must agree, because AutoMigrate asks
+// the migrator.
+func TestJSONColumnsAreJSONBOnPostgres(t *testing.T) {
+	my, err := gorm.Open(mysql.New(mysql.Config{DSN: "u:p@tcp(127.0.0.1:1)/x", SkipInitializeWithVersion: true}), &gorm.Config{DisableAutomaticPing: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pg, err := gorm.Open(newPostgresDialector("postgres://u:p@127.0.0.1:1/x"), &gorm.Config{DisableAutomaticPing: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := 0
+	for _, model := range allModels() {
+		stmt := &gorm.Statement{DB: pg}
+		if err := stmt.Parse(model); err != nil {
+			t.Fatal(err)
+		}
+		for _, field := range stmt.Schema.Fields {
+			if string(field.DataType) != "json" {
+				continue
+			}
+			seen++
+			if got := pg.Migrator().FullDataTypeOf(field).SQL; got != "jsonb" {
+				t.Errorf("postgres %s.%s = %q, want jsonb", stmt.Schema.Table, field.DBName, got)
+			}
+			if got := my.Migrator().FullDataTypeOf(field).SQL; got != "json" {
+				t.Errorf("mysql %s.%s = %q, want json", stmt.Schema.Table, field.DBName, got)
+			}
+		}
+	}
+	if seen < 40 {
+		t.Fatalf("only %d json columns found; the model scan is broken", seen)
+	}
+}
