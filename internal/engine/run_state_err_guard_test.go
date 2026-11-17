@@ -16,9 +16,7 @@ import (
 func rejectRunWrites(t *testing.T, s *repo.Store, runID string) {
 	t.Helper()
 	for _, op := range []string{"INSERT", "UPDATE"} {
-		stmt := "CREATE TRIGGER reject_run_" + strings.ToLower(op) + " BEFORE " + op + " ON runs " +
-			"WHEN NEW.id = '" + runID + "' BEGIN SELECT RAISE(ABORT, 'run write rejected'); END"
-		if err := s.DB.Exec(stmt).Error; err != nil {
+		if err := repo.RejectWritesForTest(s.DB, "reject_run_"+strings.ToLower(op), "runs", op, "NEW.id = '"+runID+"'", "run write rejected"); err != nil {
 			t.Fatal(err)
 		}
 	}

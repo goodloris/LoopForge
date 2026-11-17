@@ -505,7 +505,7 @@ func TestIssuesMoreForcedPersistenceError(t *testing.T) {
 	if err := f.s.PutIssue(issue); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.s.DB.Exec(`CREATE TRIGGER cvb_more_reject_issue_update BEFORE UPDATE ON issues BEGIN SELECT RAISE(FAIL, 'forced issue update failure'); END`).Error; err != nil {
+	if err := repo.RejectWritesForTest(f.s.DB, "cvb_more_reject_issue_update", "issues", "UPDATE", "", "forced issue update failure"); err != nil {
 		t.Fatal(err)
 	}
 	rec := cvBRequest(t, f, http.MethodPost, "/api/issues/"+issue.ID+"/clarification", map[string]any{

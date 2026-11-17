@@ -156,7 +156,7 @@ func ProjectSharedAssistantSession(s domain.AssistantSession) bool {
 func assistantSessionMetadataColumns(db *gorm.DB) string {
 	payload := "JSON_REMOVE(payload, '$.messages')"
 	if db.Dialector.Name() == "postgres" {
-		payload = "(payload::jsonb - 'messages')"
+		payload = "(payload - 'messages')"
 	}
 	return "id, user_id, project_id, title, model, source, task_id, created_at, updated_at, " + payload + " AS payload"
 }

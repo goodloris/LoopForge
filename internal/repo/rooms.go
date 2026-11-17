@@ -111,7 +111,7 @@ func (r *RoomsRepo) MessageWithAttachment(roomID, attachmentID string) (domain.C
 		return domain.ChatMessage{}, false
 	}
 	var rows []chatMessageRow
-	if err := r.DB.Table("chat_messages").Where("room_id = ? AND CAST(payload AS CHAR) LIKE ?", roomID, "%"+attachmentID+"%").Limit(20).Find(&rows).Error; err != nil {
+	if err := r.DB.Table("chat_messages").Where("room_id = ? AND "+sqlColumnText(r.DB, "payload")+" LIKE ?", roomID, "%"+attachmentID+"%").Limit(20).Find(&rows).Error; err != nil {
 		return domain.ChatMessage{}, false
 	}
 	for _, row := range rows {

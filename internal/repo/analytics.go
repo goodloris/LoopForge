@@ -685,6 +685,15 @@ func (r *AnalyticsRepo) accumulateToolSignals(out map[string]analyticsRunSignals
 	if r.isMySQL() {
 		successExpr = "CASE WHEN JSON_EXTRACT(payload, '$.tool.success') IS NOT NULL THEN JSON_EXTRACT(payload, '$.tool.success') ELSE (LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.level')), '')) <> 'error') END"
 		filter = "JSON_UNQUOTE(JSON_EXTRACT(payload, '$.category')) = ? AND JSON_UNQUOTE(JSON_EXTRACT(payload, '$.name')) = ? AND JSON_UNQUOTE(JSON_EXTRACT(payload, '$.phase')) = ?"
+	} else if r.isPostgres() {
+		// jsonb has no implicit JSON-to-number cast: map a boolean or numeric
+		// success to 0/1 explicitly. JSON null and a missing key both fall
+		// back to the log level, as sqlite's json_extract (SQL NULL) does.
+		successExpr = `CASE jsonb_typeof(payload #> '{tool,success}')
+			WHEN 'boolean' THEN (payload #>> '{tool,success}')::boolean::int
+			WHEN 'number' THEN (CASE WHEN (payload #>> '{tool,success}')::numeric <> 0 THEN 1 ELSE 0 END)
+			ELSE (CASE WHEN lower(coalesce(payload->>'level', '')) = 'error' THEN 0 ELSE 1 END) END`
+		filter = "payload->>'category' = ? AND payload->>'name' = ? AND payload->>'phase' = ?"
 	}
 	var rows []toolRow
 	if err := r.DB.Table("run_telemetry").

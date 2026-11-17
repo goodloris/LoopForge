@@ -457,13 +457,17 @@ export default function ArtifactPanel({
               disabled={!workspaceRunId}
               title={
                 workspaceRunId
-                  ? "查看本次会话写入工作区的改动"
+                  ? "查看工作区里尚未提交的改动；已提交或已推送的不计入"
                   : "本次会话还没有工作区"
               }
             >
               <HarnessIcon name="edit" size={14} />
               <span>改动</span>
-              <small>{workspaceChanges?.files?.length || 0}</small>
+              {/* Only uncommitted files count; "0" would misreport a session
+                  that already committed, pushed or opened a PR. */}
+              {workspaceChanges?.files?.length ? (
+                <small>{workspaceChanges.files.length}</small>
+              ) : null}
             </button>
             <button
               type="button"

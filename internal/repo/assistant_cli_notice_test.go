@@ -46,7 +46,7 @@ func TestReplaceInstalledCLIFailureKeepsConcurrentEdits(t *testing.T) {
 	fired := false
 	concurrent := func(tx *gorm.DB) {
 		// The lookup of conversations that still show the failure.
-		if fired || tx.Statement.Table != "assistant_sessions" || !strings.Contains(strings.ToLower(tx.Statement.SQL.String()), "instr(") {
+		if fired || tx.Statement.Table != "assistant_sessions" || !strings.Contains(strings.ToLower(tx.Statement.SQL.String()), wherePayloadHasFunc(tx)) {
 			return
 		}
 		fired = true

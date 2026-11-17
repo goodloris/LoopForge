@@ -140,3 +140,29 @@ describe("Codex-style activity trace", () => {
     expect(screen.getByText("The user picked option A")).toBeInTheDocument();
   });
 });
+
+// chat-e7c1b6b903da779f474ce3131f3990a8: after workbench_workspace_open the
+// sandbox took 2m39s before Kiro printed anything. The trace must name that
+// wait instead of leaving only the finished "已打开工作区" row.
+test("a status after the last step shows what the live turn waits on", async () => {
+  const { mergeActivity } = await import("../src/activity.js");
+  const at = (s) => `2026-11-17T06:${s}Z`;
+  const events = [
+    { kind: "status", text: "已连接模型，开始思考…", at: at("11:33") },
+    { kind: "answer", text: "先查看相关文件。", at: at("11:36") },
+    { kind: "tool", id: "open", tool: "workbench_workspace_open", text: "正在调用 workbench_workspace_open", at: at("11:39") },
+    { kind: "toolDone", id: "open", at: at("11:39.5") },
+    { kind: "status", text: "正在启动工作区环境…", at: at("11:43") },
+  ].map((data, i) => ({ sequence: i + 1, data }));
+  const steps = mergeActivity([], events);
+  const view = render(<ReplyTimeline steps={steps} startedAt={at("11:30")} live />);
+  expect(screen.getByText("先查看相关文件。")).toBeVisible();
+  expect(screen.getByText("正在启动工作区环境…")).toBeInTheDocument();
+
+  // Once the CLI runs a tool, the old status is no longer current.
+  const next = mergeActivity(steps, [
+    { sequence: 6, data: { kind: "tool", id: "clone", tool: "run_command", text: "正在调用 run_command · git clone", at: at("14:29") } },
+  ]);
+  view.rerender(<ReplyTimeline steps={next} startedAt={at("11:30")} live />);
+  expect(screen.queryByText("正在启动工作区环境…")).toBeNull();
+});

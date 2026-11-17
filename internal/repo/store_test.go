@@ -95,12 +95,28 @@ func TestCommandNodeNormalizesToShellScript(t *testing.T) {
 	}
 }
 
-func TestOpenRequiresMySQLDSN(t *testing.T) {
+func TestOpenRequiresDatabaseDSN(t *testing.T) {
+	t.Setenv("AGENTFLOW_DATABASE_DSN", "")
 	t.Setenv("AGENTFLOW_MYSQL_DSN", "")
 	s, err := Open("")
 	if err == nil {
 		s.Close()
-		t.Fatal("Open without a DSN must fail: MySQL is where all state lives")
+		t.Fatal("Open without a DSN must fail: the database is where all state lives")
+	}
+}
+
+func TestResolveDSNPrecedence(t *testing.T) {
+	t.Setenv("AGENTFLOW_DATABASE_DSN", " postgres://new ")
+	t.Setenv("AGENTFLOW_MYSQL_DSN", "legacy")
+	if got := resolveDSN(" explicit "); got != "explicit" {
+		t.Fatalf("explicit = %q", got)
+	}
+	if got := resolveDSN(""); got != "postgres://new" {
+		t.Fatalf("AGENTFLOW_DATABASE_DSN = %q", got)
+	}
+	t.Setenv("AGENTFLOW_DATABASE_DSN", "")
+	if got := resolveDSN(""); got != "legacy" {
+		t.Fatalf("legacy alias = %q", got)
 	}
 }
 

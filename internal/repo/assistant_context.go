@@ -2,24 +2,12 @@ package repo
 
 import (
 	"agentflow/internal/domain"
-	"errors"
 	"fmt"
-	"github.com/go-sql-driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"strings"
 	"time"
 )
-
-// summaryProjectionUnsupported reports a server that cannot parse the
-// projection at all (no JSON_TABLE), as opposed to a transient failure.
-func summaryProjectionUnsupported(err error) bool {
-	var sqlErr *mysql.MySQLError
-	if errors.As(err, &sqlErr) {
-		return sqlErr.Number == 1064 || sqlErr.Number == 1305
-	}
-	return false
-}
 
 // Human participants come from the transcript, never project membership or a
 // caller-supplied count. Legacy private messages belong to their storage owner;
@@ -51,6 +39,12 @@ func deriveAssistantParticipants(s *domain.AssistantSession, messages []domain.A
 // Old rows have no cached summary. Project only author metadata in SQL so a
 // history list never transfers message bodies, attachments, or tool output.
 func (r *AssistantRepo) assistantParticipantSummarySQL() string {
+	if r.isPostgres() {
+		return `CASE WHEN payload->'participantsVersion' = '1'::jsonb THEN '[]'::jsonb ELSE
+  (SELECT COALESCE(jsonb_agg(jsonb_build_object('role','user','authorId',m.value->'authorId','authorName',m.value->'authorName') ORDER BY m.pos),'[]'::jsonb)
+   FROM jsonb_array_elements(` + pgJSONArray("payload->'messages'") + `) WITH ORDINALITY m(value, pos)
+   WHERE m.value->>'role'='user' AND COALESCE(m.value->>'trigger','')='' AND COALESCE(m.value->>'content','') NOT LIKE '已确认并执行 %请核对这条草稿的保存回执，继续完成原始请求%') END`
+	}
 	if r.DB.Dialector.Name() == "sqlite" {
 		return `CASE WHEN json_extract(payload, '$.participantsVersion') = 1 THEN '[]' ELSE
    (SELECT json_group_array(json_object('role','user','authorId',json_extract(m.value,'$.authorId'),'authorName',json_extract(m.value,'$.authorName')))

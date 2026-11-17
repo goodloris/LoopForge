@@ -4,8 +4,9 @@ import {signInUnconfigured, switchProject, chat, openHome, fitsFrame, openSettin
 test.use({trace:'off',screenshot:'off'});
 
 // first-run drives the published image, whose picker is still labeled 执行器 and
-// lists three CLIs. The browser job builds this checkout, which labels it CLI.
-const executorButton = (frame) => frame.getByRole('button', { name: /^(执行器|CLI)$/ });
+// lists three CLIs. The browser job builds this checkout, which labels it
+// CLI and appends the selected value, e.g. CLI：Kiro CLI.
+const executorButton = (frame) => frame.getByRole('button', { name: /^(执行器|CLI)(：.+)?$/ });
 
 for(const viewport of [{width:1280,height:400},{width:390,height:600}]){
   test(`the executor and model menus stay usable at ${viewport.width}x${viewport.height}`,async({page})=>{
@@ -16,7 +17,7 @@ for(const viewport of [{width:1280,height:400},{width:390,height:600}]){
     await signInUnconfigured(page);
     await openHome(page);
     const frame=chat(page);
-    for(const [button,menu,name] of [[executorButton(frame),'.permission-menu[role="menu"]','执行器'],[frame.getByRole('button',{name:'选择模型',exact:true}),'.grasp-model-menu','选择模型']]){
+    for(const [button,menu,name] of [[executorButton(frame),'.permission-menu[role="menu"]','执行器'],[frame.getByRole('button',{name:/^选择模型(：.+)?$/}),'.grasp-model-menu','选择模型']]){
       await button.click();
       const open=frame.locator(menu);
       await expect(open).toBeVisible();

@@ -568,9 +568,9 @@ func (r *RunsRepo) runViewNodesQuery() *gorm.DB {
 			limit int
 		}{{"output", 2501}, {"error", 1201}, {"feedback", 801}, {"activity", 301}} {
 			v := "(payload->'" + field.name + "')"
-			fields = append(fields, fmt.Sprintf("'%s', CASE WHEN json_typeof(%s) = 'string' THEN to_jsonb(SUBSTR(payload->>'%s', 1, %d)) ELSE %s::jsonb END", field.name, v, field.name, field.limit, v))
+			fields = append(fields, fmt.Sprintf("'%s', CASE WHEN jsonb_typeof(%s) = 'string' THEN to_jsonb(SUBSTR(payload->>'%s', 1, %d)) ELSE %s END", field.name, v, field.name, field.limit, v))
 		}
-		return r.DB.Select("run_id, node_id, (payload::jsonb || jsonb_build_object(" + strings.Join(fields, ", ") + ")) AS payload")
+		return r.DB.Select("run_id, node_id, (payload || jsonb_build_object(" + strings.Join(fields, ", ") + ")) AS payload")
 	}
 	parts := []string{"payload"}
 	for _, field := range []struct {

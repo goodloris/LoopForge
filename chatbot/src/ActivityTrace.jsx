@@ -344,6 +344,15 @@ export default function ActivityTrace({
   );
   if (live) {
     const status = steps.filter((step) => step.kind === "status").at(-1)?.text;
+    const current = (text) => (
+      <span className="execution-current" data-kind="status">
+        <LoaderCircle size={15} strokeWidth={1.7} aria-hidden="true" />
+        <span className="execution-current-text">{text}</span>
+      </span>
+    );
+    // A status that arrived after the last note or tool is what the turn is
+    // doing now, e.g. starting the workspace sandbox for minutes.
+    const latest = steps.at(-1)?.kind === "status" ? steps.at(-1).text : "";
     return (
       <div className="reply-timing execution-trace is-live">
         <div className="execution-summary-row">
@@ -352,14 +361,12 @@ export default function ActivityTrace({
         {divider}
         <div className="execution-body" aria-label="执行过程">
           {blocks.length ? (
-            <Narration blocks={blocks} live interrupted={interrupted} />
+            <>
+              <Narration blocks={blocks} live interrupted={interrupted} />
+              {latest ? current(latest) : null}
+            </>
           ) : (
-            <span className="execution-current" data-kind="status">
-              <LoaderCircle size={15} strokeWidth={1.7} aria-hidden="true" />
-              <span className="execution-current-text">
-                {status || "正在处理…"}
-              </span>
-            </span>
+            current(status || "正在处理…")
           )}
         </div>
       </div>

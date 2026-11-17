@@ -36,7 +36,7 @@ func (r *UsersRepo) SaveGitSSHKey(userID int64, existingID, host, name, privateK
 		}
 		row := gitSSHKeyRow{UserID: userID, ID: id, Host: host, Name: name, PrivateKey: privateKey}
 		err := r.DB.Create(&row).Error
-		if errors.Is(err, gorm.ErrDuplicatedKey) {
+		if IsDuplicateKey(err) {
 			return ErrGitSSHKeyExists
 		}
 		return err

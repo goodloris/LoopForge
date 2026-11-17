@@ -16,7 +16,6 @@ import (
 	"agentflow/internal/domain"
 
 	"gorm.io/driver/mysql"
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"gorm.io/gorm/logger"
@@ -46,14 +45,12 @@ func (d *deps) isMySQL() bool { return d.dialect() == "mysql" }
 
 func (d *deps) isPostgres() bool { return d.dialect() == "postgres" }
 
-// pgJSONText extracts text at a MySQL-style JSON path ("$.a.b[0]") on
-// PostgreSQL. The jsonpath syntax accepts the same paths the MySQL branches
-// use, so callers keep one path constant. arg is either a bound "?" or a
-// quoted literal.
-// ponytail: json columns are cast to jsonb per call and not indexable; switch
-// the columns to jsonb (or add expression indexes) once PG is the default.
+// pgJSONText extracts text at a MySQL-style JSON path ("$.a.b[0]") from a
+// jsonb column on PostgreSQL. The jsonpath syntax accepts the same paths the
+// MySQL branches use, so callers keep one path constant. arg is either a
+// bound "?" or a quoted literal.
 func pgJSONText(column, arg string) string {
-	return "(jsonb_path_query_first(" + column + "::jsonb, " + arg + "::jsonpath) #>> '{}')"
+	return "(jsonb_path_query_first(" + column + ", " + arg + "::jsonpath) #>> '{}')"
 }
 
 // sqlJSONText returns a portable "extract text at JSON path" expression.
@@ -257,16 +254,14 @@ func newStore(db *gorm.DB) *Store {
 // AGENTFLOW_DATABASE_DSN, then the legacy AGENTFLOW_MYSQL_DSN; with neither
 // set it is a configuration error, not a reason to invent state elsewhere.
 func Open(dsn string) (*Store, error) {
-	dsn = strings.TrimSpace(dsn)
-	for _, env := range []string{"AGENTFLOW_DATABASE_DSN", "AGENTFLOW_MYSQL_DSN"} {
-		if dsn == "" {
-			dsn = strings.TrimSpace(os.Getenv(env))
-		}
-	}
+	dsn = resolveDSN(dsn)
 	if dsn == "" {
 		return nil, errors.New("AGENTFLOW_DATABASE_DSN（或 AGENTFLOW_MYSQL_DSN）未配置：缺少数据库 DSN 时拒绝启动")
 	}
-	dialector, name := openDialector(dsn)
+	dialector, name, err := openDialector(dsn)
+	if err != nil {
+		return nil, fmt.Errorf("%s dsn: %w", name, err)
+	}
 	db, err := gorm.Open(dialector, &gorm.Config{TranslateError: true, Logger: logger.Default.LogMode(logger.Silent)})
 	if err != nil {
 		return nil, fmt.Errorf("%s open: %w", name, err)
@@ -291,6 +286,17 @@ func Open(dsn string) (*Store, error) {
 	return s, nil
 }
 
+// resolveDSN returns the explicit DSN, else AGENTFLOW_DATABASE_DSN, else the
+// legacy AGENTFLOW_MYSQL_DSN that existing deployments still set.
+func resolveDSN(dsn string) string {
+	for _, v := range []string{dsn, os.Getenv("AGENTFLOW_DATABASE_DSN"), os.Getenv("AGENTFLOW_MYSQL_DSN")} {
+		if v = strings.TrimSpace(v); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
 // isPostgresDSN reports a libpq URL DSN. Key/value libpq DSNs ("host=...")
 // are not detected; they would be mistaken for MySQL DSNs.
 func isPostgresDSN(dsn string) bool {
@@ -301,7 +307,7 @@ func isPostgresDSN(dsn string) bool {
 // openDialector picks the gorm dialector for dsn. MySQL DSNs get the utf8mb4
 // charset and UTC time parsing the schema relies on; PostgreSQL connections
 // are pinned to UTC so timestamp text round-trips like MySQL's loc=UTC.
-func openDialector(dsn string) (gorm.Dialector, string) {
+func openDialector(dsn string) (gorm.Dialector, string, error) {
 	if isPostgresDSN(dsn) {
 		if !strings.Contains(dsn, "timezone=") {
 			if strings.Contains(dsn, "?") {
@@ -310,7 +316,8 @@ func openDialector(dsn string) (gorm.Dialector, string) {
 				dsn += "?timezone=UTC"
 			}
 		}
-		return postgres.Open(dsn), "postgres"
+		d, err := newPostgresDialector(dsn)
+		return d, "postgres", err
 	}
 	if !strings.Contains(dsn, "charset=") {
 		if strings.Contains(dsn, "?") {
@@ -322,7 +329,7 @@ func openDialector(dsn string) (gorm.Dialector, string) {
 	if !strings.Contains(dsn, "parseTime=") {
 		dsn += "&parseTime=true&loc=UTC"
 	}
-	return mysql.Open(dsn), "mysql"
+	return mysql.Open(dsn), "mysql", nil
 }
 
 // Close releases the underlying connection pool. The gorm handle is kept so

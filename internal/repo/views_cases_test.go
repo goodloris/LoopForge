@@ -99,7 +99,9 @@ func TestRoomViewsFiltersSignalsAndFallbacks(t *testing.T) {
 	}
 
 	now := time.Now().UTC()
-	if err := s.DB.Create(&chatRoomRow{ID: "bad-room", ProjectID: "platform", Name: "fallback", Payload: []byte("{"), Created: &now, Updated: &now}).Error; err != nil {
+	// "[]" is valid JSON, so every dialect stores it, but it does not decode
+	// into a room and must be skipped.
+	if err := s.DB.Create(&chatRoomRow{ID: "bad-room", ProjectID: "platform", Name: "fallback", Payload: []byte("[]"), Created: &now, Updated: &now}).Error; err != nil {
 		t.Fatal(err)
 	}
 	rawRoom, _ := json.Marshal(domain.ChatRoom{})

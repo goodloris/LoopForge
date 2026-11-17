@@ -94,7 +94,9 @@ func TestQuerySummaryProjectionAndScope(t *testing.T) {
 	for _, q := range recorder.queries {
 		if strings.Contains(q, "run_nodes") {
 			found = true
-			if !strings.Contains(q, "JSON_OBJECT") || !strings.Contains(q, " IN ") {
+			// JSON_OBJECT on MySQL/sqlite, json_build_object on PostgreSQL.
+			projected := strings.Contains(q, "JSON_OBJECT") || strings.Contains(q, "json_build_object(")
+			if !projected || !strings.Contains(q, " IN ") {
 				t.Fatalf("unbounded payload query: %s", q)
 			}
 		}
