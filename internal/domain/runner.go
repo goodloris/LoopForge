@@ -269,12 +269,12 @@ func (r Runner) SupportsProvider(provider string) bool {
 }
 
 // RuntimeAuthMode returns the configured credential source for a provider.
-// CodeBuddy and the extra agent CLIs have no reusable local-login flow, so
-// they always use the responsible user's personal credential. Codex and
-// Claude Code default to local login.
+// Agent CLIs have a fixed source (AgentCLIAuthMode) and CodeBuddy always
+// uses the responsible user's personal credential. Codex and Claude Code
+// default to local login.
 func (r Runner) RuntimeAuthMode(provider string) string {
 	if IsAgentCLIKind(provider) {
-		return RuntimeAuthPersonal
+		return AgentCLIAuthMode(provider)
 	}
 	provider = strings.TrimSpace(provider)
 	for _, rt := range r.Runtimes {

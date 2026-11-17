@@ -17,12 +17,23 @@ var ExecutorEffortLevels = map[string][]string{
 	"cursor":      {"none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"},
 	"agy":         {"low", "medium", "high", "xhigh", "max"},
 	"pi":          {"minimal", "low", "medium", "high", "xhigh", "max"},
+	"kiro":        {"low", "medium", "high", "xhigh", "max"},
 }
 
 // AgentCLIExecutorKinds are the agent CLIs beyond CodeBuddy / Codex / Claude
 // Code. Their model and MCP configuration lives in a private HOME, so they
 // only run with the responsible user's personal credentials.
-var AgentCLIExecutorKinds = []string{"opencode", "cursor", "agy", "kimi", "pi", "dsh", "zcode"}
+var AgentCLIExecutorKinds = []string{"opencode", "cursor", "agy", "kimi", "pi", "dsh", "zcode", "kiro"}
+
+// AgentCLIAuthMode is the only credential source an agent CLI supports on an
+// execution machine. Kiro CLI runs on the machine's subscription login
+// (`kiro-cli login`); the others use the responsible user's personal key.
+func AgentCLIAuthMode(kind string) string {
+	if strings.EqualFold(strings.TrimSpace(kind), "kiro") {
+		return RuntimeAuthLocal
+	}
+	return RuntimeAuthPersonal
+}
 
 func IsAgentCLIKind(kind string) bool {
 	kind = strings.TrimSpace(kind)

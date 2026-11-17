@@ -146,6 +146,18 @@ func executorModelCatalogs() map[string]executorModelCatalog {
 				{ID: "glm-5.3-flash", Name: "GLM-5.3 Flash"},
 			},
 		},
+		// Kiro serves its own models only (`kiro-cli chat --list-models`).
+		"kiro": {
+			CustomModel: true,
+			Models: []executorModelInfo{
+				{ID: "auto", Name: "Auto"},
+				{ID: "claude-opus-5.5", Name: "Claude Opus 5.5"},
+				{ID: "claude-sonnet-5.5", Name: "Claude Sonnet 5.5"},
+				{ID: "claude-haiku-5.5", Name: "Claude Haiku 5.5"},
+				{ID: "gpt-5.6-terra", Name: "GPT 5.6 Terra"},
+			},
+			Efforts: effortOptions(domain.ExecutorEffortLevels["kiro"]),
+		},
 	}
 }
 

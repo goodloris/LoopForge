@@ -30,7 +30,10 @@ func InstallConversationApproval(root, provider string, command CommandSpec) (Co
 	if err := os.WriteFile(hook, []byte(conversationApprovalPython), 0600); err != nil {
 		return command, err
 	}
-	launch := "python3 " + shellSingleQuote(hook)
+	// -I ignores PYTHON* variables and the user site directory: a workspace
+	// turn can write HOME, and a planted usercustomize.py would otherwise run
+	// inside every later hook, platform mode included.
+	launch := "python3 -I " + shellSingleQuote(hook)
 	hooks := map[string]any{"PreToolUse": []any{map[string]any{"matcher": ".*", "hooks": []any{map[string]any{"type": "command", "command": launch, "timeout": conversationApprovalHookWatchdog, "onFailure": "block"}}}}}
 	home := AgentCLIHome{Base: root, Rel: "home"}
 	switch provider {
@@ -106,6 +109,17 @@ func InstallConversationApproval(root, provider string, command CommandSpec) (Co
 			return command, err
 		}
 
+	case AgentCLIKiro:
+		// Kiro V3 loads global hooks from KIRO_HOME/hooks without trusting the
+		// workspace. Any non-zero exit blocks the call (a missing python3
+		// included); timeout 0 leaves the deadline to the hook itself.
+		data, _ := json.Marshal(map[string]any{"version": "v1", "hooks": []any{map[string]any{"name": "loopforge-approval", "trigger": "PreToolUse", "action": map[string]any{"type": "command", "command": launch + " kiro", "timeout": 0}}}})
+		if err := resetKiroConversationHome(home); err != nil {
+			return command, err
+		}
+		if err := writeAgentCLIFile(home, ".kiro/hooks/loopforge-approval.json", data); err != nil {
+			return command, err
+		}
 	case AgentCLIDeepSeek:
 		path := filepath.Join(root, "dsh-approval.mjs")
 		if err := os.WriteFile(path, []byte(conversationDSHApproval), 0600); err != nil {
@@ -178,6 +192,8 @@ except Exception:
     pass
 if len(sys.argv)>1 and sys.argv[1]=="agy":
     print(json.dumps({"decision":"allow" if allowed else "deny","reason":reason}))
+elif len(sys.argv)>1 and sys.argv[1]=="kiro":
+    pass
 elif len(sys.argv)>1 and sys.argv[1]=="cursor":
     print(json.dumps({"permission":"allow" if allowed else "deny","user_message":reason,"agent_message":reason}))
 else:

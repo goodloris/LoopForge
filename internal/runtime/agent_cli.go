@@ -27,6 +27,7 @@ const (
 	AgentCLIPi          = "pi"
 	AgentCLIDeepSeek    = "dsh"
 	AgentCLIZCode       = "zcode"
+	AgentCLIKiro        = "kiro"
 )
 
 // AgentCLIKinds is the display order of the agent CLIs.
@@ -67,8 +68,9 @@ func AgentCLINeedsBaseURL(kind, protocol string) bool {
 // can, DeepSeek Harness on the official endpoint.
 func agentCLIModelOptional(kind, baseURL string) bool {
 	switch kind {
-	case AgentCLICursor, AgentCLIZCode:
-		// ZCode resolves an unset model itself (applyZCodeCredential).
+	case AgentCLICursor, AgentCLIZCode, AgentCLIKiro:
+		// ZCode resolves an unset model itself (applyZCodeCredential); Kiro
+		// falls back to its "auto" model.
 		return true
 	case AgentCLIAntigravity, AgentCLIDeepSeek:
 		return baseURL == ""
@@ -89,6 +91,12 @@ type AgentCLIOptions struct {
 	SystemPromptFile string
 	// ReadOnly is AgentCLICommandOptions.Chat.
 	ReadOnly bool
+	// Docker marks a CLI that runs in a Docker sandbox, which holds none of
+	// the machine's logins (Kiro CLI copies its own in).
+	Docker bool
+	// Sandboxed marks any isolating sandbox (Docker, seatbelt, bwrap): Kiro
+	// CLI runs on a copy of the login there, never on the machine's own.
+	Sandboxed bool
 }
 
 // agentCLIKeyEnv holds the user's key for CLIs whose configuration names
@@ -103,7 +111,7 @@ var agentCLIHostEnv = append([]string{
 	"DEEPSEEK_API_KEY", "DSH_HOME", "MOONSHOT_API_KEY", "KIMI_API_KEY", "KIMI_BASE_URL", "KIMI_CODE_HOME",
 	"KIMI_MODEL_NAME", "KIMI_MODEL_API_KEY", "KIMI_MODEL_BASE_URL", "KIMI_MODEL_PROVIDER_TYPE",
 	"OPENCODE_CONFIG", "OPENCODE_CONFIG_CONTENT", "OPENCODE_CONFIG_DIR", "PI_CODING_AGENT_DIR",
-	"ZCODE_DATA_BASE_DIR", zcodePersonalFileEnv,
+	"ZCODE_DATA_BASE_DIR", zcodePersonalFileEnv, "KIRO_API_KEY", "KIRO_DEFAULT_SETTINGS", "KIRO_HOME",
 }, zcodeHostEnv...)
 
 // agentCLIConfigPaths are the HOME-relative files an agent CLI reads its MCP
@@ -116,6 +124,7 @@ var agentCLIMCPPaths = map[string]string{
 	AgentCLIPi:          ".pi/agent/mcp.json",
 	AgentCLIDeepSeek:    ".dsh/agentflow-mcp.json",
 	AgentCLIZCode:       zcodeConfigPath,
+	AgentCLIKiro:        ".kiro/settings/mcp.json",
 }
 
 // AgentCLIMCPOptions shapes the MCP configuration of one invocation.
@@ -378,6 +387,9 @@ func openAgentCLIHome(home AgentCLIHome) (*os.Root, error) {
 // key itself stays in the environment; configuration files only name the
 // variable.
 func ApplyAgentCLICredential(kind string, cred ProviderCredential, options AgentCLIOptions, home AgentCLIHome, homeEnv string, argv []string) ([]string, map[string]string, error) {
+	if kind == AgentCLIKiro {
+		return applyKiroLogin(options, home, homeEnv, argv)
+	}
 	key := strings.TrimSpace(cred.APIKey)
 	if key == "" {
 		return nil, nil, fmt.Errorf("需求责任人未配置 %s API Key，请在个人配置中配置", AgentCLILabel(kind))
@@ -586,6 +598,8 @@ func AgentCLILabel(kind string) string {
 		return "DeepSeek Harness"
 	case AgentCLIZCode:
 		return "ZCode"
+	case AgentCLIKiro:
+		return "Kiro CLI"
 	}
 	return kind
 }
@@ -595,6 +609,8 @@ func AgentCLIBinary(kind string) string {
 	switch kind {
 	case AgentCLICursor:
 		return "cursor-agent"
+	case AgentCLIKiro:
+		return "kiro-cli"
 	}
 	return kind
 }

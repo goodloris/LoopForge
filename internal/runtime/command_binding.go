@@ -139,7 +139,10 @@ func bindCommand(sandbox Sandbox, workspace string, command CommandSpec, credent
 				}
 				home = HostAgentCLIHome(homeEnv)
 			}
-			argv, env, err := ApplyAgentCLICredential(command.Provider, credentials.AgentCLI[command.Provider], command.AgentCLI, home, homeEnv, bound.Argv)
+			options := command.AgentCLI
+			driver := sandboxDriver(sandbox)
+			options.Docker, options.Sandboxed = driver == "docker", driver != "local"
+			argv, env, err := ApplyAgentCLICredential(command.Provider, credentials.AgentCLI[command.Provider], options, home, homeEnv, bound.Argv)
 			if err != nil {
 				return CommandSpec{}, err
 			}
@@ -243,7 +246,10 @@ func BindAgentCLICommand(sandbox Sandbox, workspace string, command CommandSpec,
 	if err != nil {
 		return nil, nil, fmt.Errorf("create private temp: %w", err)
 	}
-	argv, bound, err := ApplyAgentCLICredential(command.Provider, cred, command.AgentCLI, WorkspaceAgentCLIHome(workspace, name), homeEnv, argv)
+	options := command.AgentCLI
+	driver := sandboxDriver(sandbox)
+	options.Docker, options.Sandboxed = driver == "docker", driver != "local"
+	argv, bound, err := ApplyAgentCLICredential(command.Provider, cred, options, WorkspaceAgentCLIHome(workspace, name), homeEnv, argv)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -251,13 +257,14 @@ func BindAgentCLICommand(sandbox Sandbox, workspace string, command CommandSpec,
 	for _, key := range agentCLIHostEnv {
 		env[key] = ""
 	}
-	for key, value := range bound {
-		env[key] = value
-	}
 	env["HOME"] = homeEnv
 	env["TMPDIR"] = tmp
-	if sandboxDriver(sandbox) == "docker" {
+	if options.Docker {
 		env["TMPDIR"] = filepath.ToSlash(filepath.Join("/workspace", ".agentflow", "tmp", name))
+	}
+	// Kiro CLI keeps the machine's own HOME, where its login lives.
+	for key, value := range bound {
+		env[key] = value
 	}
 	return argv, env, nil
 }

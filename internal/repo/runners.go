@@ -316,7 +316,7 @@ func (r *RunnersRepo) RunnerHeartbeat(id string, runtimes []domain.RunnerRuntime
 			runtimes[i].Status = domain.RuntimeStatusDisabled
 		}
 		if domain.IsAgentCLIKind(runtimes[i].Provider) {
-			runtimes[i].AuthMode = domain.RuntimeAuthPersonal
+			runtimes[i].AuthMode = domain.AgentCLIAuthMode(runtimes[i].Provider)
 		} else if mode := authModes[runtimes[i].Provider]; mode != "" {
 			runtimes[i].AuthMode = mode
 		} else if strings.EqualFold(runtimes[i].Provider, "codebuddy") {
@@ -356,7 +356,10 @@ func (r *RunnersRepo) SetRunnerRuntimeAuthMode(runnerID, provider, authMode stri
 	if strings.EqualFold(provider, "codebuddy") && authMode != domain.RuntimeAuthPersonal {
 		return fmt.Errorf("CodeBuddy 仅支持个人凭证")
 	}
-	if domain.IsAgentCLIKind(provider) && authMode != domain.RuntimeAuthPersonal {
+	if domain.IsAgentCLIKind(provider) && authMode != domain.AgentCLIAuthMode(provider) {
+		if domain.AgentCLIAuthMode(provider) == domain.RuntimeAuthLocal {
+			return fmt.Errorf("%s 仅支持本机登录", provider)
+		}
 		return fmt.Errorf("%s 仅支持个人凭证", provider)
 	}
 	return r.updateRunnerRuntimes(runnerID, func(runtimes []domain.RunnerRuntime) (bool, error) {

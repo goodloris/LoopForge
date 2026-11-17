@@ -49,3 +49,13 @@ func TestValidateAgentEffortChecksPublishedLevels(t *testing.T) {
 		}
 	}
 }
+
+func TestAgentCLIAuthModeKiroUsesMachineLogin(t *testing.T) {
+	if AgentCLIAuthMode("kiro") != RuntimeAuthLocal || AgentCLIAuthMode("opencode") != RuntimeAuthPersonal {
+		t.Fatal("Kiro CLI runs on the machine's subscription login; other agent CLIs on personal keys")
+	}
+	runner := Runner{Runtimes: []RunnerRuntime{{Provider: "kiro", AuthMode: RuntimeAuthPersonal}}}
+	if runner.RuntimeAuthMode("kiro") != RuntimeAuthLocal {
+		t.Fatal("a stored personal mode must not override Kiro's machine login")
+	}
+}

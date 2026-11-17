@@ -11,7 +11,7 @@ import (
 // must be omitted, not written as null.
 func TestWriteAgentCLIMCPConfigOmitsNilFields(t *testing.T) {
 	entries := map[string]any{"agentflow-gate": map[string]any{"command": ".agentflow/gate-mcp", "args": []string(nil), "env": map[string]string{"A": "1"}}}
-	for _, kind := range []string{AgentCLICursor, AgentCLIKimi, AgentCLIOpenCode, AgentCLIDeepSeek} {
+	for _, kind := range []string{AgentCLICursor, AgentCLIKimi, AgentCLIOpenCode, AgentCLIDeepSeek, AgentCLIKiro} {
 		home := t.TempDir()
 		if err := WriteAgentCLIMCPConfig(kind, HostAgentCLIHome(home), entries, AgentCLIMCPOptions{}); err != nil {
 			t.Fatal(err)

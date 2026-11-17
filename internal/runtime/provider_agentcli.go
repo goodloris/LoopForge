@@ -97,6 +97,9 @@ type AgentCLICommandOptions struct {
 	Workspace bool
 	// AgentFile is Kimi Code's chat agent definition (WriteKimiChatAgent).
 	AgentFile string
+	// MCPServers are the configured MCP server IDs; Kiro CLI trusts them by
+	// name in AI 对话 (it cannot trust all MCP tools at once).
+	MCPServers []string
 }
 
 // AgentCLICommand builds the argv of an agent CLI turn; the caller adds
@@ -223,6 +226,37 @@ func AgentCLICommand(kind string, o AgentCLICommandOptions) CommandSpec {
 			argv = append(argv, "--resume", resume)
 		}
 		argv = append(argv, extra...)
+	case AgentCLIKiro:
+		// --v3 pins the engine: headless runs otherwise pick V2 or V3 from
+		// flags and settings. Without --trust-workspace a repository's own
+		// .kiro hooks, agents and MCP servers stay unloaded. Headless Kiro
+		// cancels every call it does not trust, so AI 对话 trusts only the
+		// read tools and the MCP servers; the PreToolUse hook
+		// (InstallConversationApproval) still sees each call.
+		// A conversation workspace trusts every tool like an SOP node.
+		trust := "--trust-all-tools"
+		if readOnly {
+			// disclose_context loads a skill, invoke_sub_agent dispatches a
+			// role; a sub-agent's own calls still pass this policy and the hook.
+			tools := []string{"read", "grep", "glob", "disclose_context", "invoke_sub_agent"}
+			for _, id := range o.MCPServers {
+				if kiroServerIDRe.MatchString(id) {
+					tools = append(tools, "@"+id)
+				}
+			}
+			trust = "--trust-tools=" + strings.Join(tools, ",")
+		}
+		argv = []string{binary, "chat", "--v3", "--no-interactive", "--output-format", "stream-json", trust}
+		if model != "" {
+			argv = append(argv, "--model", model)
+		}
+		if effort != "" {
+			argv = append(argv, "--effort", effort)
+		}
+		if resume != "" {
+			argv = append(argv, "--resume-id", resume)
+		}
+		argv = append(append(argv, extra...), prompt)
 	}
 	return CommandSpec{Argv: argv, Provider: kind, AgentCLI: options}
 }
@@ -278,6 +312,6 @@ func WriteKimiConversationAgent(path, systemPrompt string, readOnly bool) error 
 	return os.WriteFile(path, []byte(content), 0o600)
 }
 
-func (agentCLIProvider) SandboxRequirements() SandboxRequirements {
+func (p agentCLIProvider) SandboxRequirements() SandboxRequirements {
 	return SandboxRequirements{PrivateHome: true}
 }
