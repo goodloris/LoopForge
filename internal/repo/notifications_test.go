@@ -30,8 +30,9 @@ func TestNotificationOutboxAtomicAndIdempotent(t *testing.T) {
 	}
 	defer s.Close()
 	bot, run := notificationFixture(t, s, "atomic")
-	// An invalid persisted Bot forces enqueue failure, rolling back the run event and header.
-	if err = s.DB.Model(&notificationBotRow{}).Where("id = ?", bot.ID).Update("payload", []byte(`not-json`)).Error; err != nil {
+	// An undecodable persisted Bot forces enqueue failure, rolling back the run
+	// event and header. It is valid JSON so MySQL and PostgreSQL store it too.
+	if err = s.DB.Model(&notificationBotRow{}).Where("id = ?", bot.ID).Update("payload", []byte(`"not a bot"`)).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err = s.PutRun(run); err == nil {

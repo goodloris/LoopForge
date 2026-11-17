@@ -47,8 +47,7 @@ func TestSOPNodeArtifactWriteFailureKeepsSuccessfulChild(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	if err := s.DB.Exec("CREATE TRIGGER reject_import BEFORE INSERT ON run_artifacts " +
-		"WHEN NEW.node_id = 'prd-sop' BEGIN SELECT RAISE(ABORT, 'artifact write rejected'); END").Error; err != nil {
+	if err := repo.RejectWritesForTest(s.DB, "reject_import", "run_artifacts", "INSERT", "NEW.node_id = 'prd-sop'", "artifact write rejected"); err != nil {
 		t.Fatal(err)
 	}
 	run := startSOPArtifactHandoff(t, s)

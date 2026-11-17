@@ -3,17 +3,36 @@ package repo
 import (
 	"testing"
 
+	"github.com/glebarez/sqlite"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )
 
-func TestSQLPayloadJSONTextSQLite(t *testing.T) {
-	s, err := OpenTest()
+// sqliteDeps and postgresDeps build dialect handles directly, independent of
+// the database OpenTest is backed by, so SQL text is asserted per dialect.
+func sqliteDeps(t *testing.T) *deps {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(s.Close)
-	d := &deps{DB: s.DB}
+	if sqlDB, err := db.DB(); err == nil {
+		t.Cleanup(func() { _ = sqlDB.Close() })
+	}
+	return &deps{DB: db}
+}
+
+func postgresDeps(t *testing.T) *deps {
+	t.Helper()
+	db, err := gorm.Open(newPostgresDialector("postgres://u:p@127.0.0.1:1/x"), &gorm.Config{DisableAutomaticPing: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &deps{DB: db}
+}
+
+func TestSQLPayloadJSONTextSQLite(t *testing.T) {
+	d := sqliteDeps(t)
 	cases := map[string]string{
 		"tapdId":                  "json_extract(payload, '$.tapdId')",
 		"externalRef.externalUrl": "json_extract(payload, '$.externalRef.externalUrl')",
@@ -23,6 +42,14 @@ func TestSQLPayloadJSONTextSQLite(t *testing.T) {
 		if got := d.sqlPayloadJSONText(path); got != want {
 			t.Fatalf("sqlPayloadJSONText(%q) = %q, want %q", path, got, want)
 		}
+	}
+}
+
+func TestSQLPayloadJSONTextPostgres(t *testing.T) {
+	d := postgresDeps(t)
+	want := "(jsonb_path_query_first(payload, '$.externalRef.externalUrl'::jsonpath) #>> '{}')"
+	if got := d.sqlPayloadJSONText("externalRef.externalUrl"); got != want {
+		t.Fatalf("sqlPayloadJSONText = %q, want %q", got, want)
 	}
 }
 
@@ -51,12 +78,8 @@ func TestSQLPayloadJSONTextMySQL(t *testing.T) {
 }
 
 func TestSQLExecutionContextJSONText(t *testing.T) {
-	s, err := OpenTest()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(s.Close)
-	sqlite := &deps{DB: s.DB}
+	lite := sqliteDeps(t)
+	pg := postgresDeps(t)
 	mysqlDB, err := gorm.Open(mysql.New(mysql.Config{
 		DSN:                       "user:pass@tcp(127.0.0.1:1)/agentflow",
 		SkipInitializeWithVersion: true,
@@ -70,8 +93,9 @@ func TestSQLExecutionContextJSONText(t *testing.T) {
 		path string
 		want string
 	}{
-		{sqlite, "issueId", "json_extract(execution_context, '$.issueId')"},
-		{sqlite, "projectId", "json_extract(execution_context, '$.projectId')"},
+		{lite, "issueId", "json_extract(execution_context, '$.issueId')"},
+		{lite, "projectId", "json_extract(execution_context, '$.projectId')"},
+		{pg, "issueId", "(jsonb_path_query_first(execution_context, '$.issueId'::jsonpath) #>> '{}')"},
 		{my, "issueId", "JSON_UNQUOTE(JSON_EXTRACT(execution_context, '$.issueId'))"},
 		{my, "projectId", "JSON_UNQUOTE(JSON_EXTRACT(execution_context, '$.projectId'))"},
 	}
