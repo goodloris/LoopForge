@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -27,6 +28,58 @@ func upsertEnv(env []string, key, value string) []string {
 		out = append(out, prefix+value)
 	}
 	return out
+}
+
+// missingCredential returns the error bindCommand reports when the
+// responsible user has no key for binding. Kiro CLI uses its subscription
+// login and never needs one.
+func missingCredential(provider string, binding CredentialBinding, credentials RunCredentials) error {
+	switch binding {
+	case BindCodeBuddy:
+		if strings.TrimSpace(credentials.CodeBuddy.APIKey) == "" {
+			return fmt.Errorf("需求责任人未配置 CodeBuddy API Key，请在个人配置中配置")
+		}
+	case BindCodex:
+		if strings.TrimSpace(credentials.Codex.APIKey) == "" {
+			return fmt.Errorf("需求责任人未配置 Codex API Key，请在个人配置中配置")
+		}
+	case BindClaudeCode:
+		if strings.TrimSpace(credentials.ClaudeCode.APIKey) == "" {
+			return fmt.Errorf("需求责任人未配置 Claude Code API Key，请在个人配置中配置")
+		}
+	case BindAgentCLI:
+		return agentCLIKeyMissing(provider, credentials.AgentCLI[provider])
+	}
+	return nil
+}
+
+// checkProviderCredential runs missingCredential for the key binding the
+// provider's Prepare will request, using the credentials on the run sandbox.
+// Sandboxes that carry no credentials bind them elsewhere and are skipped.
+func checkProviderCredential(sb Sandbox, provider string) error {
+	var credentials RunCredentials
+	found := false
+	for sb != nil && !found {
+		if managed, ok := sb.(*managedSandbox); ok && managed != nil {
+			managed.credentialsMu.RLock()
+			credentials, found = managed.credentials, true
+			managed.credentialsMu.RUnlock()
+			break
+		}
+		unwrapper, ok := sb.(interface{ Unwrap() Sandbox })
+		if !ok || unwrapper.Unwrap() == sb {
+			break
+		}
+		sb = unwrapper.Unwrap()
+	}
+	if !found {
+		return nil
+	}
+	binding := map[string]CredentialBinding{"codebuddy": BindCodeBuddy, "codex": BindCodex, "claude-code": BindClaudeCode}[provider]
+	if slices.Contains(AgentCLIKinds, provider) {
+		binding = BindAgentCLI
+	}
+	return missingCredential(provider, binding, credentials)
 }
 
 func bindCommand(sandbox Sandbox, workspace string, command CommandSpec, credentials RunCredentials) (CommandSpec, error) {
@@ -90,8 +143,8 @@ func bindCommand(sandbox Sandbox, workspace string, command CommandSpec, credent
 			// Empty values are intentional: a responsible user without credentials must
 			// not inherit either variable from the AgentFlow host process.
 			bound.environment["CODEBUDDY_API_KEY"] = strings.TrimSpace(credentials.CodeBuddy.APIKey)
-			if bound.environment["CODEBUDDY_API_KEY"] == "" {
-				return CommandSpec{}, fmt.Errorf("需求责任人未配置 CodeBuddy API Key，请在个人配置中配置")
+			if err := missingCredential(command.Provider, binding, credentials); err != nil {
+				return CommandSpec{}, err
 			}
 			bound.environment["CODEBUDDY_INTERNET_ENVIRONMENT"] = strings.TrimSpace(credentials.CodeBuddy.InternetEnvironment)
 		case BindGit:
@@ -109,8 +162,8 @@ func bindCommand(sandbox Sandbox, workspace string, command CommandSpec, credent
 			bound.Argv = BindMCPCallArgv(sandbox, bound.Argv)
 		case BindCodex:
 			bound.environment["CODEX_API_KEY"] = strings.TrimSpace(credentials.Codex.APIKey)
-			if bound.environment["CODEX_API_KEY"] == "" {
-				return CommandSpec{}, fmt.Errorf("需求责任人未配置 Codex API Key，请在个人配置中配置")
+			if err := missingCredential(command.Provider, binding, credentials); err != nil {
+				return CommandSpec{}, err
 			}
 			argv, err := CodexUserProviderArgv(bound.Argv, credentials.Codex.BaseURL)
 			if err != nil {
@@ -119,8 +172,8 @@ func bindCommand(sandbox Sandbox, workspace string, command CommandSpec, credent
 			bound.Argv = argv
 		case BindClaudeCode:
 			bound.environment["ANTHROPIC_API_KEY"] = strings.TrimSpace(credentials.ClaudeCode.APIKey)
-			if bound.environment["ANTHROPIC_API_KEY"] == "" {
-				return CommandSpec{}, fmt.Errorf("需求责任人未配置 Claude Code API Key，请在个人配置中配置")
+			if err := missingCredential(command.Provider, binding, credentials); err != nil {
+				return CommandSpec{}, err
 			}
 			baseURL := strings.TrimSpace(credentials.ClaudeCode.BaseURL)
 			if baseURL == "" {

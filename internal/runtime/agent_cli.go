@@ -381,6 +381,15 @@ func openAgentCLIHome(home AgentCLIHome) (*os.Root, error) {
 	return root, nil
 }
 
+// agentCLIKeyMissing reports an agent CLI without the user's API key. Kiro CLI
+// signs in with its subscription login instead.
+func agentCLIKeyMissing(kind string, cred ProviderCredential) error {
+	if kind != AgentCLIKiro && strings.TrimSpace(cred.APIKey) == "" {
+		return fmt.Errorf("需求责任人未配置 %s API Key，请在个人配置中配置", AgentCLILabel(kind))
+	}
+	return nil
+}
+
 // ApplyAgentCLICredential writes the credential-dependent model configuration of an
 // agent CLI into home (host path; homeEnv is the same directory as the
 // process sees it) and returns argv and the environment to run it with. The
@@ -390,10 +399,10 @@ func ApplyAgentCLICredential(kind string, cred ProviderCredential, options Agent
 	if kind == AgentCLIKiro {
 		return applyKiroLogin(options, home, homeEnv, argv)
 	}
-	key := strings.TrimSpace(cred.APIKey)
-	if key == "" {
-		return nil, nil, fmt.Errorf("需求责任人未配置 %s API Key，请在个人配置中配置", AgentCLILabel(kind))
+	if err := agentCLIKeyMissing(kind, cred); err != nil {
+		return nil, nil, err
 	}
+	key := strings.TrimSpace(cred.APIKey)
 	baseURL := strings.TrimRight(strings.TrimSpace(cred.BaseURL), "/")
 	protocol := AgentCLIProtocol(kind, cred.Protocol)
 	if baseURL == "" && AgentCLINeedsBaseURL(kind, protocol) {

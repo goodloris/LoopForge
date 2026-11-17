@@ -19,6 +19,10 @@ func NewExecutorRunner() *ExecutorRunner { return &ExecutorRunner{} }
 
 func (r *ExecutorRunner) Run(ctx context.Context, sb Sandbox, invocationID string, ex domain.ExecutorDefinition, agent domain.AgentDefinition, assets domain.AgentAssetBundle, prompt string, options InvocationOptions, sink EventSink) (string, error) {
 	provider := providerForKind(ex.Kind)
+	// Fail on a missing key before the first browser image build (minutes).
+	if err := checkProviderCredential(sb, provider.Kind()); err != nil {
+		return "", err
+	}
 	if err := ProvisionMCPAssets(ctx, sb, sb.Workspace(), assets, sink); err != nil {
 		return "", err
 	}
