@@ -257,12 +257,7 @@ func newStore(db *gorm.DB) *Store {
 // AGENTFLOW_DATABASE_DSN, then the legacy AGENTFLOW_MYSQL_DSN; with neither
 // set it is a configuration error, not a reason to invent state elsewhere.
 func Open(dsn string) (*Store, error) {
-	dsn = strings.TrimSpace(dsn)
-	for _, env := range []string{"AGENTFLOW_DATABASE_DSN", "AGENTFLOW_MYSQL_DSN"} {
-		if dsn == "" {
-			dsn = strings.TrimSpace(os.Getenv(env))
-		}
-	}
+	dsn = resolveDSN(dsn)
 	if dsn == "" {
 		return nil, errors.New("AGENTFLOW_DATABASE_DSN（或 AGENTFLOW_MYSQL_DSN）未配置：缺少数据库 DSN 时拒绝启动")
 	}
@@ -289,6 +284,17 @@ func Open(dsn string) (*Store, error) {
 		return nil, fmt.Errorf("auto migrate: %w", err)
 	}
 	return s, nil
+}
+
+// resolveDSN returns the explicit DSN, else AGENTFLOW_DATABASE_DSN, else the
+// legacy AGENTFLOW_MYSQL_DSN that existing deployments still set.
+func resolveDSN(dsn string) string {
+	for _, v := range []string{dsn, os.Getenv("AGENTFLOW_DATABASE_DSN"), os.Getenv("AGENTFLOW_MYSQL_DSN")} {
+		if v = strings.TrimSpace(v); v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // isPostgresDSN reports a libpq URL DSN. Key/value libpq DSNs ("host=...")

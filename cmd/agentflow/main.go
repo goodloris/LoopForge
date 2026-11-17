@@ -86,7 +86,9 @@ func main() {
 	mcpToken := flag.String("mcp-token", "", "MCP gateway bearer token (or set AGENTFLOW_MCP_TOKEN env)")
 	tlsCert := flag.String("tls-cert", "", "optional TLS certificate path")
 	tlsKey := flag.String("tls-key", "", "optional TLS private key path")
-	mysqlDSN := flag.String("mysql-dsn", "", "MySQL DSN; overrides AGENTFLOW_MYSQL_DSN. MySQL is the only data source.")
+	var databaseDSN string
+	flag.StringVar(&databaseDSN, "database-dsn", "", "database DSN (MySQL DSN or postgres:// URL); overrides AGENTFLOW_DATABASE_DSN and AGENTFLOW_MYSQL_DSN")
+	flag.StringVar(&databaseDSN, "mysql-dsn", "", "legacy alias of -database-dsn")
 	roleFlag := flag.String("role", "", "process role: api, worker, or all (default all)")
 	cliAction := flag.String("cli-action", "", "local managed CLI administration: status, update, or rollback; exits without starting services")
 	cliProvider := flag.String("cli-provider", "", "provider for CLI rollback: codex, codebuddy, or claude-code")
@@ -130,7 +132,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	s, err := repo.Open(strings.TrimSpace(*mysqlDSN))
+	s, err := repo.Open(strings.TrimSpace(databaseDSN))
 	if err != nil {
 		log.Fatal(err)
 	}
