@@ -101,6 +101,11 @@ func (r Run) HasActiveNode() bool {
 	return false
 }
 
+// UndeliveredWorkspaceHold is the WorkspaceCleanupNotBefore of a code run that
+// succeeded without a delivery MR. It never expires: the workspace is kept
+// like a failed run's until a later delivered settle clears it.
+var UndeliveredWorkspaceHold = time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)
+
 // RepositoryContexts returns the frozen repositories of this run. New runs
 // fill Repositories; legacy runs only carry the single Repository field.
 func (r Run) RepositoryContexts() []RepositoryContext {

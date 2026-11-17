@@ -1231,6 +1231,14 @@ func TestFinishSucceededWithoutDeliveryMRKeepsWorkspace(t *testing.T) {
 			if !slices.ContainsFunc(finished.Events, func(ev domain.RunEvent) bool { return ev.Type == "run.delivery_missing" }) {
 				t.Fatalf("missing run.delivery_missing event: %+v", finished.Events)
 			}
+			later := time.Now().Add(time.Hour)
+			if !runContainerIdle(finished, later) {
+				t.Fatal("held succeeded run must be an idle container candidate")
+			}
+			finished.WorkspaceCleanupNotBefore = time.Time{}
+			if runContainerIdle(finished, later) {
+				t.Fatal("plain succeeded run must not be an idle container candidate")
+			}
 		})
 	}
 }

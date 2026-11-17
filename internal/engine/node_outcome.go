@@ -357,7 +357,7 @@ func (e *Engine) finishAt(id string, generation int, status, msg string) {
 			// Hold the workspace before the run turns succeeded, so the cleanup
 			// sweep cannot delete undelivered code until the MR lookup decides.
 			if deliversCode(*r) {
-				_ = e.repo.SetRunWorkspaceCleanupHold(r.ID, undeliveredWorkspaceHold)
+				_ = e.repo.SetRunWorkspaceCleanupHold(r.ID, domain.UndeliveredWorkspaceHold)
 			}
 		}
 	}) || ignored {
@@ -392,10 +392,6 @@ func (e *Engine) finishAt(id string, generation int, status, msg string) {
 		e.cleanupRunWorkspace(id)
 	}
 }
-
-// undeliveredWorkspaceHold is the cleanup hold of a code run that succeeded
-// without a delivery MR. It never expires; a later delivered settle clears it.
-var undeliveredWorkspaceHold = time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)
 
 // deliversCode reports whether the run checked out a repository it may push.
 func deliversCode(r domain.Run) bool {

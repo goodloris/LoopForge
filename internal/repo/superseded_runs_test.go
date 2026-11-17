@@ -82,6 +82,10 @@ func TestIdleSandboxRunIDsUsesPerStatusCutoff(t *testing.T) {
 	for _, status := range []string{"failed", "waiting", "running", "succeeded", "cancelled"} {
 		issueRun(t, s, "run-"+status, "", status)
 	}
+	issueRun(t, s, "run-succeeded-held", "", "succeeded")
+	if err := s.SetRunWorkspaceCleanupHold("run-succeeded-held", domain.UndeliveredWorkspaceHold); err != nil {
+		t.Fatal(err)
+	}
 	issueRun(t, s, "run-failed-cleaned", "", "failed")
 	if err := s.DB.Model(&runRow{}).Where("id = ?", "run-failed-cleaned").Update("workspace_cleaned_at", time.Now().UTC()).Error; err != nil {
 		t.Fatal(err)
@@ -97,10 +101,10 @@ func TestIdleSandboxRunIDsUsesPerStatusCutoff(t *testing.T) {
 	if got := ids(now.Add(-time.Hour), now.Add(-time.Hour)); len(got) != 0 {
 		t.Fatalf("runs updated just now are not idle: %v", got)
 	}
-	if got := ids(now.Add(time.Hour), now.Add(-time.Hour)); len(got) != 1 || !got["run-failed"] {
-		t.Fatalf("only the uncleaned failed run passes the failed cutoff: %v", got)
+	if got := ids(now.Add(time.Hour), now.Add(-time.Hour)); len(got) != 2 || !got["run-failed"] || !got["run-succeeded-held"] {
+		t.Fatalf("only the uncleaned failed run and the held succeeded run pass the failed cutoff: %v", got)
 	}
-	if got := ids(now.Add(time.Hour), now.Add(time.Hour)); len(got) != 2 || !got["run-failed"] || !got["run-waiting"] {
+	if got := ids(now.Add(time.Hour), now.Add(time.Hour)); len(got) != 3 || !got["run-failed"] || !got["run-waiting"] || !got["run-succeeded-held"] {
 		t.Fatalf("running and settled runs are never idle candidates: %v", got)
 	}
 }
