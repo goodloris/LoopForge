@@ -2,7 +2,6 @@ package repo
 
 import (
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
@@ -15,28 +14,8 @@ import (
 // old to the reader, but the lease must be kept until the database clock says
 // it went unrenewed.
 func TestMySQLLeaseJustTakenByAHolderWithASlowClockIsKept(t *testing.T) {
-	dsn := os.Getenv("AGENTFLOW_TEST_MYSQL_DSN")
-	if dsn == "" {
-		t.Skip("local isolated MySQL required")
-	}
-	s, err := Open(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	sqlDB, err := s.DB.DB()
-	if err != nil {
-		t.Fatal(err)
-	}
-	sqlDB.SetMaxOpenConns(1)
-	sqlDB.SetMaxIdleConns(1)
-	skew := func(d time.Duration) {
-		t.Helper()
-		if err := s.DB.Exec("SET timestamp = ?", float64(time.Now().Add(d).UnixMicro())/1e6).Error; err != nil {
-			t.Fatal(err)
-		}
-	}
-	defer s.DB.Exec("SET timestamp = DEFAULT")
+	s := serverTestStore(t)
+	skew := skewDBClock(t, s)
 
 	runID := fmt.Sprintf("lease-take-clock-%d", time.Now().UnixNano())
 	if err := s.PutRun(domain.Run{ID: runID, Status: "succeeded", Nodes: map[string]*domain.NodeRun{}}); err != nil {
