@@ -25,7 +25,10 @@ func TestRunLeaseMutualExclusionAndExpiryTakeover(t *testing.T) {
 	}
 	defer s.Close()
 	r := putLeaseTestRun(t, s, "run-lease")
-	if err := s.TryAcquireRunLease(r.ID, "instance-a", r.Generation, 20*time.Millisecond); err != nil {
+	// The lease must outlive the next two round trips even on a loaded
+	// PostgreSQL CI runner; 20 ms did not.
+	const lease = 500 * time.Millisecond
+	if err := s.TryAcquireRunLease(r.ID, "instance-a", r.Generation, lease); err != nil {
 		t.Fatal(err)
 	}
 	owned, _ := s.RunState(r.ID)
@@ -35,7 +38,7 @@ func TestRunLeaseMutualExclusionAndExpiryTakeover(t *testing.T) {
 	if err := s.TryAcquireRunLease(r.ID, "instance-b", owned.Generation, time.Second); !errors.Is(err, ErrRunLeaseHeld) {
 		t.Fatalf("second acquire error = %v, want ErrRunLeaseHeld", err)
 	}
-	time.Sleep(30 * time.Millisecond)
+	time.Sleep(lease + 100*time.Millisecond)
 	if err := s.TryAcquireRunLease(r.ID, "instance-b", owned.Generation, time.Second); err != nil {
 		t.Fatal(err)
 	}
