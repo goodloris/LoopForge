@@ -216,18 +216,59 @@ jobs:
           name: first-run-results
           path: e2e/test-results/
           if-no-files-found: ignore
+  postgres:
+    # The repo, engine and httpapi suites against PostgreSQL: OpenTest gives
+    # every test store its own schema on this server. The data directory is
+    # tmpfs (a full run writes a few GB of throwaway schemas) and /dev/shm is
+    # 1 GB: with the 64 MB default, parallel queries exhausted it and a PG
+    # backend crashed.
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: pg
+        ports:
+          - 5432:5432
+        options: >-
+          --tmpfs /var/lib/postgresql/data:size=12g
+          --shm-size=1g
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      AGENTFLOW_TEST_PG_DSN: postgres://postgres:pg@127.0.0.1:5432/postgres?sslmode=disable
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '22'
+      - name: Build the embedded chatbot frontend
+        run: npm --prefix chatbot ci --include=dev --no-audit --no-fund && npm --prefix chatbot run build
+      - name: Raise max_connections for parallel test packages
+        run: |
+          docker exec ${{ job.services.postgres.id }} psql -U postgres -c "ALTER SYSTEM SET max_connections = 1000"
+          docker restart ${{ job.services.postgres.id }}
+          until docker exec ${{ job.services.postgres.id }} pg_isready -U postgres; do sleep 1; done
+      - name: Go tests on PostgreSQL
+        run: go test ./internal/repo/... ./internal/engine/... ./internal/httpapi/... -count=1 -timeout=1200s
   platform-required:
     # Stable check name for branch protection. An admin marks this required
     # in GitHub; the workflow does not change repository settings.
     name: platform-required
     if: always()
-    needs: [core, browser, first-run]
+    needs: [core, browser, first-run, postgres]
     runs-on: ubuntu-latest
     steps:
       - name: Require every platform job to pass
         working-directory: ${{ runner.temp }}
         run: |
-          if [[ "${{ needs.core.result }}" != "success" || "${{ needs.browser.result }}" != "success" || "${{ needs.first-run.result }}" != "success" ]]; then
-            echo "core=${{ needs.core.result }} browser=${{ needs.browser.result }} first-run=${{ needs.first-run.result }}" >&2
+          if [[ "${{ needs.core.result }}" != "success" || "${{ needs.browser.result }}" != "success" || "${{ needs.first-run.result }}" != "success" || "${{ needs.postgres.result }}" != "success" ]]; then
+            echo "core=${{ needs.core.result }} browser=${{ needs.browser.result }} first-run=${{ needs.first-run.result }} postgres=${{ needs.postgres.result }}" >&2
             exit 1
           fi
