@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"sort"
 	"strconv"
@@ -162,14 +163,14 @@ func WriteAgentCLIMCPConfig(kind string, home AgentCLIHome, entries map[string]a
 				key = "serverUrl"
 			}
 			server := map[string]any{key: url}
-			if headers != nil {
+			if mcpValueSet(headers) {
 				server["headers"] = headers
 			}
 			servers[id] = server
 		case command != "":
 			server := map[string]any{"command": command}
 			for _, key := range []string{"args", "env", "cwd"} {
-				if value := entry[key]; value != nil && !(key == "cwd" && (kind == AgentCLICursor || kind == AgentCLIAntigravity)) {
+				if value := entry[key]; mcpValueSet(value) && !(key == "cwd" && (kind == AgentCLICursor || kind == AgentCLIAntigravity)) {
 					server[key] = value
 				}
 			}
@@ -213,12 +214,26 @@ func WriteAgentCLIMCPConfig(kind string, home AgentCLIHome, entries map[string]a
 	return writeAgentCLIFile(home, rel, data)
 }
 
+// mcpValueSet reports whether an MCP entry field holds a value. A nil slice
+// or map stored in the entry is not nil as an interface and would render as
+// null; some CLIs (Kiro CLI) answer that by silently dropping the server.
+func mcpValueSet(value any) bool {
+	if value == nil {
+		return false
+	}
+	switch v := reflect.ValueOf(value); v.Kind() {
+	case reflect.Slice, reflect.Map, reflect.Pointer, reflect.Interface:
+		return !v.IsNil()
+	}
+	return true
+}
+
 // openCodeMCPServer renders one MCP entry for OpenCode: a remote server for
 // a URL entry, otherwise a local server whose command is the argv array.
 func openCodeMCPServer(entry map[string]any) map[string]any {
 	if url, _ := entry["url"].(string); url != "" {
 		server := map[string]any{"type": "remote", "url": url, "enabled": true, "timeout": 600000}
-		if headers := entry["headers"]; headers != nil {
+		if headers := entry["headers"]; mcpValueSet(headers) {
 			server["headers"] = headers
 		}
 		return server
@@ -233,7 +248,7 @@ func openCodeMCPServer(entry map[string]any) map[string]any {
 		argv = append(argv, args...)
 	}
 	server := map[string]any{"type": "local", "command": argv, "enabled": true, "timeout": 600000}
-	if env := entry["env"]; env != nil {
+	if env := entry["env"]; mcpValueSet(env) {
 		server["environment"] = env
 	}
 	return server
@@ -249,14 +264,14 @@ func deepSeekMCPInsert(id string, entry map[string]any) map[string]any {
 	config := map[string]any{"serverName": name, "toolCallTimeoutMs": 600000}
 	if url, _ := entry["url"].(string); url != "" {
 		config["transport"], config["url"] = "streamable-http", url
-		if headers := entry["headers"]; headers != nil {
+		if headers := entry["headers"]; mcpValueSet(headers) {
 			config["headers"] = headers
 		}
 	} else {
 		command, _ := entry["command"].(string)
 		config["transport"], config["command"] = "stdio", command
 		for _, key := range []string{"args", "env", "cwd"} {
-			if value := entry[key]; value != nil {
+			if value := entry[key]; mcpValueSet(value) {
 				config[key] = value
 			}
 		}
