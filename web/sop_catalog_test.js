@@ -254,4 +254,32 @@ click(moreA);
 ctx.hideSOPCardMenu();
 assert.ok(!menuOpen());
 
-console.log('sop catalog ok');
+// ---------- Adopting a generic SOP reloads the catalog before the canvas ----------
+// The clone endpoint creates the project roles; the canvas resolves node roles
+// from state.data.agents, so it must see them without a manual page refresh.
+(async () => {
+  const gen = { id: 'gen-adopt', name: '通用交付', generic: true, nodes: [{ id: 'n1', type: 'agent', agentId: 'tpl-dev' }] };
+  const copied = { id: 'sop-new', name: '交付', projectId: 'p1', nodes: [{ id: 'n1', type: 'agent', agentId: 'p1-dev' }] };
+  ctx.state = { projectFilter: 'p1', genericTemplateId: gen.id, data: { workflows: [gen], agents: [] } };
+  const calls = [];
+  let agentsAtRender = null;
+  const els = {};
+  Object.assign(ctx, {
+    $: sel => (els[sel] ||= { classList: { remove() {}, add() {} }, disabled: false, textContent: '' }),
+    uid: () => 'sop-new',
+    markWorkflowClean() {},
+    renderAll: () => { agentsAtRender = ctx.state.data.agents.map(a => a.id); },
+    api: async (url, opt) => {
+      calls.push(url);
+      if (url.endsWith('/clone')) return copied;
+      if (url === '/api/bootstrap') return { workflows: [copied, gen], agents: [{ id: 'p1-dev', projectId: 'p1' }] };
+      throw new Error('unexpected ' + url);
+    },
+  });
+  await ctx.adoptGenericTemplate();
+  assert.deepStrictEqual(calls, ['/api/workflows/gen-adopt/clone', '/api/bootstrap']);
+  assert.deepStrictEqual(agentsAtRender, ['p1-dev'], 'cloned roles must be loaded before the canvas renders');
+  assert.strictEqual(ctx.state.data.workflows.filter(w => w.id === 'sop-new').length, 1, 'no duplicate SOP after reload');
+  assert.strictEqual(ctx.state.workflow.id, 'sop-new');
+  console.log('sop catalog ok');
+})().catch(e => { console.error(e); process.exit(1); });

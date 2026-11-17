@@ -70,3 +70,13 @@ assert.match(ctx.obsActivityUsageCard(usage,false).foot,/2 条回复未采集/);
 assert.equal(ctx.obsActivityUsageCard({sessionUsage:{missingReplies:1}},false).value,'未采集');
 assert.equal(ctx.obsActivityUsageCard({sessionUsage:{}},false).value,'0');
 assert.equal(ctx.obsActivityUsageCard(null,false).value,'—');
+// Kiro CLI credits are never priced: they appear on the token footnote only
+// when the summary reports some, and the UI stays unchanged otherwise.
+vm.runInContext(fs.readFileSync('app/obs-charts.js','utf8'),ctx);
+ctx.formatTokens=n=>String(Number(n||0));ctx.percent=n=>`${n}%`;ctx.duration=ms=>`${ms}ms`;
+ctx.state.obsTrendGrain='all';
+const tokenFoot=summary=>{ctx.state.analytics={summary};return ctx.obsUsageKpis(ctx.obsScopedView())};
+assert.match(tokenFoot({totalTokens:0,totalCredits:1.5,costUnknownRuns:0}),/入 0 \/ 出 0 · 1\.50 credits/);
+assert.doesNotMatch(tokenFoot({totalTokens:0,costUnknownRuns:0}),/credits/);
+assert.doesNotMatch(tokenFoot({totalTokens:0,totalCredits:1.5,costUnknownRuns:0}),/¥1\.50/,'credits must not be priced');
+console.log('kiro credits footnote checks passed');

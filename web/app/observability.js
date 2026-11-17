@@ -1095,13 +1095,17 @@ function obsUsageKpis(view){
   const spark=metric=>obsSpark(list.map(p=>metric==='rate'?obsTrendModeValue(p,'rate'):obsTrendValue(p,metric)).filter(v=>v!=null));
   const cum=(text)=>view.period?text:'';
   const tokenFoot=view.inputTokens!=null?`入 ${formatTokens(view.inputTokens)} / 出 ${formatTokens(view.outputTokens)}`:(view.period?`该${obsGrainCaption()} ${formatTokens(totalTokens)}`:`累计 ${formatTokens(totalTokens)}`);
+  // Kiro CLI credits are only summed all-time and never priced, so they ride
+  // on the token footnote instead of being converted into the cost card.
+  const credits=Number(summary.totalCredits||0);
+  const creditFoot=credits>0?` · ${view.period?'累计 ':''}${credits.toFixed(2)} credits`:'';
   const successFoot=`${succeeded} 成功 / ${failed} 失败${view.firstPass!=null?` · 一次通过 ${total?percent(view.firstPass):'—'}`:''}`;
   const costFoot='人民币 · Hy 上报 / 其他公价';
   const deltaTip=prevLabel?[`环比对象：${escapeHTML(prevLabel)}`]:[];
   const convTokens=view.conversationTokens||0,convCost=view.conversationCost||0;
   const convTip=convTokens?[['其中对话改代码',formatTokens(convTokens)]]:[];
   const usage=obsKpiGroup('投入 · SOP + 对话改代码',[
-    {label:`${rangeName} Token`,value:formatTokens(totalTokens),delta:dl(d('tokens'),true),spark:spark('tokens'),foot:tokenFoot,tip:[['输入',view.inputTokens!=null?formatTokens(view.inputTokens):'—'],['输出',view.outputTokens!=null?formatTokens(view.outputTokens):'—'],['缓存读',formatTokens(cache.read||0)],['缓存写',formatTokens(cache.write||0)],...convTip,...(view.period?[['累计',formatTokens(summary.totalTokens)]]:[]),...deltaTip]},
+    {label:`${rangeName} Token`,value:formatTokens(totalTokens),delta:dl(d('tokens'),true),spark:spark('tokens'),foot:tokenFoot+creditFoot,tip:[['输入',view.inputTokens!=null?formatTokens(view.inputTokens):'—'],['输出',view.outputTokens!=null?formatTokens(view.outputTokens):'—'],['缓存读',formatTokens(cache.read||0)],['缓存写',formatTokens(cache.write||0)],...convTip,...(view.period?[['累计',formatTokens(summary.totalTokens)]]:[]),...deltaTip]},
     {label:`${rangeName}成本`,value:costLabel(totalCost,view.costKnown),delta:dl(d('cost'),true),spark:spark('cost'),foot:costFoot+cum(` · 累计 ${costLabel(summary.totalCostCny,summary.costUnknownRuns===0)}`),tip:[...(convCost?[['其中对话改代码',costLabel(convCost,true)]]:[]),'人民币统计：Hy 保留上报金额；其他模型按公开标准单价测算。优先人民币定价，美元按 1 USD = 7 CNY 折算。缺少模型或 Token 分项时标为未识别；不代表实际结算账单。',...deltaTip]},
     {label:'缓存命中',value:cache.rate==null?'—':cache.rate.toFixed(0),unit:cache.rate==null?'':'%',delta:cache.rate!=null&&cache.prevRate!=null?obsDelta(cache.rate,cache.prevRate,false,'pt'):'',meter:cache.rate==null?0:cache.rate,foot:`缓存读 ${formatTokens(cache.read||0)}`,tip:['缓存命中 = 缓存读 ÷（输入 + 缓存读）。越高越省。']},
   ]);
