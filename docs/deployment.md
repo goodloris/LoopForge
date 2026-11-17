@@ -125,6 +125,17 @@ unset account_password
 
 Use `-admin` only when granting platform administration. Running the command again rotates that account's password. Password hashes use bcrypt. Browser sessions use signed HttpOnly, SameSite cookies and expire after seven days. No named person receives an implicit administrator role; additional administrators can be managed through the existing platform administration UI.
 
+## Kiro CLI
+
+Kiro CLI runs on a subscription login (`kiro-cli login`), never on an API key.
+
+- **Execution machine without a sandbox (local driver):** Kiro uses the machine's own login and may refresh its token in its data directory.
+- **Any sandbox (Docker, seatbelt, bwrap) and conversation workspaces:** each invocation gets a copy of only the login (no conversations or history) in its private HOME, so no sandboxed agent can read or write the machine's kiro-cli data. The copy refreshes its own access token; the refresh token does not rotate, so the machine stays logged in. Process sandboxes share one read-only copy of the machine's kiro-cli runtime, unpacked once under `AGENTFLOW_RUNTIME_CLI_DIR` (or the user cache directory).
+- **Conversation workspaces:** before each start, the conversation's `KIRO_HOME` is cleared of everything except sessions, logs, login state and what the platform rewrites, so hooks or permission rules a workspace turn planted there do not load in a later turn.
+- **Compose platform:** set `LOOPFORGE_KIRO_DATA_DIR` in `.env` to the host's kiro-cli data directory (`~/.local/share/kiro-cli` on Linux, `~/Library/Application Support/kiro-cli` on macOS). It is mounted read-only at `/kiro-host`; without it Kiro CLI shows as unconfigured.
+
+The image bundles kiro-cli 3.3.0 with its runtime in `KIRO_RUNTIME_DIR=/opt/kiro-runtime`. A custom sandbox image without kiro-cli installs the same pinned release on first use and unpacks the runtime (about 415 MB) into the private HOME.
+
 ## Workers and runners
 
 The upstream process roles remain `-role api`, `-role worker` and `-role all`. API and worker instances must share the MySQL database and configuration appropriate to their deployment. Set `AGENTFLOW_CONTROL_TOKEN`, `AGENTFLOW_CONTROL_URL` and `AGENTFLOW_WORKER_URL` when separating control and execution. Set `AGENTFLOW_PLATFORM_MCP_URL` to the actual platform URL reachable from execution containers.
