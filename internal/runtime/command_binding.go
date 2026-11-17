@@ -75,6 +75,14 @@ func checkProviderCredential(sb Sandbox, provider string) error {
 	if !found {
 		return nil
 	}
+	return MissingProviderCredential(provider, credentials)
+}
+
+// MissingProviderCredential runs missingCredential for the key binding the
+// executor kind's Prepare will request. The engine calls it before building
+// a sandbox image, which can take minutes.
+func MissingProviderCredential(kind string, credentials RunCredentials) error {
+	provider := providerForKind(kind).Kind()
 	binding := map[string]CredentialBinding{"codebuddy": BindCodeBuddy, "codex": BindCodex, "claude-code": BindClaudeCode}[provider]
 	if slices.Contains(AgentCLIKinds, provider) {
 		binding = BindAgentCLI
