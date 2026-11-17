@@ -71,6 +71,19 @@ func (d *deps) dbClockBeforeSQL() string {
 	return ""
 }
 
+// likeCI is "(column LIKE ?)" matched without regard to case on every
+// dialect, the way MySQL's utf8mb4_unicode_ci and sqlite's LIKE already
+// compare. PostgreSQL's LIKE is case-sensitive, so it uses ILIKE. Use it for
+// free text people name or write (artifact names, content); IDs, tokens and
+// paths keep a plain LIKE, case-sensitive on PostgreSQL. column must be a
+// code constant.
+func (d *deps) likeCI(column string) string {
+	if d.isPostgres() {
+		return "(" + column + " ILIKE ?)"
+	}
+	return "(" + column + " LIKE ?)"
+}
+
 // pgJSONText extracts text at a MySQL-style JSON path ("$.a.b[0]") from a
 // jsonb column on PostgreSQL. The jsonpath syntax accepts the same paths the
 // MySQL branches use, so callers keep one path constant. arg is either a
