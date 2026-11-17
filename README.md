@@ -44,7 +44,7 @@ Coding-agent CLIs do the work: CodeBuddy, Codex, Claude Code, OpenCode, Cursor C
 | | **Chat with Main Bot** | **Run an SOP** |
 | --- | --- | --- |
 | Best for | Exploring, quick fixes, iterating with the agent | Repeatable delivery with fixed stages and sign-off |
-| How it runs | Main Bot opens a [conversation workspace](docs/conversation-workspaces.md) (a Docker sandbox with your repos) on demand and calls project roles as subagents | The engine runs Agent, Script, Human-gate and sub-SOP nodes in order, in their own sandbox |
+| How it runs | Main Bot opens a [conversation workspace](docs/conversation-workspaces.md) (a Docker sandbox with your repos) on demand. The project's roles, if it has any, are available as subagents: Main Bot handles most work itself and hands a task to a role when you `@` it, or more readily with **Dispatch roles** on in Settings → AI assistant | The engine runs Agent, Script, Human-gate and sub-SOP nodes in order, in their own sandbox |
 | You stay in control by | Queuing or steering messages mid-reply, and pausing, resuming or taking over a running SOP from chat | Approving at human gates, sending work back to a chosen step, retrying or rerunning from any node |
 | Delivers | A PR/MR, or a direct merge into a shared branch (`mode=direct`) | Documents, code or a PR, plus per-node artifacts and logs |
 
@@ -175,7 +175,7 @@ Each node declares its artifacts and dependencies, and the engine starts each st
 | Area | What you get |
 | --- | --- |
 | **Chat workbench** | Main Bot with per-conversation executor, model and permission mode. `@` references for roles, skills, requirements, SOPs and repositories. Messages queue while a reply runs; *Steer* interrupts and sends now. Generated files open in a side panel with preview, source and download. |
-| **Conversation workspaces** | On-demand Docker sandboxes with the project's repositories checked out, project roles as native subagents, and direct control of a running SOP workspace: pause, resume or take over. |
+| **Conversation workspaces** | On-demand Docker sandboxes with the project's repositories checked out, project roles (if any) as native subagents that Main Bot uses when you `@` a role or turn on **Dispatch roles**, and direct control of a running SOP workspace: pause, resume or take over. |
 | **SOP designer** | Visual canvas with Agent, Script, Human gate, Sub-SOP and Preview nodes, rework-on-failure edges, validation, version history and publishing. Built-in backend, frontend, bug-fix and product SOPs. |
 | **Roles** | Reusable definitions: prompt, executor, model, rules, Skills, MCP tools, artifacts and gates, shared across SOP nodes and chat subagents. |
 | **Requirement → delivery** | Requirements tracked end to end, whether shipped by an SOP or straight from chat, with PR/MR status tracking, merge detection and direct-branch merges. |
