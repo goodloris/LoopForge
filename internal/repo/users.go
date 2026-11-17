@@ -122,6 +122,16 @@ func (r *UsersRepo) User(id int64) (domain.User, bool) {
 	return r.userQuery("u.id=?", id)
 }
 
+// loginNameWhere matches a login name the way the unique index compares it:
+// MySQL's collation and PostgreSQL's lower() index are case-insensitive.
+// sqlite (tests only) keeps its case-sensitive unique index and plain match.
+func (r *UsersRepo) loginNameWhere() string {
+	if r.isPostgres() {
+		return "LOWER(login_name) = LOWER(?)"
+	}
+	return "login_name = ?"
+}
+
 func (r *UsersRepo) UserByLoginName(loginName string) (domain.User, bool) {
 	if r.isMySQL() {
 		// MySQL collation is already case-insensitive and keeps index usage.
@@ -190,6 +200,11 @@ func (r *UsersRepo) writeUser(v domain.User) (domain.User, error) {
 			"dept_id": v.DeptID, "dept_name": v.DeptName, "platform_role": v.PlatformRole,
 			"created_at": timePtr(v.CreatedAt), "updated_at": timePtr(v.UpdatedAt),
 		})
+		if err == nil && r.isPostgres() {
+			// MySQL AUTO_INCREMENT follows explicit ids; a PG sequence does not,
+			// and the next id-less insert would collide with this row.
+			err = r.DB.Exec("SELECT setval(pg_get_serial_sequence('users', 'id'), GREATEST((SELECT MAX(id) FROM users), 1))").Error
+		}
 		return v, err
 	}
 	inserted, err := insertIgnore(r.DB, "users", map[string]any{
@@ -203,7 +218,7 @@ func (r *UsersRepo) writeUser(v domain.User) (domain.User, error) {
 	if !inserted {
 		// The unique login already exists: adopt that row and refresh it.
 		var existing userRow
-		if err := r.DB.Where("login_name = ?", v.LoginName).Take(&existing).Error; err != nil {
+		if err := r.DB.Where(r.loginNameWhere(), v.LoginName).Take(&existing).Error; err != nil {
 			return domain.User{}, err
 		}
 		if err := r.DB.Model(&userRow{}).Where("id = ?", existing.ID).Updates(map[string]any{
@@ -216,7 +231,7 @@ func (r *UsersRepo) writeUser(v domain.User) (domain.User, error) {
 		return v, nil
 	}
 	var row userRow
-	if err := r.DB.Where("login_name = ?", v.LoginName).Take(&row).Error; err != nil {
+	if err := r.DB.Where(r.loginNameWhere(), v.LoginName).Take(&row).Error; err != nil {
 		return domain.User{}, err
 	}
 	v.ID = row.ID

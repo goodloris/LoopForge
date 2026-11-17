@@ -40,6 +40,8 @@ func (r *RunsRepo) SidebarRunMetas(ids []string) map[string]SidebarRunMeta {
 	nameExpr := "json_extract(snapshot, '$.name')"
 	if r.isMySQL() {
 		nameExpr = "JSON_UNQUOTE(JSON_EXTRACT(snapshot, '$.name'))"
+	} else if r.isPostgres() {
+		nameExpr = "snapshot->>'name'"
 	}
 	for start := 0; start < len(ids); start += 500 {
 		var rows []struct {
@@ -131,10 +133,7 @@ func (r *AssistantRepo) AssistantSessionMessageCounts(ids []string) map[string]i
 	if len(ids) == 0 {
 		return out
 	}
-	expr := "COALESCE(json_array_length(payload, '$.messages'), 0)"
-	if r.isMySQL() {
-		expr = "COALESCE(JSON_LENGTH(JSON_EXTRACT(payload, '$.messages')), 0)"
-	}
+	expr := r.assistantExecutionMessageCountSQL()
 	for start := 0; start < len(ids); start += 500 {
 		var rows []struct {
 			ID    string

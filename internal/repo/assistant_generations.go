@@ -129,11 +129,15 @@ func (r *AssistantRepo) RecordAssistantGenerationWorkspaceLease(userID int64, se
 // while alive, or never reaped. ok is false when the clock cannot be read, and
 // callers then treat the heartbeat as fresh rather than reap on a guess.
 func (r *AssistantRepo) heartbeatNow(db *gorm.DB) (time.Time, bool) {
-	if !r.isMySQL() {
+	if !r.isMySQL() && !r.isPostgres() {
 		return time.Now().UTC(), true
 	}
+	clock := "SELECT UTC_TIMESTAMP(3)"
+	if r.isPostgres() {
+		clock = "SELECT statement_timestamp()"
+	}
 	var now time.Time
-	if err := db.Raw("SELECT UTC_TIMESTAMP(3)").Scan(&now).Error; err != nil || now.IsZero() {
+	if err := db.Raw(clock).Scan(&now).Error; err != nil || now.IsZero() {
 		return time.Time{}, false
 	}
 	return now, true
@@ -149,6 +153,9 @@ func (r *AssistantRepo) heartbeatLate(db *gorm.DB, updatedAt time.Time) bool {
 // lateHeartbeatOnly lets the database itself confirm, when the reap commits,
 // that the heartbeat is still late on its own clock.
 func (r *AssistantRepo) lateHeartbeatOnly(q *gorm.DB) *gorm.DB {
+	if r.isPostgres() {
+		return q.Where("updated_at < statement_timestamp() - ? * interval '1 microsecond'", assistantHeartbeatTimeout.Microseconds())
+	}
 	if !r.isMySQL() {
 		return q
 	}
@@ -161,6 +168,10 @@ func (r *AssistantRepo) lateHeartbeatOnly(q *gorm.DB) *gorm.DB {
 func (r *AssistantRepo) generationClock() any {
 	if r.isMySQL() {
 		return clause.Expr{SQL: "UTC_TIMESTAMP(3)"}
+	}
+	if r.isPostgres() {
+		// statement_timestamp, not now(): now() is frozen at transaction start.
+		return clause.Expr{SQL: "statement_timestamp()"}
 	}
 	return time.Now().UTC()
 }
@@ -228,7 +239,7 @@ func (r *AssistantRepo) BeginAssistantGeneration(g domain.AssistantGeneration, p
 			if err := tx.Create(&assistantGenerationRow{SessionID: g.SessionID, UserID: g.UserID, GenerationID: g.ID, Status: "running", Payload: mustJSON(g), UpdatedAt: time.Now().UTC()}).Error; err != nil {
 				return err
 			}
-			if r.isMySQL() {
+			if r.isMySQL() || r.isPostgres() {
 				// The first heartbeat is on the database clock like every later one.
 				if err := tx.Model(&assistantGenerationRow{}).Where("session_id = ?", g.SessionID).UpdateColumn("updated_at", r.generationClock()).Error; err != nil {
 					return err

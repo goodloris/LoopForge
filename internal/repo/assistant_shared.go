@@ -151,7 +151,15 @@ func ProjectSharedAssistantSession(s domain.AssistantSession) bool {
 	return !s.Shared && s.RunID == "" && strings.TrimSpace(s.ProjectID) != "" && !strings.HasPrefix(s.ID, "sop-")
 }
 
-const assistantSessionMetadataColumns = "id, user_id, project_id, title, model, source, task_id, created_at, updated_at, JSON_REMOVE(payload, '$.messages') AS payload"
+// assistantSessionMetadataColumns selects a session row without its
+// transcript. PostgreSQL has no JSON_REMOVE; jsonb's "-" drops the key.
+func assistantSessionMetadataColumns(db *gorm.DB) string {
+	payload := "JSON_REMOVE(payload, '$.messages')"
+	if db.Dialector.Name() == "postgres" {
+		payload = "(payload - 'messages')"
+	}
+	return "id, user_id, project_id, title, model, source, task_id, created_at, updated_at, " + payload + " AS payload"
+}
 
 // ProjectAssistantSession returns the metadata of a project-shared
 // conversation regardless of who created it. Callers must authorize the
@@ -162,7 +170,7 @@ func (r *AssistantRepo) ProjectAssistantSession(id string) (domain.AssistantSess
 		return domain.AssistantSession{}, false
 	}
 	var row assistantSessionRow
-	if r.DB.Table("assistant_sessions").Select(assistantSessionMetadataColumns).Where("id = ?", id).Take(&row).Error != nil {
+	if r.DB.Table("assistant_sessions").Select(assistantSessionMetadataColumns(r.DB)).Where("id = ?", id).Take(&row).Error != nil {
 		return domain.AssistantSession{}, false
 	}
 	item := decodeAssistantSession(row)

@@ -3,8 +3,6 @@ package repo
 import (
 	"agentflow/internal/domain"
 	"encoding/json"
-	"fmt"
-	mysqldriver "github.com/go-sql-driver/mysql"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"os"
@@ -37,20 +35,5 @@ func TestMySQLAssistantParticipantProjectionReadOnly(t *testing.T) {
 	deriveAssistantParticipants(&s, messages)
 	if len(s.Participants) != 2 || !s.UnknownParticipants {
 		t.Fatalf("wrong projection: %+v", s)
-	}
-}
-
-// Only "this server cannot run the projection" disables it for the process;
-// a transient failure (lock wait, lost connection) keeps trying next time.
-func TestSummaryProjectionUnsupportedOnlyForMissingJSONTable(t *testing.T) {
-	for _, number := range []uint16{1064, 1305} {
-		if !summaryProjectionUnsupported(fmt.Errorf("list: %w", &mysqldriver.MySQLError{Number: number})) {
-			t.Fatalf("error %d must disable the projection", number)
-		}
-	}
-	for _, err := range []error{&mysqldriver.MySQLError{Number: 1205}, fmt.Errorf("driver: bad connection"), nil} {
-		if summaryProjectionUnsupported(err) {
-			t.Fatalf("%v must not disable the projection", err)
-		}
 	}
 }

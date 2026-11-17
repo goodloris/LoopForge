@@ -141,7 +141,7 @@ func (skillRow) TableName() string { return "skills" }
 type skillFileRow struct {
 	SkillID  string     `gorm:"column:skill_id;primaryKey;size:64"`
 	Path     string     `gorm:"column:path;primaryKey;size:512"`
-	Content  []byte     `gorm:"column:content;type:mediumblob"`
+	Content  []byte     `gorm:"column:content;size:16777215"` // mediumblob on MySQL, bytea on PG
 	Size     int64      `gorm:"column:size"`
 	SHA256   string     `gorm:"column:sha256;size:64"`
 	UnixMode uint32     `gorm:"column:unix_mode"`
@@ -153,7 +153,7 @@ func (skillFileRow) TableName() string { return "skill_files" }
 type mcpFileRow struct {
 	MCPID    string     `gorm:"column:mcp_id;primaryKey;size:64"`
 	Path     string     `gorm:"column:path;primaryKey;size:512"`
-	Content  []byte     `gorm:"column:content;type:mediumblob"`
+	Content  []byte     `gorm:"column:content;size:16777215"` // mediumblob on MySQL, bytea on PG
 	Size     int64      `gorm:"column:size"`
 	SHA256   string     `gorm:"column:sha256;size:64"`
 	UnixMode uint32     `gorm:"column:unix_mode"`
@@ -442,7 +442,7 @@ func (previewSessionRow) TableName() string { return "preview_sessions" }
 
 type previewBlobRow struct {
 	SHA256  string     `gorm:"column:sha256;primaryKey;size:64"`
-	Content []byte     `gorm:"column:content;type:longblob"`
+	Content []byte     `gorm:"column:content"` // no size: longblob on MySQL, bytea on PG
 	Size    int64      `gorm:"column:size"`
 	Created *time.Time `gorm:"column:created_at"`
 }

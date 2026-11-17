@@ -97,13 +97,20 @@ func (r *AssistantRepo) replaceSessionCLIFailure(engine, missing, generic, next 
 	return nil
 }
 
-// wherePayloadHas matches JSON payloads that contain the failure text.
-// LIKE does not see the sqlite JSON blob, so both drivers search the cast text.
-func wherePayloadHas(query *gorm.DB, db *gorm.DB, missing, generic string) *gorm.DB {
-	expr := "instr(CAST(payload AS TEXT), ?) > 0"
-	if db.Dialector.Name() == "mysql" {
-		expr = "INSTR(CAST(payload AS CHAR), ?) > 0"
+// wherePayloadHasFunc is the substring search function, INSTR on PostgreSQL
+// spelled strpos.
+func wherePayloadHasFunc(db *gorm.DB) string {
+	if db.Dialector.Name() == "postgres" {
+		return "strpos("
 	}
+	return "instr("
+}
+
+// wherePayloadHas matches JSON payloads that contain the failure text.
+// LIKE does not see the sqlite JSON blob, so every driver searches the cast
+// text.
+func wherePayloadHas(query *gorm.DB, db *gorm.DB, missing, generic string) *gorm.DB {
+	expr := wherePayloadHasFunc(db) + sqlColumnText(db, "payload") + ", ?) > 0"
 	if strings.TrimSpace(generic) == "" {
 		return query.Where(expr, missing)
 	}

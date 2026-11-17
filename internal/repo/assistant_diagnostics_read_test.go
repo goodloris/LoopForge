@@ -69,7 +69,9 @@ func TestAssistantDiagnosticsReadRefreshesStaleRunningReport(t *testing.T) {
 		t.Fatalf("stale refresh overwrote recorded evidence: %+v", got)
 	}
 
-	if err := s.DB.Exec("UPDATE assistant_diagnostics SET payload = ? WHERE generation_id = ?", []byte("{not json"), g.ID).Error; err != nil {
+	// Valid JSON (MySQL and PostgreSQL reject anything else) that does not
+	// decode into a report.
+	if err := s.DB.Exec("UPDATE assistant_diagnostics SET payload = ? WHERE generation_id = ?", []byte(`"not a report"`), g.ID).Error; err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := s.AssistantDiagnostics(owner, g.SessionID, g.ID); ok {

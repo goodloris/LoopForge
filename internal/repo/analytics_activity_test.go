@@ -60,6 +60,12 @@ func TestAnalyticsActivityCountsConversationsRequirementsAndSOPs(t *testing.T) {
 	if err := s.DB.Create(&assistantSessionRow{ID: legacy.ID, UserID: 9, ProjectID: legacy.ProjectID, Payload: before, Created: timePtr(legacy.CreatedAt)}).Error; err != nil {
 		t.Fatal(err)
 	}
+	// Compare against the stored form: jsonb normalizes whitespace on write.
+	var stored assistantSessionRow
+	if err := s.DB.Where("id = ?", legacy.ID).Take(&stored).Error; err != nil {
+		t.Fatal(err)
+	}
+	before = stored.Payload
 	filter := domain.AnalyticsFilter{ProjectID: "activity", Scope: "overview"}
 	got := s.Analytics(filter)
 	want := domain.AnalyticsActivity{Sessions: 3, CollaborativeSessions: 2, Requirements: 2, SOPRuns: 2,

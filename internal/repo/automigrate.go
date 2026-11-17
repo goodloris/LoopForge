@@ -55,6 +55,9 @@ func autoMigrateIncremental(db *gorm.DB) error {
 			}
 		}
 	}
+	if db.Dialector.Name() == "postgres" {
+		return postgresCaseInsensitiveIndexes(db)
+	}
 	return nil
 }
 

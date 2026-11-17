@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"gorm.io/gorm"
@@ -63,16 +64,45 @@ func upsert(db *gorm.DB, table string, values map[string]any) error {
 		cols = append(cols, name)
 	}
 	sort.Strings(cols)
-	cl := clause.OnConflict{DoUpdates: clause.AssignmentColumns(cols)}
+	cl := clause.OnConflict{Columns: conflictTarget(db, table), DoUpdates: clause.AssignmentColumns(cols)}
 	if err := db.Table(table).Clauses(cl).Create(values).Error; err != nil {
 		return fmt.Errorf("%s write: %w", table, err)
 	}
 	return nil
 }
 
+// primaryKeysByTable caches each model table's primary key columns.
+var primaryKeysByTable sync.Map
+
+// conflictTarget names the primary key as the ON CONFLICT target on
+// PostgreSQL, which (unlike MySQL's ON DUPLICATE KEY and sqlite) rejects
+// DO UPDATE without one. Other dialects keep their implicit any-unique-key
+// target, so their behaviour is unchanged.
+func conflictTarget(db *gorm.DB, table string) []clause.Column {
+	if db.Dialector.Name() != "postgres" {
+		return nil
+	}
+	if cached, ok := primaryKeysByTable.Load(table); ok {
+		return cached.([]clause.Column)
+	}
+	var cols []clause.Column
+	for _, model := range allModels() {
+		stmt := &gorm.Statement{DB: db}
+		if stmt.Parse(model) != nil || stmt.Schema.Table != table {
+			continue
+		}
+		for _, name := range stmt.Schema.PrimaryFieldDBNames {
+			cols = append(cols, clause.Column{Name: name})
+		}
+		break
+	}
+	primaryKeysByTable.Store(table, cols)
+	return cols
+}
+
 // upsertColumns inserts a row and updates only the given columns on conflict.
 func upsertColumns(db *gorm.DB, table string, values map[string]any, updateCols []string) error {
-	cl := clause.OnConflict{DoUpdates: clause.AssignmentColumns(updateCols)}
+	cl := clause.OnConflict{Columns: conflictTarget(db, table), DoUpdates: clause.AssignmentColumns(updateCols)}
 	if err := db.Table(table).Clauses(cl).Create(values).Error; err != nil {
 		return fmt.Errorf("%s write: %w", table, err)
 	}
@@ -97,11 +127,17 @@ func insertIgnore(db *gorm.DB, table string, values map[string]any) (bool, error
 		placeholders[i] = "?"
 		args = append(args, values[name])
 	}
-	verb := "INSERT OR IGNORE"
-	if db.Dialector.Name() == "mysql" {
+	verb, tail := "INSERT OR IGNORE", ""
+	switch db.Dialector.Name() {
+	case "mysql":
 		verb = "INSERT IGNORE"
+	case "postgres":
+		verb, tail = "INSERT", " ON CONFLICT DO NOTHING"
+		for i, name := range names {
+			cols[i] = `"` + name + `"`
+		}
 	}
-	stmt := fmt.Sprintf("%s INTO %s (%s) VALUES (%s)", verb, table, strings.Join(cols, ","), strings.Join(placeholders, ","))
+	stmt := fmt.Sprintf("%s INTO %s (%s) VALUES (%s)%s", verb, table, strings.Join(cols, ","), strings.Join(placeholders, ","), tail)
 	res := db.Exec(stmt, args...)
 	return res.RowsAffected > 0, res.Error
 }

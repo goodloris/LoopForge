@@ -19,7 +19,7 @@ A conversation workspace on a custom Dockerfile without Node.js, npm or Python 3
 
 Stop the foreground service with Ctrl-C. Start it again with the same command. MySQL data stays in its Compose volume. `docker compose stop mysql` stops the database without deleting it.
 
-Use `AGENTFLOW_MYSQL_DSN` for your own MySQL deployment. A fresh account command or server connection creates missing schema objects. Apply existing-installation data migrations individually after reviewing their prerequisites; do not blindly replay all historical migrations against a new database.
+Use `AGENTFLOW_DATABASE_DSN` (or the `-database-dsn` flag) for your own database: a go-sql-driver MySQL DSN, or a `postgres://` URL for PostgreSQL. `AGENTFLOW_MYSQL_DSN` and `-mysql-dsn` remain supported aliases. A fresh account command or server connection creates missing schema objects. Apply existing-installation data migrations individually after reviewing their prerequisites; do not blindly replay all historical migrations against a new database.
 
 ## Container installation
 
