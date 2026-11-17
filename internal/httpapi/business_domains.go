@@ -101,7 +101,7 @@ func (h *businessDomainsHandlers) domains(c *gin.Context) {
 			c.JSON(409, gin.H{"error": err.Error()})
 			return
 		}
-		if errors.Is(err, gorm.ErrDuplicatedKey) {
+		if repo.IsDuplicateKey(err) {
 			c.JSON(409, gin.H{"error": "业务域名称已存在"})
 		} else {
 			respond(c, err)

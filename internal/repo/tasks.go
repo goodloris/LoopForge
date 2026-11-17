@@ -1,7 +1,6 @@
 package repo
 
 import (
-	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -59,7 +58,7 @@ func (r *TasksRepo) createTask(tx *gorm.DB, v domain.Task) (domain.Task, bool, e
 	if err == nil && created {
 		return v, true, nil
 	}
-	if err != nil && !errors.Is(err, gorm.ErrDuplicatedKey) {
+	if err != nil && !IsDuplicateKey(err) {
 		return domain.Task{}, false, err
 	}
 	existing, ok := payloadOne[domain.Task](tx, "tasks", v.ID)

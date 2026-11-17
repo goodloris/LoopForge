@@ -2,24 +2,12 @@ package repo
 
 import (
 	"agentflow/internal/domain"
-	"errors"
 	"fmt"
-	"github.com/go-sql-driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"strings"
 	"time"
 )
-
-// summaryProjectionUnsupported reports a server that cannot parse the
-// projection at all (no JSON_TABLE), as opposed to a transient failure.
-func summaryProjectionUnsupported(err error) bool {
-	var sqlErr *mysql.MySQLError
-	if errors.As(err, &sqlErr) {
-		return sqlErr.Number == 1064 || sqlErr.Number == 1305
-	}
-	return false
-}
 
 // Human participants come from the transcript, never project membership or a
 // caller-supplied count. Legacy private messages belong to their storage owner;

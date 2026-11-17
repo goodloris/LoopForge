@@ -38,7 +38,7 @@ func (r *AnalyticsRepo) analyticsSessionUsage(ids []string, visit func(string, [
 			}
 			err := r.DB.Table("assistant_sessions s").Select("s.id, "+expr+" AS messages").Where("s.id IN ?", batch).Scan(&rows).Error
 			if err != nil {
-				if !r.isMySQL() || !summaryProjectionUnsupported(err) {
+				if !summaryProjectionUnsupported(err) {
 					return err
 				}
 				noAnalyticsUsageProjection.Store(true)

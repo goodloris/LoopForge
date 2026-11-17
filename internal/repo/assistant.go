@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"agentflow/internal/domain"
-	mysqldriver "github.com/go-sql-driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -270,14 +269,14 @@ func (r *AssistantRepo) PutAssistantSession(userID int64, v domain.AssistantSess
 
 // retryAssistantDeadlock runs a transaction that locks a possibly missing
 // session row. Locking two missing IDs can deadlock their shared InnoDB index
-// gap. MySQL has rolled back the entire victim transaction, so retry only that
-// explicit error; unknown commit/connection failures are not replayed.
+// gap. The server has rolled back the entire victim transaction, so retry only
+// those explicit errors (isRetryableConflict); unknown commit/connection
+// failures are not replayed.
 func (r *AssistantRepo) retryAssistantDeadlock(transaction func() error) error {
 	var err error
 	for attempt := 0; attempt < 6; attempt++ {
 		err = transaction()
-		var sqlErr *mysqldriver.MySQLError
-		if !errors.As(err, &sqlErr) || sqlErr.Number != 1213 || attempt == 5 {
+		if !isRetryableConflict(err) || attempt == 5 {
 			return err
 		}
 		select {

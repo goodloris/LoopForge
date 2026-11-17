@@ -75,7 +75,7 @@ func (r *DeliveryRepo) lockIntegrationPostgres(ctx context.Context, repositoryID
 	_, _ = conn.ExecContext(context.Background(), "RESET lock_timeout")
 	if err != nil {
 		_ = conn.Close()
-		if strings.Contains(err.Error(), "55P03") {
+		if isLockTimeout(err) {
 			return nil, fmt.Errorf("等待仓库 %s 的合入锁超时（%s）", repositoryID, wait)
 		}
 		return nil, err
