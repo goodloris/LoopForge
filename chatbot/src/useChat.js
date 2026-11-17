@@ -232,7 +232,13 @@ export function useChat() {
         setModels(catalog.models || []);
         defaultModel.current = catalog.default || "";
         setSponsoredModels(sponsoredModelList(catalog));
-        setModel(catalog.default);
+        // catalog.default is a CodeBuddy model. Another CLI starts on its own
+        // first model, as open(null) does; open(null) may have run before
+        // the catalog arrived and found none.
+        const preferred = storedExecutor();
+        setModel(preferred === "codebuddy"
+          ? catalog.default
+          : engineModels(catalog.models, preferred)[0]?.id || "default");
         await refreshSessions();
         if (!current) return;
         const recovered = connectionError;

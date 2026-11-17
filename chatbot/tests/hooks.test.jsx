@@ -74,6 +74,37 @@ describe("conversation hooks", () => {
     history.replaceState({}, "", "/");
   });
 
+  test("a non-CodeBuddy CLI starts on its own model when auth/current answers last", async () => {
+    // The real page: the parent's project context opens a new chat before
+    // the catalog lands, then the catalog's CodeBuddy default replaced the
+    // Kiro model and the picker read "模型".
+    const original = apiMock.getMockImplementation();
+    localStorage.setItem("loopforge.assistant.executor", "kiro");
+    let signIn;
+    const auth = new Promise((resolve) => { signIn = resolve; });
+    apiMock.mockImplementation((path, options) => {
+      if (path === "/api/auth/current") return auth;
+      if (path === "/api/assistant/models")
+        return Promise.resolve({ default: "m1", models: [{ id: "m1", name: "模型一" }, { id: "kiro:auto", name: "Auto", engine: "kiro" }] });
+      if (path === "/api/assistant/models?executor=kiro")
+        return Promise.resolve({ default: "default", models: [{ id: "default", name: "CLI default" }, { id: "auto", name: "Auto" }] });
+      return original(path, options);
+    });
+    try {
+      const { result } = renderHook(() => useChat());
+      // Every other boot request settles before auth/current does.
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      act(() => result.current.newChat());
+      await act(async () => signIn({ user: { id: 1, loginName: "tester", codeBuddyApiKeyConfigured: true } }));
+      await waitFor(() => expect(result.current.ready).toBe(true));
+      const selected = () => result.current.models.find((m) => m.id === result.current.model)?.name;
+      await waitFor(() => expect(selected()).toBe("Auto"));
+    } finally {
+      apiMock.mockImplementation(original);
+      localStorage.removeItem("loopforge.assistant.executor");
+    }
+  });
+
   test("asks for the model catalog only after auth/current reports a signed-in user", async () => {
     const original = apiMock.getMockImplementation();
     const modelCalls = () => apiMock.mock.calls.filter(([path]) => path.startsWith("/api/assistant/models"));
