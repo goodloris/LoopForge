@@ -324,6 +324,7 @@ func (s *Service) executeJob(job domain.ScheduleJob, triggerOrigin string, exec 
 		job.Blockers = nil
 		return finish(job, nil)
 	}
+	pullErr := s.pullSources(job)
 	s.dispatchMu.Lock()
 	defer s.dispatchMu.Unlock()
 	matched := s.matchingIssues(job)
@@ -367,6 +368,13 @@ func (s *Service) executeJob(job domain.ScheduleJob, triggerOrigin string, exec 
 		dispatched++
 	}
 	job.LastDispatched = dispatched
+	if pullErr != nil {
+		// Issues pulled earlier were still dispatched; the pull failure is the result.
+		job.LastStatus = "failed"
+		job.LastError = "拉取外部来源失败：" + pullErr.Error()
+		job.Blockers = mergeBlockers(job.Blockers, blocked, time.Now().UTC())
+		return finish(job, nil)
+	}
 	if len(blocked) > 0 {
 		job.LastStatus = "waiting"
 		job.LastError = joinBlockReasons(blocked)
@@ -378,6 +386,26 @@ func (s *Service) executeJob(job domain.ScheduleJob, triggerOrigin string, exec 
 	job.Blockers = nil
 	return finish(job, nil)
 }
+
+// pullSources pulls the job's configured sources into the project before it
+// scans issues, so one trigger job both syncs and dispatches. A concurrent
+// pull holds the tracker's sync slot; wait for it rather than skip the pull.
+func (s *Service) pullSources(job domain.ScheduleJob) error {
+	if s.sync == nil {
+		return nil
+	}
+	deadline := time.Now().Add(pullWait)
+	for {
+		_, _, err := s.sync.PullScheduleJob(s.repo, job)
+		if !errors.Is(err, tracker.ErrSyncInProgress) || time.Now().After(deadline) {
+			return err
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+}
+
+// pullWait bounds how long a trigger job waits for another pull to finish.
+const pullWait = 2 * time.Minute
 
 func (s *Service) runAssistant(job domain.ScheduleJob, exec *domain.ScheduleJobExecution) (string, string, error) {
 	if s.assistantRun != nil {
