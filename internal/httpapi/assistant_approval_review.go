@@ -137,15 +137,41 @@ func approvalReviewInput(req assistantRequest, user domain.User) assistantApprov
 	return input
 }
 
-func (h *assistantHandlers) approvalReviewer(req assistantRequest, user domain.User, notify func(assistantStreamEvent)) assistantApprovalReviewer {
-	input := approvalReviewInput(req, user)
+// approvalReviewModels picks the review models of a turn. A conversation on
+// another CLI (Kiro CLI, Codex, …) is reviewed by that CLI and model: the
+// turn already runs on its credential or login, and a deployment without
+// CodeBuddy has nothing else. CodeBuddy turns keep the cheapest-model choice.
+func (h *assistantHandlers) approvalReviewModels(req assistantRequest, user domain.User) []string {
+	if model := assistantRequestModel(req.Executor, req.Model); !assistantCodeBuddyModel(model) {
+		return []string{model}
+	}
 	var catalog assistantModelCatalog
 	if h.reviewCatalog != nil {
 		catalog = h.reviewCatalog(user.CodeBuddyInternetEnvironment)
 	} else {
 		catalog = h.chatCatalog(context.Background(), user)
 	}
-	models := assistantApprovalReviewModels(catalog)
+	return assistantApprovalReviewModels(catalog)
+}
+
+func assistantCodeBuddyModel(model string) bool {
+	engine, _ := assistantModelEngine(model)
+	return engine == assistantEngineCodeBuddy
+}
+
+// assistantApprovalAttemptTimeout bounds one review call. CodeBuddy keeps
+// room for its paid fallback; another CLI has no fallback and may need a cold
+// start (Kiro CLI refreshes its login first).
+func assistantApprovalAttemptTimeout(model string) time.Duration {
+	if !assistantCodeBuddyModel(model) {
+		return 55 * time.Second
+	}
+	return 30 * time.Second
+}
+
+func (h *assistantHandlers) approvalReviewer(req assistantRequest, user domain.User, notify func(assistantStreamEvent)) assistantApprovalReviewer {
+	input := approvalReviewInput(req, user)
+	models := h.approvalReviewModels(req, user)
 	var modelMu sync.Mutex
 	primaryUnavailable := false
 	return func(ctx context.Context, tool, description string, args map[string]any) assistantApprovalReview {
@@ -168,7 +194,7 @@ func (h *assistantHandlers) approvalReviewer(req assistantRequest, user domain.U
 			if notify != nil {
 				notify(assistantStreamEvent{Kind: "status", Text: "帮我批准：正在审查操作", Detail: "审查模型：" + model})
 			}
-			attempt, stop := context.WithTimeout(ctx, 30*time.Second)
+			attempt, stop := context.WithTimeout(ctx, assistantApprovalAttemptTimeout(model))
 			var err error
 			if h.review != nil {
 				result, err = h.review(attempt, action, user, model)
@@ -208,7 +234,9 @@ func (h *assistantHandlers) approvalReviewer(req assistantRequest, user domain.U
 }
 
 func runAssistantApprovalReview(ctx context.Context, input assistantApprovalInput, user domain.User, model string) (assistantApprovalReview, error) {
-	if model == "" || strings.TrimSpace(user.CodeBuddyAPIKey) == "" {
+	// Other CLIs name a missing key or login themselves; the review is then
+	// unavailable and the user confirms by hand.
+	if model == "" || assistantCodeBuddyModel(model) && strings.TrimSpace(user.CodeBuddyAPIKey) == "" {
 		return assistantApprovalReview{}, fmt.Errorf("review model or credential unavailable")
 	}
 	root, err := os.MkdirTemp("", "agentflow-approval-review-")
