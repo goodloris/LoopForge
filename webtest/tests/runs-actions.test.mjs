@@ -269,3 +269,29 @@ test('run activation waits for workspace restoration, deduplicates intent, and f
   assert.equal(app.document.querySelector('[data-run-activation-status]'), null);
   assert.equal(app.document.querySelector('[data-retry-node]').disabled, false);
 });
+
+test('run eval runs on a Kiro CLI model without a CodeBuddy key', async (t) => {
+  const app = await loadApp();
+  t.after(app.close);
+  app.router.get('/api/assistant/models', {
+    default: 'glm-5.1',
+    models: [{ id: 'glm-5.1', name: 'GLM' }, { id: 'kiro:auto', name: 'auto', engine: 'kiro' }],
+    engines: [{ id: 'codebuddy', configured: false }, { id: 'kiro', name: 'Kiro CLI', configured: true }]
+  });
+  app.router.post('/api/runs/run-k/eval', { id: 'eval-k', runId: 'run-k', status: 'running', model: 'kiro:auto' });
+  await app.evaluate(`window.AgentFlowAssistantModels.load()`);
+  const listed = structuredClone(app.evaluate(`(() => {
+    state.currentUser.codeBuddyApiKeyConfigured=false;
+    const menu=document.createElement('div');
+    window.AgentFlowAssistantModels.renderList(menu,'',()=>{});
+    return [...menu.querySelectorAll('[data-id]')].map(b=>b.dataset.id);
+  })()`));
+  assert.ok(listed.includes('kiro:auto'), 'the eval picker lists Kiro models');
+  app.evaluate(`setRunEvalModel('glm-5.1')`);
+  assert.equal(app.evaluate(`runEvalHasKey()`), false, 'CodeBuddy still needs the personal key');
+  app.evaluate(`setRunEvalModel('kiro:auto');state.activeRun={id:'run-k',status:'succeeded',workflowId:'flow-1',nodes:{}};state.selectedRun='run-k'`);
+  assert.equal(app.evaluate(`runEvalHasKey()`), true);
+  await app.evaluate(`startRunEval(state.activeRun)`);
+  assert.equal(app.router.calls.find(c => c.method === 'POST' && c.path === '/api/runs/run-k/eval').body.model, 'kiro:auto');
+  app.evaluate(`state.runEvalStream?.close();state.runEvalStream=null;state.runEvalBusy=false`);
+});
