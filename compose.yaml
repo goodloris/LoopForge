@@ -46,14 +46,14 @@ services:
     profiles: [platform]
     # Published release stack: never builds. Bump the pinned tag (here and in
     # AGENTFLOW_ISOLATED_IMAGE) with each release; source builds use compose.dev.yaml.
-    image: ${LOOPFORGE_IMAGE:-ghcr.io/tencent/loopforge:0.3.8}
+    image: ${LOOPFORGE_IMAGE:-ghcr.io/goodloris/loopforge:0.5.0}
     ports:
       - "${LOOPFORGE_BIND:-0.0.0.0}:${AGENTFLOW_HTTP_PORT:-8090}:8080"
     environment:
       AGENTFLOW_HTTP_PORT: 8080
       # The in-network DSN of the selected database, written by scripts/configure.sh.
       AGENTFLOW_DATABASE_DSN: ${LOOPFORGE_COMPOSE_DSN:?Run scripts/configure.sh first}
-      # Legacy name for images before PostgreSQL support (0.3.8 and earlier),
+      # Legacy name for images before PostgreSQL support (upstream 0.4.0 and earlier),
       # which read only this one. Newer images prefer AGENTFLOW_DATABASE_DSN.
       AGENTFLOW_MYSQL_DSN: ${LOOPFORGE_COMPOSE_DSN}
       AGENTFLOW_SESSION_SECRET: ${AGENTFLOW_SESSION_SECRET:?Run scripts/configure.sh first}
@@ -71,7 +71,7 @@ services:
       AGENTFLOW_PLATFORM_MCP_URL: ${AGENTFLOW_PLATFORM_MCP_URL:-http://platform:8080}
       AGENTFLOW_DOCKER_NETWORK: ${COMPOSE_PROJECT_NAME:-loopforge}_default
       AGENTFLOW_LOCAL_SANDBOX: docker
-      AGENTFLOW_ISOLATED_IMAGE: ${LOOPFORGE_IMAGE:-ghcr.io/tencent/loopforge:0.3.8}
+      AGENTFLOW_ISOLATED_IMAGE: ${LOOPFORGE_IMAGE:-ghcr.io/goodloris/loopforge:0.5.0}
       HOME: ${LOOPFORGE_DATA_DIR:?Run scripts/configure.sh first}/home
       AGENTFLOW_RUNNER_BINARY: /app/bin/agentflow-runner-{os}-{arch}
       AGENTFLOW_GATE_MCP_BINARY: /app/bin/agentflow-gate-mcp-{os}-{arch}

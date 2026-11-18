@@ -158,3 +158,15 @@ jobs:
             release_args+=(--latest)
           fi
           gh release create "${TAG}" "${release_args[@]}"
+
+      # GHCR makes a new package private whatever the repository visibility, and
+      # the smoke test above pulled while logged in. Check what a user gets.
+      - name: Check anonymous pull
+        env:
+          IMAGE: ${{ steps.release.outputs.image }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          docker logout ghcr.io
+          if ! docker manifest inspect "${IMAGE}:${VERSION}" > /dev/null; then
+            echo "::warning::${IMAGE}:${VERSION} cannot be pulled anonymously. Set the package to Public: https://github.com/users/${GITHUB_REPOSITORY_OWNER}/packages/container/package/${IMAGE##*/}/settings (an organization uses /orgs/<org>/packages/...)."
+          fi
