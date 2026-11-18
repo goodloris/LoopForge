@@ -259,6 +259,11 @@ func assistantVisibleReply(final string, events []domain.AssistantActivityEvent)
 		}
 		return dropRepeatedReply(joined + "\n\n" + suffix)
 	}
+	// The CLI result can repeat every paragraph streamed after the opening one
+	// with other line breaks (and a space the stream lost); it adds nothing.
+	if strings.Contains(compactJoined, compactFinal) {
+		return joined
+	}
 	return dropRepeatedReply(joined + "\n\n" + final)
 }
 
