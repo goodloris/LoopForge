@@ -685,7 +685,19 @@ func (h *streamHandlers) executeClarify(ctx context.Context, issue domain.Issue,
 	repoInfo["sessionId"] = sessionID
 	emit("open", map[string]any{"repository": repoInfo, "model": modelID, "sessionId": sessionID})
 	emit("thought", map[string]string{"kind": "status", "text": "正在分析需求…"})
-	turnOpts := clarifyTurnOpts{Native: true, MCPConfig: toolFiles.MCPConfig, Settings: toolFiles.Settings, ReadCode: len(analyzedRepos) > 0}
+	// File reads stay inside the analysis directory: the requirement text
+	// comes from anyone who can file an issue, and the rest of this
+	// server's disk (process environment, configuration) holds secrets.
+	readRoot, err := clarifyReadRoot(workDir)
+	if err != nil {
+		return nil, "", repoInfo, err
+	}
+	if engine == assistantEngineCodeBuddy {
+		if err := writeClarifyReadGuard(toolFiles, readRoot); err != nil {
+			return nil, "", repoInfo, err
+		}
+	}
+	turnOpts := clarifyTurnOpts{Native: true, MCPConfig: toolFiles.MCPConfig, Settings: toolFiles.Settings, ReadRoot: readRoot}
 	turn := func(prompt, sessionID string, resume bool) (string, string, error) {
 		if engine != assistantEngineCodeBuddy {
 			return runClarifyAgentCLITurn(modelCtx, workDir, modelID, prompt, sessionID, cliRoot, resume, responsible, emit, turnOpts)
@@ -733,7 +745,6 @@ func (h *streamHandlers) executeClarify(ctx context.Context, issue domain.Issue,
 				toolSession.SetTerminalOnly()
 			}
 			turnOpts.SubmitOnly = true
-			turnOpts.ReadCode = false
 			emit("thought", map[string]string{"kind": "status", "text": "正在提交澄清结论…"})
 			turnPrompt = clarifyNativeRetryPrompt()
 			resume = true
@@ -807,13 +818,14 @@ func (h *streamHandlers) runClarifyTurn(ctx context.Context, workDir, cbPath, mo
 // runClarifyAgentCLITurn runs a clarification turn on a CLI other than
 // CodeBuddy through the assistant CLI path, in the checkout and on this
 // server. It needs MCP (the platform session server, which proxies the
-// read-only HTTP MCPs and takes submit_clarification) and, with ReadCode,
-// the CLI's read-only file tools; Kiro CLI trusts nothing else. It returns
+// read-only HTTP MCPs and takes submit_clarification) and the CLI's
+// read-only file tools, confined to opts.ReadRoot; Kiro CLI trusts nothing
+// else. It returns
 // the final text and the platform session ID.
 func runClarifyAgentCLITurn(ctx context.Context, workDir, model, prompt, sessionID, root string, resume bool, user domain.User, emit func(event string, payload any), opts clarifyTurnOpts) (string, string, error) {
 	output, session, err := runAssistantCLI(ctx, assistantCLIRequest{
 		Prompt: prompt, Model: model, SessionID: sessionID, Resume: resume, SessionRoot: root, WorkDir: workDir, UserID: user.ID,
-		Native: true, MCPOnly: true, ReadCode: opts.ReadCode, MCPConfig: opts.MCPConfig,
+		Native: true, MCPOnly: true, ReadRoots: []string{opts.ReadRoot}, MCPConfig: opts.MCPConfig,
 	}, user, func(ev assistantStreamEvent) {
 		switch {
 		case ev.Kind == "tool":
@@ -854,9 +866,9 @@ type clarifyTurnOpts struct {
 	Native              bool
 	MCPConfig, Settings string
 	SubmitOnly          bool
-	// ReadCode lets Kiro CLI read the checkout; false when none was
-	// prepared and on submit-only retries.
-	ReadCode bool
+	// ReadRoot is the only directory the CLI's file tools may read: the
+	// checkout, or an empty directory when none was prepared.
+	ReadRoot string
 }
 
 // clarifyStreamEvents decodes a single stream-json line into zero or more

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -109,10 +110,10 @@ func TestClarifyRefusesResponsibleWithoutCodeBuddyKey(t *testing.T) {
 // fakeKiroClarifier is a kiro-cli that records its argv and working
 // directory, submits a clarification through the platform MCP server named
 // in its KIRO_HOME, and finishes the run.
-func fakeKiroClarifier(t *testing.T, submission map[string]any) (argvFile, cwdFile string) {
+func fakeKiroClarifier(t *testing.T, submission map[string]any) (argvFile, cwdFile, policyFile string) {
 	t.Helper()
 	dir := t.TempDir()
-	argvFile, cwdFile = filepath.Join(dir, "argv"), filepath.Join(dir, "cwd")
+	argvFile, cwdFile, policyFile = filepath.Join(dir, "argv"), filepath.Join(dir, "cwd"), filepath.Join(dir, "permissions.yaml")
 	call, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": submitClarificationTool, "arguments": submission}})
 	if err := os.WriteFile(filepath.Join(dir, "call.json"), call, 0o600); err != nil {
 		t.Fatal(err)
@@ -132,6 +133,7 @@ func fakeKiroClarifier(t *testing.T, submission map[string]any) (argvFile, cwdFi
 	script := `#!/bin/sh
 for a in "$@"; do printf '%s\n' "$a"; done > ` + argvFile + `
 pwd > ` + cwdFile + `
+cp "$KIRO_HOME/settings/permissions.yaml" ` + policyFile + `
 cat ` + filepath.Join(dir, "before") + `
 python3 - "$KIRO_HOME/settings/mcp.json" ` + filepath.Join(dir, "call.json") + ` <<'PY' || exit 1
 import json, sys, urllib.request
@@ -153,7 +155,7 @@ cat ` + filepath.Join(dir, "after") + "\n"
 	}
 	t.Setenv("AGENTFLOW_KIRO_BIN", bin)
 	t.Setenv("AGENTFLOW_KIRO_DATA_DIR", "")
-	return argvFile, cwdFile
+	return argvFile, cwdFile, policyFile
 }
 
 // A Kiro-only responsible user clarifies on Kiro CLI: it runs in the
@@ -194,7 +196,7 @@ func TestClarifyRunsOnKiroCLI(t *testing.T) {
 	config.SetCurrent(endpoints)
 	t.Cleanup(func() { config.SetCurrent(previous) })
 
-	argvFile, cwdFile := fakeKiroClarifier(t, map[string]any{
+	argvFile, cwdFile, policyFile := fakeKiroClarifier(t, map[string]any{
 		"summary": "徽章位置未定", "ready": false,
 		"questions": []any{map[string]any{"id": "q1", "question": "徽章放在列表页还是详情页？", "options": []any{"列表页", "详情页"}, "multiSelect": false}},
 	})
@@ -226,6 +228,11 @@ func TestClarifyRunsOnKiroCLI(t *testing.T) {
 	}
 	if !slices.Contains(argv, "claude-haiku-5.5") || slices.Contains(argv, "--trust-all-tools") {
 		t.Fatalf("argv = %q", argv)
+	}
+	// Reads outside the checkout are denied by Kiro's permission policy.
+	real, _ := filepath.EvalSymlinks(source)
+	if policy, err := os.ReadFile(policyFile); err != nil || !strings.Contains(string(policy), `"effect":"deny","exclude":["`+real+`","`+real+`/**"],"match":["/**"]`) {
+		t.Fatalf("read policy = %s (%v)", policy, err)
 	}
 	if !slices.Contains(tools, "read") && !slices.Contains(tools, "Read") {
 		t.Fatalf("tool progress not forwarded: %q", tools)
@@ -263,4 +270,134 @@ func sameDir(t *testing.T, a, b string) bool {
 	ra, errA := filepath.EvalSymlinks(a)
 	rb, errB := filepath.EvalSymlinks(b)
 	return errors.Join(errA, errB) == nil && ra == rb
+}
+
+// The CodeBuddy read guard allows file tools inside the read root only,
+// through symlinks and relative patterns, and refuses what it cannot parse.
+func TestClarifyReadGuard(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 not installed")
+	}
+	dir := t.TempDir()
+	root := filepath.Join(dir, "checkout")
+	outside := filepath.Join(dir, "secret.txt")
+	if err := os.MkdirAll(filepath.Join(root, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(outside, []byte("SENTINEL"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "link.txt")); err != nil {
+		t.Fatal(err)
+	}
+	script := filepath.Join(dir, "guard.py")
+	if err := os.WriteFile(script, []byte(clarifyReadGuard), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run := func(event string) bool {
+		cmd := exec.Command(python, "-I", script, root)
+		cmd.Stdin = strings.NewReader(event)
+		out, err := cmd.CombinedOutput()
+		if err != nil && !strings.Contains(string(out), `"deny"`) {
+			t.Fatalf("guard crashed on %s: %v %s", event, err, out)
+		}
+		return err == nil
+	}
+	event := func(name string, input map[string]any) string {
+		data, _ := json.Marshal(map[string]any{"tool_name": name, "tool_input": input, "cwd": root})
+		return string(data)
+	}
+	for _, allowed := range []string{
+		event("Read", map[string]any{"file_path": filepath.Join(root, "src", "main.go")}),
+		event("Read", map[string]any{"file_path": "src/main.go"}),
+		event("Grep", map[string]any{"pattern": "/etc/passwd", "glob": "*.go"}),
+		event("Glob", map[string]any{"pattern": "**/*.go"}),
+		event("Glob", map[string]any{"pattern": root + "/**/*.go"}),
+		event("mcp__agentflow_session__submit_clarification", map[string]any{"path": "/etc"}),
+	} {
+		if !run(allowed) {
+			t.Fatalf("refused %s", allowed)
+		}
+	}
+	for _, denied := range []string{
+		event("Read", map[string]any{"file_path": outside}),
+		event("Read", map[string]any{"file_path": "/proc/1/environ"}),
+		event("Read", map[string]any{"file_path": "link.txt"}),
+		event("Read", map[string]any{"file_path": "../secret.txt"}),
+		event("Grep", map[string]any{"pattern": "x", "path": dir}),
+		event("Grep", map[string]any{"pattern": "x", "glob": "../*"}),
+		event("Glob", map[string]any{"pattern": "/etc/*"}),
+		event("Glob", map[string]any{"pattern": "../**"}),
+		event("Glob", map[string]any{"pattern": "~/.ssh/*"}),
+		event("LS", map[string]any{"path": "/"}),
+		`not json`,
+	} {
+		if run(denied) {
+			t.Fatalf("allowed %s", denied)
+		}
+	}
+}
+
+// A CodeBuddy clarification gets the read guard in its settings, confined
+// to the checkout.
+func TestClarifyCodeBuddyGetsReadGuard(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("HOME", root)
+	t.Setenv("AGENTFLOW_CLARIFY_SESSION_DIR", filepath.Join(root, "sessions"))
+	st, err := repo.OpenTest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(st.Close)
+	user := domain.User{ID: 73, LoginName: "cb", CodeBuddyAPIKey: "cb-key"}
+	if err := st.PutUser(user); err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(root, "source")
+	if err := os.MkdirAll(source, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutRepository(domain.Repository{ID: "cb-src", ProjectID: "platform", Name: "src", LocalPath: source}); err != nil {
+		t.Fatal(err)
+	}
+	settingsCopy := filepath.Join(root, "settings.json")
+	bin := filepath.Join(root, "codebuddy")
+	script := `#!/bin/sh
+while [ $# -gt 0 ]; do [ "$1" = --settings ] && cp "$2" ` + settingsCopy + `; shift; done
+printf '%s\n' '{"type":"result","result":"{\"summary\":\"ok\",\"ready\":true,\"questions\":[]}"}'
+`
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AGENTFLOW_CODEBUDDY_BIN", bin)
+	h := &streamHandlers{deps: &deps{repo: st}}
+	issue := domain.Issue{ProjectID: "platform", AssigneeUserID: user.ID, Title: "x", Description: "y", RepositoryIDs: []string{"cb-src"}}
+	if _, _, _, err := h.executeClarify(context.Background(), issue, chatClarifyRequest{Message: "m"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(settingsCopy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var settings struct {
+		Permissions struct{ Deny []string }
+		Hooks       struct {
+			PreToolUse []struct {
+				Matcher string
+				Hooks   []struct{ Command, OnFailure string }
+			}
+		}
+	}
+	if err := json.Unmarshal(data, &settings); err != nil || len(settings.Hooks.PreToolUse) != 1 || len(settings.Hooks.PreToolUse[0].Hooks) != 1 {
+		t.Fatalf("settings = %s (%v)", data, err)
+	}
+	hook := settings.Hooks.PreToolUse[0].Hooks[0]
+	real, _ := filepath.EvalSymlinks(source)
+	if !strings.Contains(hook.Command, "clarify-read-guard.py") || !strings.HasSuffix(hook.Command, " '"+real+"'") || hook.OnFailure != "block" {
+		t.Fatalf("hook = %+v", hook)
+	}
+	if !slices.Contains(settings.Permissions.Deny, "Bash") {
+		t.Fatalf("native tool denials lost: %s", data)
+	}
 }

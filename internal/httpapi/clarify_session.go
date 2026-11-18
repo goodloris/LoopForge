@@ -382,3 +382,81 @@ func clarifySystemPrompt(intro, mcpStep, focus string) string {
 - 思考用中文对用户说正在读代码或原单
 `, intro, mcpStep, focus)
 }
+
+// clarifyReadRoot resolves the directory a clarification's file tools are
+// confined to. Symlinks are resolved because the CLIs compare real paths
+// (macOS /var is /private/var).
+func clarifyReadRoot(workDir string) (string, error) {
+	if strings.TrimSpace(workDir) == "" {
+		return "", fmt.Errorf("澄清工作目录为空")
+	}
+	root, err := filepath.EvalSymlinks(workDir)
+	if err != nil {
+		return "", fmt.Errorf("澄清工作目录不可用：%w", err)
+	}
+	return filepath.Abs(root)
+}
+
+// clarifyReadGuard is a CodeBuddy PreToolUse hook that refuses any native
+// tool call naming a path outside the read root (argv[1]): CodeBuddy has no
+// path-scoped allow rule, and its Read/Grep/Glob otherwise read the whole
+// server. Paths resolve through symlinks, so a link in the checkout cannot
+// leave it; anything it cannot parse is refused.
+// ponytail: it checks the path fields of CodeBuddy's file tools (file_path,
+// path, notebook_path, Glob pattern, Grep glob); a new tool taking a path
+// under another key would pass. The shell, write and web tools stay denied
+// by nativeDisallowedTools.
+const clarifyReadGuard = `import json,os,sys
+def deny(reason):
+    print(json.dumps({"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":reason}}))
+    print(reason,file=sys.stderr)
+    sys.exit(2)
+try:
+    root=os.path.realpath(sys.argv[1])
+    event=json.load(sys.stdin)
+    name=str(event.get("tool_name") or "")
+    args=event.get("tool_input") or {}
+    if name.startswith("mcp__"):
+        sys.exit(0)
+    cwd=str(event.get("cwd") or os.getcwd())
+    def inside(path):
+        path=os.path.realpath(os.path.join(cwd,os.path.expanduser(path)))
+        return path==root or path.startswith(root.rstrip(os.sep)+os.sep)
+    paths=[cwd]+[args[k] for k in ("file_path","path","notebook_path") if isinstance(args.get(k),str) and args[k]]
+    for key in ("glob",) if name=="Grep" else ("pattern",) if name=="Glob" else ():
+        pattern=args.get(key)
+        if isinstance(pattern,str) and pattern:
+            if ".." in pattern.replace("\\","/").split("/"):
+                deny("澄清只能读取当前代码目录")
+            static=pattern.split("*")[0].split("?")[0].split("[")[0].split("{")[0]
+            if static.startswith(("/","~")):
+                paths.append(static or "/")
+    for path in paths:
+        if not inside(path):
+            deny("澄清只能读取当前代码目录，拒绝 "+str(path))
+except SystemExit:
+    raise
+except Exception:
+    deny("澄清读取检查失败，操作未执行")
+`
+
+// writeClarifyReadGuard adds clarifyReadGuard to a CodeBuddy clarification's
+// settings so its file tools only read root.
+func writeClarifyReadGuard(files agentToolFiles, root string) error {
+	script := filepath.Join(files.Dir, "clarify-read-guard.py")
+	if err := os.WriteFile(script, []byte(clarifyReadGuard), 0o600); err != nil {
+		return err
+	}
+	settings := nativeToolSettings()
+	quote := func(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+	// -I ignores PYTHON* variables and the user site directory. A missing
+	// or crashed python3 is refused by onFailure.
+	settings["hooks"] = map[string]any{"PreToolUse": []any{map[string]any{"matcher": ".*", "hooks": []any{map[string]any{
+		"type": "command", "command": "python3 -I " + quote(script) + " " + quote(root), "timeout": 30, "onFailure": "block",
+	}}}}}
+	data, err := json.Marshal(settings)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(files.Settings, data, 0o600)
+}
