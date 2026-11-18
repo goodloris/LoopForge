@@ -114,7 +114,7 @@ New accounts join the **LoopForge demo project**, which includes an SOP made onl
 
 <br>
 
-- **Executors.** Pick one of ten CLIs beside the home composer, then a model. Every SOP role can choose its executor independently (built-in roles default to CodeBuddy). Requirement clarification, AI notification summaries, Bot replies and run evals currently use CodeBuddy, so their model pickers list CodeBuddy models only and the server refuses a model of another CLI instead of switching it to CodeBuddy; scheduled assistant tasks run on the CLI the task selects.
+- **Executors.** Pick one of ten CLIs beside the home composer, then a model. Every SOP role can choose its executor independently (built-in roles default to CodeBuddy). **Approve for me** reviews each action on the conversation's own CLI and model (Kiro CLI included); a CodeBuddy conversation keeps using the cheapest CodeBuddy model. Run evals accept a model of any CLI, and Bot replies and AI notification summaries run on CodeBuddy or Kiro CLI; these run on the platform server, so Kiro CLI needs `kiro-cli` and its login there. Requirement clarification still uses CodeBuddy only (it runs its own CodeBuddy pipeline that reads the checked-out code): the clarification panel says so up front, and the server refuses a model of another CLI or a responsible user without a CodeBuddy key before it starts. Scheduled assistant tasks run on the CLI the task selects.
 
   | Executor | Credentials | Installation |
   | --- | --- | --- |

@@ -13,7 +13,7 @@ import (
 	"agentflow/internal/repo"
 )
 
-// Issue #228: clarification and run evals run on CodeBuddy only. A model of
+// Issue #228: clarification runs on CodeBuddy only (run evals: TestRunEvalOnKiroModel). A model of
 // another CLI ("codex:…") must be refused up front, not silently swapped for
 // the CodeBuddy default.
 func TestClarifyModelEngineError(t *testing.T) {
@@ -54,21 +54,19 @@ func TestChatClarifyRefusesOtherCLIModel(t *testing.T) {
 	}
 }
 
-func TestRunEvalRefusesOtherCLIModel(t *testing.T) {
-	f := cvBNewHTTPFixture(t)
-	if _, err := f.s.UpdateUserCredentials(f.user.ID, repo.UserCredentialUpdate{CodeBuddyAPIKey: "eval-key"}); err != nil {
+// Clarification has no Kiro CLI path: a responsible user without a CodeBuddy
+// key is refused before any session or checkout, with the reason spelled out.
+func TestClarifyRefusesResponsibleWithoutCodeBuddyKey(t *testing.T) {
+	st, err := repo.OpenTest()
+	if err != nil {
 		t.Fatal(err)
 	}
-	done := domain.Run{ID: "eval-codex-run", Status: "succeeded", WorkflowID: "missing",
-		ExecutionContext: domain.TelemetryContext{ProjectID: "platform"}, Nodes: map[string]*domain.NodeRun{}}
-	if err := f.s.PutRun(done); err != nil {
-		t.Fatal(err)
-	}
-	rec := cvBRequest(t, f, http.MethodPost, "/api/runs/eval-codex-run/eval", map[string]any{"model": "codex:gpt-5.5"}, true)
-	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "只支持 CodeBuddy") {
-		t.Fatalf("status = %d body = %s, want 400 explaining the CodeBuddy limit", rec.Code, rec.Body.String())
-	}
-	if _, busy := f.s.ActiveRunEval(done.ID); busy {
-		t.Fatal("a Codex model must not start a run eval")
+	defer st.Close()
+	st.PutUser(domain.User{ID: 7, LoginName: "kiro-only"})
+	st.PutProject(domain.Project{ID: "kiro-p", OwnerID: 7})
+	h := &streamHandlers{deps: &deps{repo: st}}
+	_, _, _, err = h.executeClarify(context.Background(), domain.Issue{ProjectID: "kiro-p", Title: "x"}, chatClarifyRequest{Message: "加个徽章"}, nil)
+	if err != errClarifyResponsibleKey || !strings.Contains(err.Error(), "只支持 CodeBuddy") {
+		t.Fatalf("err = %v", err)
 	}
 }

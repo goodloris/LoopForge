@@ -1415,8 +1415,10 @@ type assistantCLIRequest struct {
 	UserID                                         int64
 	ReportOnly                                     bool
 	ReviewOnly                                     bool
-	Native                                         bool
-	MCPConfig, Settings                            string
+	// MCPOnly: see assistantEngineInvocationOpts.MCPOnly; ReportOnly implies it.
+	MCPOnly             bool
+	Native              bool
+	MCPConfig, Settings string
 	// OnUsage receives the usage of this CLI invocation once its result event
 	// reports one; the result event covers only this process, not the session.
 	OnUsage func(domain.TokenUsage)
@@ -1437,7 +1439,8 @@ func runAssistantCLI(ctx context.Context, req assistantCLIRequest, user domain.U
 	}
 	attempt := assistantDiagnosticsFrom(ctx).begin(engine, engineModel, req.Resume, user)
 	defer func() { attempt.finish(returnedErr) }()
-	if engine != assistantEngineCodeBuddy && (req.ReportOnly || (!req.Native && !req.ReviewOnly)) {
+	// A report runs on CodeBuddy or, MCP-only, on Kiro CLI.
+	if engine != assistantEngineCodeBuddy && (req.ReportOnly && engine != runtime.AgentCLIKiro || !req.ReportOnly && !req.Native && !req.ReviewOnly) {
 		return "", "", errAssistantEngineUnsupported
 	}
 	var bin string
@@ -1490,7 +1493,7 @@ func runAssistantCLI(ctx context.Context, req assistantCLIRequest, user domain.U
 		sessionID = newAssistantSessionID()
 	}
 	var inv assistantCLIInvocation
-	engineOpts := assistantEngineInvocationOpts{Bin: bin, Root: root, Config: config, Prompt: req.Prompt, Model: engineModel, Effort: req.Effort, SessionID: sessionID, Resume: req.Resume, SystemPrompt: req.SystemPrompt, ReviewOnly: req.ReviewOnly, Workspace: req.Workspace}
+	engineOpts := assistantEngineInvocationOpts{Bin: bin, Root: root, Config: config, Prompt: req.Prompt, Model: engineModel, Effort: req.Effort, SessionID: sessionID, Resume: req.Resume, SystemPrompt: req.SystemPrompt, ReviewOnly: req.ReviewOnly, MCPOnly: req.MCPOnly || req.ReportOnly, Workspace: req.Workspace}
 	switch engine {
 	case assistantEngineClaude:
 		if !req.RunnerLogin {

@@ -4,9 +4,11 @@ import (
 	"agentflow/internal/botinteraction"
 	"agentflow/internal/domain"
 	"agentflow/internal/engine"
+	"agentflow/internal/runtime"
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 )
 
@@ -71,18 +73,24 @@ func (h *assistantHandlers) generateBotReply(ctx context.Context, bot domain.Not
 	if err != nil {
 		return "绑定的平台账号不可用或已失去项目权限，请在平台检查配置。", nil
 	}
-	if strings.TrimSpace(user.CodeBuddyAPIKey) == "" {
-		return "你的平台账号尚未配置 CodeBuddy Key，请在平台个人配置中配置。", nil
-	}
 	model := bot.Model
 	if model == "" {
 		model = domain.DefaultNotificationReportModel
 	}
-	if assistantAllowedModel(model, loadAssistantModels(ctx, user.CodeBuddyInternetEnvironment)) != model {
-		return "所选模型不可用，请在 Bot 管理中重新选择。", nil
+	kiro := botKiroModel(model)
+	if refusal := botModelRefusal(ctx, user, model); refusal != "" {
+		return refusal, nil
 	}
 	if err = ensureAssistantSessionDirs(user.ID); err != nil {
 		return "", err
+	}
+	// Kiro CLI replies in its own session root, apart from the user's chats.
+	sessionRoot := ""
+	if kiro {
+		if sessionRoot, err = os.MkdirTemp("", "agentflow-bot-reply-"); err != nil {
+			return "", err
+		}
+		defer os.RemoveAll(sessionRoot)
 	}
 	modelCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -100,7 +108,7 @@ func (h *assistantHandlers) generateBotReply(ctx context.Context, bot domain.Not
 		cliSessionID := newAssistantSessionID()
 		resume := false
 		generate = func(callCtx context.Context, prompt string, u domain.User) (string, error) {
-			raw, _, err := runAssistantCLI(callCtx, assistantCLIRequest{Prompt: prompt, Model: model, SessionID: cliSessionID, Resume: resume, UserID: u.ID, Native: true, MCPConfig: files.MCPConfig, Settings: files.Settings, SystemPrompt: assistantSystemPromptForMode(AssistantApprovalAuto)}, u, func(ev assistantStreamEvent) {
+			raw, _, err := runAssistantCLI(callCtx, assistantCLIRequest{Prompt: prompt, Model: model, SessionID: cliSessionID, Resume: resume, UserID: u.ID, Native: true, MCPOnly: kiro, SessionRoot: sessionRoot, MCPConfig: files.MCPConfig, Settings: files.Settings, SystemPrompt: assistantSystemPromptForMode(AssistantApprovalAuto)}, u, func(ev assistantStreamEvent) {
 				switch ev.Kind {
 				case "tool":
 					if strings.Contains(ev.Tool, "submit_assistant_reply") {
@@ -202,4 +210,46 @@ func (h *assistantHandlers) handleBotCardAction(ctx context.Context, bot domain.
 		return "操作未完成，请在平台查看当前运行状态。", nil
 	}
 	return fmt.Sprintf("「%s」操作已完成：%s。", delivery.SourceName, map[string]string{"approve": "确认通过，继续流程", "retry": "重试当前节点", "pass": "手动通过节点", "decline": "不再重试", "resume": "继续运行", "reject": "退回上游"}[item.Action]), nil
+}
+
+// botKiroModel reports a Bot model that runs on Kiro CLI ("kiro:<model>").
+// Bot replies and SOP reports run on CodeBuddy or Kiro CLI only.
+func botKiroModel(model string) bool {
+	engine, _ := assistantModelEngine(model)
+	return engine == runtime.AgentCLIKiro
+}
+
+// validBotModel accepts a CodeBuddy model the platform knows or a Kiro CLI
+// model, which the server's kiro-cli resolves itself.
+func validBotModel(model string) bool {
+	engine, name := assistantModelEngine(model)
+	switch engine {
+	case assistantEngineCodeBuddy:
+		return assistantAllowedModel(model, assistantKnownCatalog()) == model
+	case runtime.AgentCLIKiro:
+		return name == "" || assistantValidEngineModel(name)
+	}
+	return false
+}
+
+// botModelRefusal is the chat reply when the bound account cannot run the
+// Bot's model. Bot replies run on this server, so Kiro CLI needs kiro-cli
+// and its login here; CodeBuddy needs the account's own key.
+func botModelRefusal(ctx context.Context, user domain.User, model string) string {
+	if botKiroModel(model) {
+		if !validBotModel(model) {
+			return "所选模型不可用，请在 Bot 管理中重新选择。"
+		}
+		if !kiroCLIInstalled() {
+			return "平台未安装 kiro-cli 或未完成 kiro-cli login，无法用 Kiro CLI 回复，请联系管理员。"
+		}
+		return ""
+	}
+	if strings.TrimSpace(user.CodeBuddyAPIKey) == "" {
+		return "你的平台账号尚未配置 CodeBuddy Key，请在平台个人配置中配置。"
+	}
+	if assistantAllowedModel(model, loadAssistantModels(ctx, user.CodeBuddyInternetEnvironment)) != model {
+		return "所选模型不可用，请在 Bot 管理中重新选择。"
+	}
+	return ""
 }

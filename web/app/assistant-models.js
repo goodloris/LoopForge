@@ -123,14 +123,18 @@
   function renderList(menu, selectedId, onPick) {
     renderOptions(menu, catalog.models || [], selectedId, onPick);
   }
-  // Requirement clarification, Bot replies, run evals and the SOP preview
-  // build run on CodeBuddy only, so their pickers list CodeBuddy models and
+  // Requirement clarification and the SOP preview build run on CodeBuddy
+  // only, so their pickers list CodeBuddy models and
   // never offer a "codex:…" id the server would have to refuse.
   function codeBuddyModels() {
     return (catalog.models || []).filter(m => (m.engine || 'codebuddy') === 'codebuddy');
   }
   function renderCodeBuddyList(menu, selectedId, onPick) {
     renderOptions(menu, codeBuddyModels(), selectedId, onPick);
+  }
+  // Bot replies and SOP completion reports run on CodeBuddy or Kiro CLI.
+  function renderBotList(menu, selectedId, onPick) {
+    renderOptions(menu, (catalog.models || []).filter(m => ['codebuddy', 'kiro'].includes(m.engine || 'codebuddy')), selectedId, onPick);
   }
   // codeBuddyModel keeps a CodeBuddy id and turns an empty id, or a saved id
   // of another CLI, into the CLI default the server resolves itself.
@@ -165,6 +169,7 @@
     load,
     paint,
     paintItem,
+    renderBotList,
     renderCodeBuddyList,
     renderList,
     renderOptions

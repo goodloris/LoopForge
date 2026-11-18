@@ -95,6 +95,10 @@ type AgentCLICommandOptions struct {
 	// configuration (WriteAgentCLIMCPConfig ReadOnly) completes the policy.
 	Chat      bool
 	Workspace bool
+	// MCPOnly is a call that needs no built-in tool (approval review, run
+	// eval, title, Bot reply, SOP report): Kiro CLI trusts only the
+	// MCPServers, so headless it cancels every other call. Other CLIs ignore it.
+	MCPOnly bool
 	// AgentFile is Kimi Code's chat agent definition (WriteKimiChatAgent).
 	AgentFile string
 	// MCPServers are the configured MCP server IDs; Kiro CLI trusts them by
@@ -239,6 +243,15 @@ func AgentCLICommand(kind string, o AgentCLICommandOptions) CommandSpec {
 			// disclose_context loads a skill, invoke_sub_agent dispatches a
 			// role; a sub-agent's own calls still pass this policy and the hook.
 			tools := []string{"read", "grep", "glob", "disclose_context", "invoke_sub_agent"}
+			for _, id := range o.MCPServers {
+				if kiroServerIDRe.MatchString(id) {
+					tools = append(tools, "@"+id)
+				}
+			}
+			trust = "--trust-tools=" + strings.Join(tools, ",")
+		}
+		if o.MCPOnly {
+			var tools []string
 			for _, id := range o.MCPServers {
 				if kiroServerIDRe.MatchString(id) {
 					tools = append(tools, "@"+id)
