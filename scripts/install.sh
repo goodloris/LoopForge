@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # One-command container installation from the published GHCR image pinned in
 # compose.yaml (LOOPFORGE_BUILD_FROM_SOURCE=1 builds this checkout instead).
+# A new installation uses PostgreSQL; LOOPFORGE_DATABASE=mysql picks MySQL.
 # Installs Docker when it is missing (Linux, or macOS with Homebrew) and needs
 # Python 3 and curl (apt/dnf/yum, or Homebrew). Re-running is safe: secrets,
 # data and catalog edits are kept.
@@ -97,6 +98,13 @@ install_docker() {
   esac
 }
 
+# Images before PostgreSQL support (0.3.8 and earlier) have no -database-dsn flag.
+platform_supports_postgres() {
+  local image
+  image=$(docker_access compose "${profiles[@]}" config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["services"]["platform"]["image"])') || return 1
+  docker_access run --rm --entrypoint /app/bin/agentflow "$image" -help 2>&1 | grep -q -- -database-dsn
+}
+
 wait_for_docker() {
   for _ in $(seq 1 30); do select_docker_access && return 0; sleep 2; done
   return 1
@@ -117,6 +125,8 @@ docker_access compose version >/dev/null 2>&1 || fail 'Docker Compose is still u
 
 requested_public_url="${LOOPFORGE_PUBLIC_URL:-}"
 [[ ! -e .env || -r .env ]] || fail 'The existing .env is not readable by this user. Use the installation owner or ask an administrator to correct its ownership.'
+fresh_install=0
+[[ -e .env ]] || fresh_install=1
 bash scripts/configure.sh
 [[ -r .env ]] || fail 'The existing .env is not readable by this user. Use the installation owner or ask an administrator to correct its ownership.'
 set -a; source .env; set +a
@@ -141,9 +151,11 @@ python3 - <<'PY'
 import runpy
 runpy.run_path('scripts/install-address.py')['access_addresses']('8090')
 PY
+source scripts/database.sh
+profiles=(--profile platform --profile "$LOOPFORGE_DATABASE")
 mkdir -p "$LOOPFORGE_DATA_DIR/home" "$LOOPFORGE_DATA_DIR/workspaces" || fail 'The data directory is not writable. Set LOOPFORGE_DATA_DIR in .env to a directory owned by this user.'
 port="${AGENTFLOW_HTTP_PORT:-8090}"
-if ! docker_access compose ps --status running --services 2>/dev/null | grep -qx platform; then
+if ! docker_access compose "${profiles[@]}" ps --status running --services 2>/dev/null | grep -qx platform; then
   if (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; then
     fail "Port $port is already in use. Set AGENTFLOW_HTTP_PORT in .env to a free port and run again."
   fi
@@ -165,37 +177,50 @@ if [[ "${COMPOSE_FILE:-}" != "$dev_compose" ]]; then
   pull_policy="${LOOPFORGE_PULL_POLICY:-missing}"
   if mirror_published_ghcr "$pull_policy"; then
     # The platform name is already local. Pull it with missing so Compose does
-    # not contact ghcr.io; MySQL keeps the requested policy.
+    # not contact ghcr.io; the database keeps the requested policy.
     if [[ "$pull_policy" == always ]]; then
-      docker_access compose --profile platform pull --policy missing platform
-      docker_access compose --profile platform pull --policy always mysql
+      docker_access compose "${profiles[@]}" pull --policy missing platform
+      docker_access compose "${profiles[@]}" pull --policy always "$LOOPFORGE_DATABASE"
     else
-      docker_access compose --profile platform pull --policy "$pull_policy" platform mysql
+      docker_access compose "${profiles[@]}" pull --policy "$pull_policy" platform "$LOOPFORGE_DATABASE"
     fi
   else
     step "Pulling the published LoopForge image ${LOOPFORGE_IMAGE:-pinned in compose.yaml}"
-    docker_access compose --profile platform pull --policy "$pull_policy" platform mysql
+    docker_access compose "${profiles[@]}" pull --policy "$pull_policy" platform "$LOOPFORGE_DATABASE"
   fi
-  docker_access compose --profile platform up -d --no-build --wait --wait-timeout 180
+  # Until compose.yaml pins a release with PostgreSQL support, a new installation
+  # of the pinned image falls back to MySQL. Remove this once it does.
+  if [[ "$LOOPFORGE_DATABASE" == postgres ]] && ! platform_supports_postgres; then
+    [[ "$fresh_install" == 1 ]] \
+      || fail 'This platform image predates PostgreSQL support. Set LOOPFORGE_IMAGE to a newer release, build this checkout with ./start.sh dev, or set LOOPFORGE_DATABASE=mysql in .env for an installation without data.'
+    printf '\n⚠ The platform image predates PostgreSQL support; this new installation uses MySQL.\n'
+    python3 -c 'import pathlib,re; p=pathlib.Path(".env"); p.write_text(re.sub(r"(?m)^LOOPFORGE_DATABASE=.*$","LOOPFORGE_DATABASE=mysql",p.read_text()))'
+    bash scripts/configure.sh
+    set -a; source .env; set +a
+    source scripts/database.sh
+    profiles=(--profile platform --profile "$LOOPFORGE_DATABASE")
+    docker_access compose "${profiles[@]}" pull --policy "$pull_policy" mysql
+  fi
+  docker_access compose "${profiles[@]}" up -d --no-build --wait --wait-timeout 180
 else
   step 'Building LoopForge from source (first install takes several minutes; frontend, Go and runtime stages build in parallel)'
   if [[ -z "${LOOPFORGE_COMMIT:-}" ]]; then
     LOOPFORGE_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)"
     export LOOPFORGE_COMMIT
   fi
-  # Download MySQL while the platform image builds instead of afterwards.
-  docker_access compose pull --quiet --policy missing mysql >/dev/null 2>&1 &
-  mysql_pull=$!
-  docker_access compose --profile platform build platform
-  wait "$mysql_pull" || true
+  # Download the database image while the platform image builds instead of afterwards.
+  docker_access compose "${profiles[@]}" pull --quiet --policy missing "$LOOPFORGE_DATABASE" >/dev/null 2>&1 &
+  database_pull=$!
+  docker_access compose "${profiles[@]}" build platform
+  wait "$database_pull" || true
   step 'Starting LoopForge'
-  docker_access compose --profile platform up -d --no-build --wait --wait-timeout 180
+  docker_access compose "${profiles[@]}" up -d --no-build --wait --wait-timeout 180
 fi
 step 'Installing the schema extensions and the starter catalog'
 bash scripts/install-schema-extensions.sh
 
 python3 scripts/install-address.py "$port"
-users=$(docker_access compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" mysql -N -u loopforge loopforge -e "select count(*) from users"' 2>/dev/null || echo 0)
+users=$(echo 'select count(*) from users' | db_query 2>/dev/null || echo 0)
 if [[ "${users//[^0-9]/}" == 0 ]]; then
   printf '  Open it in your browser and create the administrator account.\n'
 else
