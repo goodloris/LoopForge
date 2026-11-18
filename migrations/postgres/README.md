@@ -1,6 +1,6 @@
 # PostgreSQL 迁移与 seed
 
-PostgreSQL 只支持全新安装，不迁移存量数据。表、列和普通索引由 gorm 建：`repo.Open` 每次启动都会执行 AutoMigrate 增量 DDL。本目录只放 gorm 建不出来的结构和 seed。和 `migrations/` 上层的 MySQL 脚本一样，这些脚本由运维手动执行或由安装脚本执行，平台启动时不会执行。
+PostgreSQL 是一键安装（`./start.sh`、`scripts/install.sh`、`scripts/dev.sh`）的默认数据库；MySQL 仍可选（第一次安装时设 `LOOPFORGE_DATABASE=mysql`）。PostgreSQL 只支持全新安装，不迁移存量数据，也没有 MySQL→PostgreSQL 的转换：已有的 MySQL 安装更新后继续使用 MySQL（见 docs/deployment.md 的 Database 一节）。表、列和普通索引由 gorm 建：`repo.Open` 每次启动都会执行 AutoMigrate 增量 DDL。本目录只放 gorm 建不出来的结构和 seed。和 `migrations/` 上层的 MySQL 脚本一样，这些脚本由运维手动执行或由安装脚本执行，平台启动时不会执行。
 
 ```
 postgres/
@@ -12,6 +12,8 @@ postgres/
 ```
 
 ## 执行顺序
+
+Compose 安装由 `scripts/install-schema-extensions.sh` 在平台健康之后按下面的顺序执行（安装、`./start.sh pull`、`scripts/dev.sh` 都会调用它，可以重复执行）。自建数据库时手动执行：
 
 1. 用 `AGENTFLOW_DATABASE_DSN=postgres://...` 启动一次平台，等健康检查通过（gorm 建出全部表）。
 2. 执行 `001_baseline_extensions.sql`。
@@ -35,7 +37,7 @@ CREATE DATABASE loopforge
   TEMPLATE template0;
 ```
 
-`TEMPLATE template0` 是必须的：`template1` 的 locale 跟随服务器，不能在建库时改。用官方镜像初始化整个实例时，也可以设 `POSTGRES_INITDB_ARGS=--locale=C.UTF-8`，之后默认建出的库就是这个 collation。`C.UTF-8` 按字节（码点）排序，结果不受操作系统 locale 版本影响，升级 glibc/ICU 不会导致索引失效；代价是字符串排序与 MySQL 的 `utf8mb4_unicode_ci` 不同（大写字母排在小写前面，中文按码点而不是拼音）。大小写不敏感比较由 `repo.Open` 建的 `lower()` 唯一索引和代码里的 `LOWER()` 负责，不依赖 collation。
+`TEMPLATE template0` 是必须的：`template1` 的 locale 跟随服务器，不能在建库时改。用官方镜像初始化整个实例时，也可以设 `POSTGRES_INITDB_ARGS=--locale=C.UTF-8`，之后默认建出的库就是这个 collation。`compose.yaml` 的 `postgres` 服务（`postgres:17`）就是这样做的：`POSTGRES_INITDB_ARGS=--encoding=UTF8 --locale=C.UTF-8`。`C.UTF-8` 按字节（码点）排序，结果不受操作系统 locale 版本影响，升级 glibc/ICU 不会导致索引失效；代价是字符串排序与 MySQL 的 `utf8mb4_unicode_ci` 不同（大写字母排在小写前面，中文按码点而不是拼音）。大小写不敏感比较由 `repo.Open` 建的 `lower()` 唯一索引和代码里的 `LOWER()` 负责，不依赖 collation。
 
 检查已有库：`SELECT datcollate, datctype FROM pg_database WHERE datname = current_database();`。glibc 镜像（`postgres:17`）两列都显示 `C.UTF-8`；Alpine 镜像（`postgres:17-alpine`，musl）把同样的请求记成 `datcollate = C`、`datctype = C.UTF-8`，两者都按字节排序，结果相同（`SELECT 'a' < 'B'` 返回 false）。
 

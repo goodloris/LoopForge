@@ -66,7 +66,7 @@ test('real script artifacts survive UI approval and execution continues',async({
   const read=async()=>{const r=await page.request.get(`/api/runs/${run.id}`);expect(r.ok()).toBe(true);return r.json()};
   await expect.poll(async()=>(await read()).status,{timeout:30_000}).toBe('waiting');
   let detail=await read();expect(detail.nodes.prepare.status).toBe('succeeded');
-  // Fresh MySQL installations need the generated adapter column used by run details.
+  // Fresh installations need the generated adapter column (the baseline) used by run details.
   const telemetry=await page.request.get(`/api/runs/${run.id}/telemetry?adapter=live`);
   expect(telemetry.ok(),await telemetry.text()).toBe(true);
   const artifact=detail.artifacts.find(a=>a.name==='welcome');expect(artifact).toBeTruthy();
