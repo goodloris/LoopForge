@@ -54,10 +54,12 @@ RUN case "${TARGETARCH:-amd64}" in \
 # Kiro CLI, pinned and checked like the Python above (versions and sums match
 # internal/runtime/kiro_login.go). Its 415 MB runtime unpacks into a shared
 # read-only KIRO_RUNTIME_DIR here instead of each private HOME; an invalid key
-# makes kiro-cli unpack it without a login and then exit.
-ARG KIRO_CLI_VERSION=3.3.0
-ARG KIRO_CLI_SHA256_AMD64=018e7d19124ebf5088bc33b12dcafa5c7e8de745ae491df024afebcd19f36b62
-ARG KIRO_CLI_SHA256_ARM64=5e85a1fcc107f4cd72cbbf1f8e69463bf9673814014c0056636d8433150b18d4
+# makes kiro-cli unpack it without a login and then exit. Without
+# KIRO_NO_AUTO_UPDATE the unpack run replaced the pinned binary with the
+# latest release, leaving it beside a runtime of the pinned version.
+ARG KIRO_CLI_VERSION=3.4.0
+ARG KIRO_CLI_SHA256_AMD64=95b85a724ecda5340cc5c98ddc979f4d0a6e96712fb29a36b3e7afaf6c70d389
+ARG KIRO_CLI_SHA256_ARM64=98401395ca36eda9682445062c090b2c81413640d9f1e7433e741fa3147dde6e
 ENV KIRO_RUNTIME_DIR=/opt/kiro-runtime
 RUN case "${TARGETARCH:-amd64}" in \
       amd64) arch=x86_64 sum="${KIRO_CLI_SHA256_AMD64}" ;; \
@@ -69,7 +71,7 @@ RUN case "${TARGETARCH:-amd64}" in \
  && python3 -c 'import sys,zipfile; zipfile.ZipFile(sys.argv[1]).extract("kirocli/bin/kiro-cli", "/tmp/kirocli-x")' /tmp/kirocli.zip \
  && install -m 0755 /tmp/kirocli-x/kirocli/bin/kiro-cli /usr/local/bin/kiro-cli \
  && rm -rf /tmp/kirocli.zip /tmp/kirocli-x \
- && (HOME=/tmp/kiro-build KIRO_API_KEY=loopforge-build-unpack timeout 180 kiro-cli chat --v3 --no-interactive hi >/dev/null 2>&1 || true) \
+ && (HOME=/tmp/kiro-build KIRO_NO_AUTO_UPDATE=1 KIRO_API_KEY=loopforge-build-unpack timeout 180 kiro-cli chat --v3 --no-interactive hi >/dev/null 2>&1 || true) \
  && ls -d "${KIRO_RUNTIME_DIR}/${KIRO_CLI_VERSION}"-* \
  && rm -rf /tmp/kiro-build "${KIRO_RUNTIME_DIR}/data.sqlite3" \
  && chmod -R a+rX "${KIRO_RUNTIME_DIR}"

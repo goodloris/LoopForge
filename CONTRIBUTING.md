@@ -18,6 +18,12 @@ Community contributions do not require private source manifests or hash updates.
 
 Run the [public browser acceptance suite](e2e/public/README.md) for authentication, preferences or execution changes. Paid model and external knowledge tests require explicit operator configuration; state passed, failed, skipped and not-run checks accurately.
 
+Before each release, and whenever the pinned kiro-cli (`KiroCLIVersion` in `internal/runtime/kiro_login.go` and the `Dockerfile`) changes, run the real Kiro CLI approval test by hand. CI does not run it, because it needs `kiro-cli login` on the machine and spends a few Kiro credits. It checks that a pending approval blocks a shell command past Kiro's 60-second default hook timeout, that a denied command does not run, and that an approved one does:
+
+```bash
+LOOPFORGE_KIRO_E2E=1 go test ./internal/runtime/ -run TestKiroConversationApprovalHookRealCLI -count=1 -v -timeout 15m
+```
+
 Platform pull requests run the `core`, `browser`, and `first-run` jobs. The stable check `platform-required` fails unless all three succeed. A repository administrator has to mark `platform-required` as a required status check in GitHub branch protection. This repository does not change that GitHub setting.
 
 For LoopForge Local, work inside `local/` and follow [local agent instructions](local/AGENTS.md). Identify whether a change affects Classic, Portable or shared behavior contracts. Keep these workflow assets independent from the platform and each other. Change Portable assets in `local/skills/`; rebuild generated Classic Cursor/Claude bundles with `python3 scripts/build-classic-hosts.py --write` from `local/`. Keep workflow templates generic; optional tools under `local/tools/` are distributed separately.
