@@ -981,7 +981,8 @@ textarea.pa-input{height:auto;min-height:76px;padding:9px 11px;resize:vertical;l
   .pa-drawer{top:8px;right:8px;bottom:8px;max-width:calc(100vw - 16px)}
 }
 .member-row,.dimension-row{display:grid;gap:8px;padding:7px 0}
-.member-row{grid-template-columns:30px 62px minmax(220px,1fr) 28px;align-items:center}
+.member-row{grid-template-columns:30px 92px minmax(220px,1fr) 28px;align-items:center}
+.member-row select.member-role{width:100%;min-width:0;height:32px;font-size:12px}
 .member-row.owner-row{margin-bottom:7px;padding:10px 8px;border:1px solid color-mix(in srgb,var(--blue) 28%,var(--line));border-radius:10px;background:var(--blue-soft)}
 .dimension-row{grid-template-columns:1fr 1.6fr 66px 80px 28px;align-items:center}
 .member-row input,.member-row select,.dimension-row input{border:1px solid var(--line-strong);border-radius:7px;padding:6px 8px;background:var(--bg-soft);color:var(--text);font-size:11px}
@@ -2707,7 +2708,7 @@ textarea.pw-input{height:auto;min-height:64px;padding:9px 12px;line-height:1.55;
 .pw-repo small.is-def{background:var(--pw-accent-soft);color:var(--pw-accent);font-family:inherit;font-weight:500}
 .pw-repo-rm{display:grid;place-items:center;width:26px;height:26px;margin-left:auto;padding:0;border:0;border-radius:7px;background:transparent;color:var(--pw-txt3);cursor:pointer}
 .pw-repo-rm:hover{background:color-mix(in srgb,var(--pw-err) 10%,transparent);color:var(--pw-err)}
-.pw-dialog .member-row.pw-member{grid-template-columns:30px 52px minmax(0,1fr) 28px;gap:10px;padding:0;margin:0;border:0;background:transparent}
+.pw-dialog .member-row.pw-member{grid-template-columns:30px 88px minmax(0,1fr) 28px;gap:10px;padding:0;margin:0;border:0;background:transparent}
 .pw-dialog .pw-member .member-avatar{width:30px;height:30px;background:var(--pw-accent-soft);color:var(--pw-accent);font-size:12px}
 .pw-dialog .pw-member .member-avatar.owner{background:var(--pw-accent);color:var(--hui-on-accent)}
 .pw-member-kind{font-size:12px;color:var(--pw-txt3)}
@@ -2765,3 +2766,8 @@ textarea.pw-input{height:auto;min-height:64px;padding:9px 12px;line-height:1.55;
   .pw-footer{padding:12px 16px}
   .pw-row2,.pw-actions,.pw-status-list{grid-template-columns:1fr}
 }
+/* 测试门禁提示（需求详情与流程设计器共用） */
+.verify-gate-hint{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin:10px 0;color:var(--hui-secondary);font-size:12.5px;line-height:1.5}
+.verify-gate-hint>.harness-icon{flex:none;color:var(--hui-warn)}
+.verify-gate-hint a{color:var(--hui-accent);text-decoration:none}
+.verify-gate-hint a:hover{text-decoration:underline}

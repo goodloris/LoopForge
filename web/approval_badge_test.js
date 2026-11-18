@@ -11,9 +11,9 @@ function source(name) {
 }
 function badgeContext(api) {
   const badge = {hidden: true, textContent: ''};
-  const context = {badge, state: {currentUser: null, data: {runs: []}}, $: sel => sel === '#approvalNavBadge' ? badge : null, scopedRuns: r => r, api};
+  const context = {badge, state: {currentUser: null, data: {runs: []}}, $: sel => sel === '#approvalNavBadge' ? badge : null, scopedRuns: r => r, isPlatformAdmin: () => false, runProjectId: r => r?.executionContext?.projectId || '', api};
   vm.createContext(context);
-  for (const name of ['approvalItems', 'updateApprovalBadge', 'preloadApprovalBadge']) vm.runInContext(source(name), context);
+  for (const name of ['approvalItems', 'approvalUserId', 'approvalAssignedToMe', 'approvalProjectAccess', 'approvalReadOnly', 'approvalActionableCount', 'updateApprovalBadge', 'preloadApprovalBadge']) vm.runInContext(source(name), context);
   return context;
 }
 const waitingRun = {id: 'r1', status: 'waiting', workflowId: 'wf', nodes: {n: {status: 'waiting_approval'}}};

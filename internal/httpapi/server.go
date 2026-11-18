@@ -483,6 +483,7 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 	g.GET("/api/workflows/:id/agents", api.catalog.workflow)
 	g.PUT("/api/workflows/:id/agents", api.catalog.workflow)
 	g.POST("/api/workflows/:id/clone", api.catalog.workflow)
+	g.GET("/api/workflows/:id/verify-gate", api.catalog.workflow)
 	g.GET("/api/workflow-metrics", api.runs.workflowMetrics)
 	g.POST(insightIngestPath, api.insights.ingest)
 	g.GET("/api/insights/v1/sources", api.insights.sources)

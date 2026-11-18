@@ -338,12 +338,27 @@ function approvalItems(){
     // 基线对齐不再等人确认：不进「待我确认」，由引擎自动合入。
     return r.workflowId!=='scheduled-baseline-align'&&r.workflowSnapshot?.id!=='scheduled-baseline-align';
   }));
-  const uid=state.currentUser&&!state.currentUser.isGuest?Number(state.currentUser.id):0;
-  // 登录用户只看分派给自己的流程；responsibleUserId 为 0 的历史/无主流程对所有人可见，
-  // 避免升级后旧数据被藏没（可用新增的「取消流程」清理）。
-  if(!uid)return waiting;
-  return waiting.filter(r=>{const rid=Number(r.executionContext?.responsibleUserId||0);return rid===0||rid===uid});
+  if(!approvalUserId())return waiting;
+  // 指派给自己的、无主的（responsibleUserId=0 的历史数据）和自己所在项目的都列出；
+  // 项目内其他人的单独成组，viewer 只读。
+  const items=waiting.filter(r=>approvalAssignedToMe(r)||approvalProjectAccess(runProjectId(r)));
+  return [...items.filter(approvalAssignedToMe),...items.filter(r=>!approvalAssignedToMe(r))];
 }
+function approvalUserId(){return state.currentUser&&!state.currentUser.isGuest?Number(state.currentUser.id):0}
+function approvalAssignedToMe(r){const rid=Number(r?.executionContext?.responsibleUserId||0);return rid===0||rid===approvalUserId()}
+// 与后端 projectMemberWrites 同口径：无 owner 的项目共享，owner、非 viewer 成员和平台管理员可审批。
+// 返回 'write'、'read'（viewer）或 ''（不是项目成员）。
+function approvalProjectAccess(projectId){
+  if(isPlatformAdmin())return 'write';
+  const uid=approvalUserId(),p=(state.data.projects||[]).find(x=>x.id===projectId);
+  if(!p)return '';
+  if(!Number(p.ownerId)||Number(p.ownerId)===uid)return 'write';
+  const member=(p.members||[]).find(m=>Number(m.userId)===uid);
+  return member?(String(member.role||'').trim().toLowerCase()==='viewer'?'read':'write'):'';
+}
+function approvalReadOnly(r){return approvalProjectAccess(runProjectId(r))==='read'}
+// 徽标和统计只数能处理的；viewer 只读的条目列出但不计数。
+function approvalActionableCount(items){return (items||[]).filter(r=>!approvalReadOnly(r)).length}
 // /api/bootstrap 不带 runs，首屏单独拉一次，否则徽标要等进了「待我确认」才出现。
 async function preloadApprovalBadge(){try{const runs=await api('/api/runs',{silent:true});if(Array.isArray(runs)){state.data.runs=runs;updateApprovalBadge()}}catch{}}
 async function cancelRunFlow(runId){
@@ -370,7 +385,7 @@ function approvalNodeDef(r){
   return (r?.workflowSnapshot?.nodes||[]).find(n=>n.id===nodeId)||null;
 }
 function approvalSelectable(r){
-  if(!r||r.status!=='waiting'||r.pauseRequested)return false;
+  if(!r||r.status!=='waiting'||r.pauseRequested||approvalReadOnly(r))return false;
   const nodeId=waitingNodeId(r),nr=r.nodes?.[nodeId];
   return !!nodeId&&nr?.status==='waiting_approval'&&!turnsExhausted(nr);
 }
@@ -474,8 +489,16 @@ function approvalCardHTML(r){
   const sep='<span class="ap-sep" aria-hidden="true">·</span>';
   const sideButton=issue?`<button class="button ghost small" data-open-issue="${escapeHTML(issue.id)}">打开需求</button>`:`<button class="button ghost small" data-open-logs="${escapeHTML(r.id)}">${alignRun?'查看对齐详情':'排查日志'}</button>`;
   const more=`<div class="ap-more"><button type="button" class="ap-more-toggle" data-ap-more title="更多操作" aria-label="更多操作" aria-haspopup="menu" aria-expanded="false">${huiIcon('more-horizontal')}</button><div class="ap-more-menu" role="menu" hidden><button type="button" class="ap-menu-item danger" role="menuitem" data-cancel-run="${escapeHTML(r.id)}">${huiIcon('close')}<span>取消流程</span></button></div></div>`;
-  const decision=r.pauseRequested?pausedRunPanelHTML(r):humanDecisionPanelHTML(r.id,nodeId,r.nodes?.[nodeId],node,r.workflowSnapshot?.nodes||[]);
-  return `<div class="ap-card${approvalSelectable(r)&&approvalSelection().has(approvalKey(r.id,waitingNodeId(r)))?' is-selected':''}"><div class="ap-card-head">${approvalSelectBoxHTML(r)}<div class="ap-main"><div class="ap-head"><b>${escapeHTML(title)}</b>${approvalStatusBadgeHTML(r.pauseRequested)}</div><div class="ap-meta">${keyHTML}${sep}${r.pauseRequested?'暂停于':'卡在'}「${escapeHTML(node?.name||nodeId||'确认')}」${sep}${approvalWaitedText(r.createdAt)}</div></div><div class="ap-side">${sideButton}${!r.pauseRequested?refreshRunSOPButtonHTML(r):''}${more}</div></div>${decision?`<div class="ap-body">${decision}</div>`:''}</div>`;
+  const readOnly=approvalReadOnly(r);
+  const decision=readOnly?`<p class="ap-readonly">你是本项目的查看者，只能查看，不能审批。</p>`:r.pauseRequested?pausedRunPanelHTML(r):humanDecisionPanelHTML(r.id,nodeId,r.nodes?.[nodeId],node,r.workflowSnapshot?.nodes||[]);
+  return `<div class="ap-card${readOnly?' is-readonly':''}${approvalSelectable(r)&&approvalSelection().has(approvalKey(r.id,waitingNodeId(r)))?' is-selected':''}"><div class="ap-card-head">${approvalSelectBoxHTML(r)}<div class="ap-main"><div class="ap-head"><b>${escapeHTML(title)}</b>${approvalStatusBadgeHTML(r.pauseRequested)}</div><div class="ap-meta">${keyHTML}${sep}${r.pauseRequested?'暂停于':'卡在'}「${escapeHTML(node?.name||nodeId||'确认')}」${sep}${approvalWaitedText(r.createdAt)}</div></div><div class="ap-side">${sideButton}${!r.pauseRequested&&!readOnly?refreshRunSOPButtonHTML(r):''}${readOnly?'':more}</div></div>${decision?`<div class="ap-body">${decision}</div>`:''}</div>`;
+}
+// 两组都有时才加组标题，只有自己的待确认时保持原样。
+function approvalListHTML(items){
+  const mine=items.filter(approvalAssignedToMe),others=items.filter(r=>!approvalAssignedToMe(r));
+  if(!mine.length||!others.length)return items.map(approvalCardHTML).join('');
+  const group=(label,list)=>`<div class="ap-group-title">${label}<span>${list.length}</span></div>${list.map(approvalCardHTML).join('')}`;
+  return group('指派给我',mine)+group('项目内其他',others);
 }
 function closeApprovalMoreMenus(except){
   document.querySelectorAll('#approvalsView .ap-more.is-open').forEach(more=>{
@@ -526,12 +549,13 @@ async function renderApprovals(background=false){
   $('#approvalLiveState').classList.toggle('active',items.length>0);
   const updated=$('#approvalLiveState [data-updated]');if(updated)updated.textContent=`更新于 ${new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})}`;
   updateApprovalBadge();
-  $('#approvalStats').innerHTML=`<span class="issue-stat"><b>${items.length}</b> 条待确认</span>`;
+  const actionable=approvalActionableCount(items),readOnlyCount=items.length-actionable;
+  $('#approvalStats').innerHTML=`<span class="issue-stat"><b>${actionable}</b> 条待确认</span>${readOnlyCount?`<span class="issue-stat"><b>${readOnlyCount}</b> 条仅可查看</span>`:''}`;
   state.approvalItems=items;pruneApprovalSelection(items);
   const batch=$('#approvalBatch');
   if(batch){batch.innerHTML=approvalBatchBarHTML(items);batch.hidden=!batch.innerHTML;bindApprovalBatch()}
   const host=$('#approvalList');
-  host.innerHTML=items.map(approvalCardHTML).join('')||`<div class="approval-empty"><div class="empty-box"><span class="ap-empty-icon">${huiIcon('check')}</span><b>没有需要你拍板的需求</b><p>流程停在人工确认节点时会出现在这里。</p></div></div>`;
+  host.innerHTML=approvalListHTML(items)||`<div class="approval-empty"><div class="empty-box"><span class="ap-empty-icon">${huiIcon('check')}</span><b>没有需要你拍板的需求</b><p>流程停在人工确认节点时会出现在这里。</p></div></div>`;
   host.querySelectorAll('[data-open-issue]').forEach(b=>b.onclick=()=>openIssueDetail(b.dataset.openIssue,'sop'));
   host.querySelectorAll('[data-open-logs]').forEach(b=>b.onclick=()=>openRunFromId(b.dataset.openLogs,{forceRuns:true}));
   host.querySelectorAll('[data-cancel-run]').forEach(b=>b.onclick=()=>{closeApprovalMoreMenus();cancelRunFlow(b.dataset.cancelRun)});

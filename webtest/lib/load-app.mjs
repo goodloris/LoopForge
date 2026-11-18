@@ -94,7 +94,7 @@ function defaultPayload(pathname, method) {
   if (/^\/api\/knowledge\/(submissions|candidates|sources)$/.test(pathname)) return [];
   if (pathname === '/api/knowledge/usage') return { searches: 3, fetches: 2, agents: 1 };
   if (/^\/api\/(projects|issues|tasks|runs|flows|workflows|sops|agents|runners|assets|bots|rooms|users|notifications|revisions|approvals|business-domains|rules|skills|mcp|mcp-servers|executors|dockerfiles|environments|sandboxes|schedule-jobs)$/.test(pathname)) {
-    const key = pathname.split('/').at(-1).replace('flows', 'workflows').replace('mcp-servers', 'mcpServers').replace('schedule-jobs', 'scheduleJobs');
+    const key = pathname.split('/').at(-1).replace(/^flows$/, 'workflows').replace('mcp-servers', 'mcpServers').replace('schedule-jobs', 'scheduleJobs');
     return sampleBootstrap()[key] || [];
   }
   const collection = pathname.match(/\/(projects|issues|tasks|runs|workflows|agents|runners|bots|users|rules|skills|mcp-servers|dockerfiles|environments|sandboxes|schedule-jobs)$/)?.[1];
