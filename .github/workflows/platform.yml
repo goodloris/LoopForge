@@ -172,9 +172,17 @@ jobs:
     # The path a new user takes: one-command install, then accounts created in the browser.
     # Pulls the GHCR release pinned in compose.yaml; release.yml smoke-tests each newly published image.
     # A pin bumped ahead of its tag has no image yet, so that commit is checked from source.
+    # PostgreSQL is the default database and MySQL the option; each gets a fresh install.
+    # A pinned image from before PostgreSQL support is built from source for the default.
+    name: first-run (${{ matrix.database }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        database: [postgres, mysql]
     env:
+      LOOPFORGE_DATABASE: ${{ matrix.database }}
       LOOPFORGE_TEST_URL: http://127.0.0.1:8090
       LOOPFORGE_UNCONFIGURED_USER: e2e-no-key
       LOOPFORGE_UNCONFIGURED_PASSWORD_FILE: ${{ github.workspace }}/.local/no-key-password
@@ -190,12 +198,16 @@ jobs:
       - name: Install the pinned release, or build it while that release is not published yet
         run: |
           pinned=$(sed -n 's/^ *image: \${LOOPFORGE_IMAGE:-\(.*\)}$/\1/p' compose.yaml)
-          if docker manifest inspect "$pinned" > /dev/null 2>&1; then
-            ./start.sh -d
-          else
+          if ! docker manifest inspect "$pinned" > /dev/null 2>&1; then
             echo "::notice::$pinned is not published yet; building this checkout"
             ./start.sh dev
+          elif [[ "$LOOPFORGE_DATABASE" == postgres ]] && ! docker run --rm --entrypoint /app/bin/agentflow "$pinned" -help 2>&1 | grep -q -- -database-dsn; then
+            echo "::notice::$pinned predates PostgreSQL support; building this checkout"
+            ./start.sh dev
+          else
+            ./start.sh -d
           fi
+          grep -qx "LOOPFORGE_DATABASE=$LOOPFORGE_DATABASE" .env
       - name: Generate test passwords
         run: |
           mkdir -p .local
@@ -213,7 +225,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: first-run-results
+          name: first-run-results-${{ matrix.database }}
           path: e2e/test-results/
           if-no-files-found: ignore
   postgres:
