@@ -22,10 +22,15 @@ const ProjectRunLimit = 10
 // "runner:<id>" for a personal machine. Each bucket has its own lock row, so
 // different projects and machines never wait on each other.
 //
+// Only a running top-level run holds a slot. A run parked on a human gate or a
+// pause (waiting), and a failed or cancelled run, releases it; approving,
+// resuming or retrying it claims a slot again and queues when the bucket is
+// full.
+//
 // Lock rule: a transaction that takes a bucket lock takes it FIRST, before any
 // run row lock, and holds at most one bucket. Only transactions that claim a
-// slot (insert a running run, restart a succeeded/unstarted run, promote the
-// queue) or change a machine limit take it. Writes that keep or release a
+// slot (insert a running run, flip a non-running run back to running, promote
+// the queue) or change a machine limit take it. Writes that keep or release a
 // slot never do: a release that races an admission decision can only make it
 // over-count and queue a little longer, never exceed the limit, and the next
 // promotion pass corrects it.
@@ -176,7 +181,7 @@ func (s *admissionScope) rowBucketKey(row runRow) (string, error) {
 	return admissionBucketKey(project, run.ExecutionContext.ExecutionRunnerID, exempt), nil
 }
 
-// occupied counts admitted top-level runs in one bucket through
+// occupied counts running top-level runs in one bucket through
 // idx_runs_quota_bucket. Rows with a NULL bucket are legacy rows not yet
 // backfilled; they are resolved in Go so they still count.
 //
@@ -185,8 +190,8 @@ func (s *admissionScope) rowBucketKey(row runRow) (string, error) {
 func (s *admissionScope) occupied(key, exclude string) (int, error) {
 	var rows []runRow
 	q := s.tx.Select("id", "kind", "workflow_id", "status", "quota_bucket", "quota_project_id", "quota_parent_run_id", "quota_exempt", "admission_state", "execution_context").
-		Where("(quota_bucket = ? OR quota_bucket IS NULL) AND status NOT IN ? AND (admission_state IS NULL OR admission_state <> ?)",
-			key, []string{"succeeded", "queued"}, "unstarted")
+		Where("(quota_bucket = ? OR quota_bucket IS NULL) AND status = ? AND (admission_state IS NULL OR admission_state <> ?)",
+			key, "running", "unstarted")
 	if exclude != "" {
 		q = q.Where("id <> ?", exclude)
 	}
@@ -291,10 +296,14 @@ func (r *RunsRepo) prepareRunAdmission(tx *gorm.DB, run *domain.Run, current run
 			if run.Status == "cancelled" {
 				run.AdmissionState = "unstarted"
 			}
+		} else if exists && current.AdmissionState != "unstarted" {
+			// waiting, failed or cancelled after start: the slot goes back.
+			run.AdmissionState = "released"
 		}
 		return nil
 	}
-	if exists && current.Status != "succeeded" && current.AdmissionState != "unstarted" {
+	// Already running, or a kind that never takes an SOP slot: keep going.
+	if exists && current.AdmissionState != "unstarted" && (current.Status == "running" || run.IsWorkspace() || run.WorkflowID == domain.FreeCollaborationWorkflowID) {
 		run.AdmissionState = "held"
 		return r.checkParentAdmission(tx, *run)
 	}

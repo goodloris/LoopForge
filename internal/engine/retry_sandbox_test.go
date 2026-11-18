@@ -181,11 +181,15 @@ func TestDiscardIdleRunContainersWaitsForIdleThreshold(t *testing.T) {
 	engine.runEnvs["run-failed"] = &runEnvironment{sandbox: failed}
 	engine.runEnvs["run-waiting"] = &runEnvironment{sandbox: waiting}
 
-	if n := engine.discardIdleRunContainers(context.Background(), time.Now().UTC().Add(10*time.Minute)); n != 0 || failed.closed || waiting.closed {
-		t.Fatalf("a run that just failed must keep its container for a quick retry (n=%d)", n)
+	if n := engine.discardIdleRunContainers(context.Background(), time.Now().UTC().Add(5*time.Minute)); n != 0 || failed.closed || waiting.closed {
+		t.Fatalf("a run that just failed or parked must keep its container for a quick decision (n=%d)", n)
 	}
-	if n := engine.discardIdleRunContainers(context.Background(), time.Now().UTC().Add(time.Hour)); n != 1 || !failed.closed || waiting.closed {
-		t.Fatalf("after an hour only the failed run is idle (n=%d failed=%v waiting=%v)", n, failed.closed, waiting.closed)
+	// A gate wait already released its admission slot; its container goes next.
+	if n := engine.discardIdleRunContainers(context.Background(), time.Now().UTC().Add(20*time.Minute)); n != 1 || failed.closed || !waiting.closed {
+		t.Fatalf("after 20 minutes only the waiting run is idle (n=%d failed=%v waiting=%v)", n, failed.closed, waiting.closed)
+	}
+	if n := engine.discardIdleRunContainers(context.Background(), time.Now().UTC().Add(time.Hour)); n != 1 || !failed.closed {
+		t.Fatalf("after an hour the failed run is idle too (n=%d failed=%v)", n, failed.closed)
 	}
 }
 
