@@ -65,14 +65,19 @@ func TestAssistantEffortAndReviewLive(t *testing.T) {
 }
 
 func TestAssistantEffortMySQLRoundTrip(t *testing.T) {
-	dsn := os.Getenv("AGENTFLOW_CHAT_REVIEW_TEST_MYSQL_DSN")
-	if dsn == "" {
-		t.Skip("isolated Docker MySQL not configured")
+	var st *repo.Store
+	var err error
+	switch dsn := os.Getenv("AGENTFLOW_CHAT_REVIEW_TEST_MYSQL_DSN"); {
+	case dsn != "":
+		if !loopbackMySQLDSN(dsn) || !strings.Contains(dsn, "/agentflow_chat_test") {
+			t.Fatal("test requires the isolated local chat database")
+		}
+		st, err = repo.Open(dsn)
+	case os.Getenv("AGENTFLOW_TEST_PG_DSN") != "":
+		st, err = repo.OpenTest()
+	default:
+		t.Skip("isolated Docker MySQL or PostgreSQL not configured")
 	}
-	if !loopbackMySQLDSN(dsn) || !strings.Contains(dsn, "/agentflow_chat_test") {
-		t.Fatal("test requires the isolated local chat database")
-	}
-	st, err := repo.Open(dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
