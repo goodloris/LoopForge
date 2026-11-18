@@ -114,7 +114,7 @@ GitLab、Gitea、Gogs 等托管可[配置 Git SSH](docs/deployment.md#git-reposi
 
 <br>
 
-- **执行器。** 在首页输入框旁从 10 种 CLI 中选择一种，再选择模型。每个 SOP 角色都可以独立选择执行器（内置角色默认 CodeBuddy）。「帮我批准」用当前对话的 CLI 和模型审查每项操作（包括 Kiro CLI），CodeBuddy 对话仍用最便宜的 CodeBuddy 模型。运行评测可选任意 CLI 的模型，Bot 回复和通知 AI 汇总可用 CodeBuddy 或 Kiro CLI 模型；这些都在平台服务器上执行，Kiro CLI 需要服务器上有 `kiro-cli` 及其登录。需求澄清同样在平台服务器上运行，使用澄清面板所选的 CLI，并读取检出的代码：Kiro CLI 只信任只读文件工具和平台 MCP，需要服务器上有 `kiro-cli` 及其登录；CodeBuddy 和其他 CLI 使用需求责任人自己的 Key。缺少凭据时会在开始前拒绝，并说明要配置什么。定时助手任务使用任务所选的执行器。
+- **执行器。** 在首页输入框旁从 10 种 CLI 中选择一种，再选择模型。每个 SOP 角色都可以独立选择执行器（内置角色默认 CodeBuddy）。「帮我批准」用当前对话的 CLI 和模型审查每项操作（包括 Kiro CLI），CodeBuddy 对话仍用最便宜的 CodeBuddy 模型。运行评测可选任意 CLI 的模型，Bot 回复和通知 AI 汇总可用 CodeBuddy 或 Kiro CLI 模型；这些都在平台服务器上执行，Kiro CLI 需要服务器上有 `kiro-cli` 及其登录。需求澄清同样在平台服务器上运行，使用澄清面板所选的 CLI，并读取检出的代码：Kiro CLI 只信任只读文件工具和平台 MCP，文件读取限定在检出目录内，需要服务器上有 `kiro-cli` 及其登录；CodeBuddy 和其他 CLI 使用需求责任人自己的 Key。缺少凭据时会在开始前拒绝，并说明要配置什么。定时助手任务使用任务所选的执行器。
 
   | 执行器 | 凭据 | 安装方式 |
   | --- | --- | --- |
