@@ -55,8 +55,8 @@ test('the home page guides a new account and explains the missing model key',asy
   await expect(page.locator('#projectSwitcher option[value="welcome"]')).toHaveCount(1);
   const input=await openHome(page);
   const frame=chat(page);
-  // A published image from before #960 also has the one-click demo starter.
-  await expect.poll(()=>frame.locator('.home-starter').count()).toBeGreaterThanOrEqual(3);
+  // 0.5.0 (and a source build of this checkout) offers three starters; #960 removed the demo one.
+  await expect.poll(()=>frame.locator('.home-starter').count()).toBe(3);
   const notice=frame.locator('.credential-notice');
   await expect(notice).toContainText('CodeBuddy API Key');
   await input.fill('First question after installing');

@@ -62,7 +62,7 @@ func TestAssistantKiroTurnNotRefusedUpFront(t *testing.T) {
 	if err := validateAssistantProvider(&req, domain.User{}); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, refusal := (&assistantHandlers{}).assistantTurnUser(domain.User{}, "kiro:auto"); refusal != "" {
+	if _, _, refusal := (&assistantHandlers{}).assistantTurnUser(domain.User{}, "kiro:auto", false); refusal != "" {
 		t.Fatal(refusal)
 	}
 }

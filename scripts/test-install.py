@@ -36,7 +36,7 @@ class InstallerTests(unittest.TestCase):
         for name in ('install.sh', 'configure.sh', 'database.sh', 'docker-access.sh', 'ghcr-mirror.sh', 'install-address.py', 'install-compose.py', 'install-observability-schema.sh', 'install-schema-extensions.sh', 'manual-migration-hints.sh'):
             shutil.copyfile(ROOT / 'scripts' / name, self.root / 'scripts' / name)
         shutil.copyfile(ROOT / 'start.sh', self.root / 'start.sh')
-        for name in ('001_run_obs_generated_columns.sql', '031_generic_backend_openssh.sql', '034_generic_backend_pip.sql'):
+        for name in ('001_run_obs_generated_columns.sql', '031_generic_backend_openssh.sql', '036_generic_backend_pip.sql'):
             (self.root / 'migrations' / name).write_text((ROOT / 'migrations' / name).read_text())
         (self.root / 'migrations/seed/001_test.sql').write_text('INSERT IGNORE INTO agents (id) VALUES (1);\n')
         shutil.copyfile(ROOT / 'migrations/postgres/001_baseline_extensions.sql', self.root / 'migrations/postgres/001_baseline_extensions.sql')

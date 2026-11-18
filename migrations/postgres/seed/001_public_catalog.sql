@@ -1,5 +1,5 @@
 -- PostgreSQL public catalog seed. Same rows as migrations/seed/001_public_catalog.sql
--- (MySQL), which already carries the 030, 031, 033, 034 and 035 changes: the
+-- (MySQL), which already carries the 030, 031, 033, 036 and 037 changes: the
 -- shared generic-docker sandbox, the generic-backend Dockerfile with
 -- openssh-client and python3-pip/python3-venv, the 「发起 MR」 node in the code
 -- SOPs and the test role prompt that fails when tests cannot run.

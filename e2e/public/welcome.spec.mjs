@@ -37,8 +37,8 @@ for(const variant of [
     // A first conversation is personal until a project is picked.
     await expect(frame.locator('.project-picker')).toHaveClass(/is-unset/);
     const starters=frame.locator('.home-starter');
-    // The pinned release that first-run installs still has the one-click demo starter.
-    await expect.poll(()=>starters.count()).toBeGreaterThanOrEqual(3);
+    // Three starters since #960 removed the one-click demo.
+    await expect.poll(()=>starters.count()).toBe(3);
     for(let i=0;i<await starters.count();i++){await starters.nth(i).scrollIntoViewIfNeeded();await expect(starters.nth(i)).toBeInViewport()}
     expect(await frame.locator('html').evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);

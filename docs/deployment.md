@@ -40,7 +40,7 @@ For your own PostgreSQL server, create the database as [migrations/postgres/READ
 
 Changing `LOOPFORGE_DATABASE` in `.env` later rewrites only the two DSNs on the next run and starts the other database empty, next to the old volume. Do it only on an installation without data you want to keep.
 
-Images of 0.3.8 and earlier predate PostgreSQL support and read only `AGENTFLOW_MYSQL_DSN`. Do not point `LOOPFORGE_IMAGE` at one of them on a PostgreSQL installation.
+Upstream `ghcr.io/tencent/loopforge` images, 0.4.0 included, predate PostgreSQL support and read only `AGENTFLOW_MYSQL_DSN`. Do not point `LOOPFORGE_IMAGE` at one of them on a PostgreSQL installation.
 
 ## Container installation
 
@@ -181,7 +181,7 @@ This section is about MySQL. PostgreSQL is supported for new installations only:
 
 | Kind | Example | What an operator does |
 | --- | --- | --- |
-| Already applied by the installer and `./start.sh pull` | `001_run_obs_generated_columns.sql`, `migrations/seed/*.sql`, `031_generic_backend_openssh.sql`, `034_generic_backend_pip.sql` | Nothing; the script above covers it |
+| Already applied by the installer and `./start.sh pull` | `001_run_obs_generated_columns.sql`, `migrations/seed/*.sql`, `031_generic_backend_openssh.sql`, `036_generic_backend_pip.sql` | Nothing; the script above covers it |
 | Must run once when upgrading | `009_bot_interactions_utf8mb4.sql` (`CONVERT TO` an existing table), new tables and columns added by hand | Run it on the database after reviewing prerequisites |
 | Backfills and one-time rewrites of existing rows | `016_public_optional_repositories.sql`, `021_assistant_session_sources.sql` | Run it if the history matters; skipping it changes no schema but leaves old rows unconverted |
 
@@ -203,15 +203,15 @@ docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" mysql -u loopfor
 
 After it, a run of these SOPs commits and pushes its work branch and opens an MR/PR before 交付汇总, so the Git credentials of the run's responsible user need push access. The installer and `./start.sh pull` do not run it. It rewrites a template only while its node graph and 交付汇总 position are the shipped original, and the 交付汇总 prompt only while unedited; it is safe to repeat. Project SOPs adopted from these templates are copies and are not changed.
 
-To make the 测试验证 role of the same three SOPs write 「未通过」 and fail the node when it cannot run the project's tests, apply `035_generic_test_role_requires_tests.sql` the same way:
+To make the 测试验证 role of the same three SOPs write 「未通过」 and fail the node when it cannot run the project's tests, apply `037_generic_test_role_requires_tests.sql` the same way:
 
 ```bash
-docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" mysql -u loopforge loopforge' < migrations/035_generic_test_role_requires_tests.sql
+docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" mysql -u loopforge loopforge' < migrations/037_generic_test_role_requires_tests.sql
 ```
 
-The installer and `./start.sh pull` do not run it. It rewrites only unedited shipped prompts and is safe to repeat. They do run `034_generic_backend_pip.sql`, which adds `python3-pip` and `python3-venv` to the unedited built-in `generic-backend` Dockerfile to match the platform image.
+The installer and `./start.sh pull` do not run it. It rewrites only unedited shipped prompts and is safe to repeat. They do run `036_generic_backend_pip.sql`, which adds `python3-pip` and `python3-venv` to the unedited built-in `generic-backend` Dockerfile to match the platform image.
 
-`scripts/install-schema-extensions.sh` (installer and `./start.sh pull`) and `scripts/dev.sh` end with a read-only check, `scripts/manual-migration-hints.sh`, that names 033 or 035 with this command while a built-in template still lacks the `mr` node or still holds the pre-035 测试验证 prompt. On PostgreSQL it reports nothing.
+`scripts/install-schema-extensions.sh` (installer and `./start.sh pull`) and `scripts/dev.sh` end with a read-only check, `scripts/manual-migration-hints.sh`, that names 033 or 037 with this command while a built-in template still lacks the `mr` node or still holds the pre-037 测试验证 prompt. On PostgreSQL it reports nothing.
 
 ## GitHub credentials
 
