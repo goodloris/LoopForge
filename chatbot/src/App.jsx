@@ -61,6 +61,7 @@ import { mentionAt, insertMention } from "./mentions.js";
 import { elementTitle } from "./element-context.js";
 import HarnessIcon from "./HarnessIcon";
 import QueuedMessages from "./QueuedMessages";
+import { turnModeCaption } from "./message-info.js";
 import "./message-queue.css";
 import ConversationStatusIcon from "./ConversationStatusIcon";
 import { SidebarSection } from "./SidebarPreview";
@@ -1879,6 +1880,11 @@ export default function App() {
                   {showEnvironmentPicker && chat.projectId ? <ChevronRightSmall /> : null}
                   {showEnvironmentPicker ? <SandboxPicker chat={chat} onCreate={() => navigate("sandboxes", { action: "create", projectId: chat.projectId })} /> : null}
                 </div>
+                ) : null}
+                {turnModeCaption(chat.generation, chat.user?.id) ? (
+                  <p className="turn-mode-note" role="status">
+                    {turnModeCaption(chat.generation, chat.user?.id)}
+                  </p>
                 ) : null}
                 <QueuedMessages
                   items={chat.queue}

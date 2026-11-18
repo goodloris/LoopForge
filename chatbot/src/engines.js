@@ -9,6 +9,13 @@ const brands = {
 };
 export const engineBrand = (id) => brands[id] || "";
 
+// Display names, mirroring assistantEngineLabel on the server.
+const labels = {
+  codebuddy: "CodeBuddy", codex: "Codex", "claude-code": "Claude Code", opencode: "OpenCode", cursor: "Cursor",
+  agy: "Antigravity", kimi: "Kimi Code", pi: "Pi", dsh: "DeepSeek Harness", zcode: "ZCode", kiro: "Kiro CLI",
+};
+export const engineLabel = (id) => labels[id] || id || "";
+
 export const modelEngine = (model) => model?.engine || defaultEngine;
 
 /** The CLI an ID runs on: the catalog entry, else the "cli:model" prefix. */

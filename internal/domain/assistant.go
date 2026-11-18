@@ -59,11 +59,13 @@ type AssistantMessage struct {
 	SpeakerName    string                   `json:"speakerName,omitempty"`
 	SpeakerAgentID string                   `json:"speakerAgentId,omitempty"`
 	Model          string                   `json:"model,omitempty"`
-	Usage          *TokenUsage              `json:"usage,omitempty"`
-	Role           string                   `json:"role"`
-	Content        string                   `json:"content"`
-	References     []AssistantReference     `json:"references,omitempty"`
-	Attachments    []AssistantAttachment    `json:"attachments,omitempty"`
+	// ApprovalMode is the confirmation mode the reply's turn ran with.
+	ApprovalMode string                `json:"approvalMode,omitempty"`
+	Usage        *TokenUsage           `json:"usage,omitempty"`
+	Role         string                `json:"role"`
+	Content      string                `json:"content"`
+	References   []AssistantReference  `json:"references,omitempty"`
+	Attachments  []AssistantAttachment `json:"attachments,omitempty"`
 	// Unfinished names why a reply stopped early (stopped, failed, timed out
 	// or interrupted). The reply keeps its partial answer and activity.
 	Unfinished   string            `json:"unfinished,omitempty"`
