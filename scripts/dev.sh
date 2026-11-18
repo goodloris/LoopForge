@@ -5,9 +5,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 bash scripts/configure.sh
-set -a
-source .env
-set +a
+source scripts/load-env.sh
+load_env
 source scripts/docker-access.sh
 source scripts/database.sh
 mkdir -p .local/bin .local/workspaces

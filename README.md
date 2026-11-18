@@ -125,7 +125,7 @@ New accounts join the **LoopForge demo project**, which includes an SOP made onl
   | **DeepSeek Harness** | Personal key only | In the Docker image |
   | **Cursor CLI · Antigravity** | Personal key only | Provider installer on first chat use; not installed into SOP sandboxes |
   | **ZCode** | Personal key only | Not bundled; install it on the service or execution machine PATH |
-  | **Kiro CLI** | The subscription login of `kiro-cli login`, no API key: an execution machine uses its own; the Compose platform reads the host's through `LOOPFORGE_KIRO_DATA_DIR`; sandboxes get a copy of the login only | In the Docker image |
+  | **Kiro CLI** | The subscription login of `kiro-cli login`, no API key: an execution machine uses its own; the Compose platform reads the host's through `LOOPFORGE_KIRO_DATA_DIR` (an absolute path, not `~`; see [Deployment](docs/deployment.md#kiro-cli)); sandboxes get a copy of the login only | In the Docker image |
 
   The seven agent CLIs after Claude Code keep their model and MCP configuration in a private home directory per run, so they always use the responsible user's own key and Base URL from personal settings, even on a connected execution machine. When rolling them out to a team, each member configures their own credentials. First-use installs need npm or provider access; [native deployments](docs/deployment.md#workers-and-runners) need the CLI for the executor you choose.
 - **GitHub is optional.** All built-in generic SOPs run without a repository: product SOPs deliver documents, and new frontend/backend projects deliver source files in the task workspace. Bug fixes still need source code and reproduction details. Connect a repository when you work on existing code or want PRs.
