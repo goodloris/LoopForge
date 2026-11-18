@@ -1,6 +1,31 @@
 name: loopforge
+# One database service runs: LOOPFORGE_DATABASE in .env (postgres, the
+# default, or mysql) names it, and the scripts pass it as a Compose profile
+# next to `platform`. Plain `docker compose` commands that name the service
+# (`docker compose exec -T postgres psql ...`) need no profile.
 services:
+  postgres:
+    profiles: [postgres]
+    # Debian (glibc) image, the same one CI runs the repository tests on.
+    image: postgres:17
+    environment:
+      POSTGRES_DB: loopforge
+      POSTGRES_USER: loopforge
+      POSTGRES_PASSWORD: ${LOOPFORGE_DB_PASSWORD:?Run scripts/configure.sh first}
+      # UTF8 with byte-order C.UTF-8 collation and ctype; see migrations/postgres/README.md.
+      POSTGRES_INITDB_ARGS: --encoding=UTF8 --locale=C.UTF-8
+    ports:
+      - "127.0.0.1:${LOOPFORGE_POSTGRES_PORT:-35432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      # TCP, so the socket-only server the image runs during initdb does not count.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U loopforge -d loopforge"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
   mysql:
+    profiles: [mysql]
     image: mysql:8.4
     environment:
       MYSQL_DATABASE: loopforge
@@ -26,7 +51,11 @@ services:
       - "${LOOPFORGE_BIND:-0.0.0.0}:${AGENTFLOW_HTTP_PORT:-8090}:8080"
     environment:
       AGENTFLOW_HTTP_PORT: 8080
-      AGENTFLOW_MYSQL_DSN: loopforge:${LOOPFORGE_DB_PASSWORD}@tcp(mysql:3306)/loopforge
+      # The in-network DSN of the selected database, written by scripts/configure.sh.
+      AGENTFLOW_DATABASE_DSN: ${LOOPFORGE_COMPOSE_DSN:?Run scripts/configure.sh first}
+      # Legacy name for images before PostgreSQL support (0.3.8 and earlier),
+      # which read only this one. Newer images prefer AGENTFLOW_DATABASE_DSN.
+      AGENTFLOW_MYSQL_DSN: ${LOOPFORGE_COMPOSE_DSN}
       AGENTFLOW_SESSION_SECRET: ${AGENTFLOW_SESSION_SECRET:?Run scripts/configure.sh first}
       AGENTFLOW_AUTH_REQUIRED: "true"
       AGENTFLOW_ALLOW_SIGNUP: ${AGENTFLOW_ALLOW_SIGNUP:-true}
@@ -62,9 +91,14 @@ services:
       # ~/Library/Application Support/kiro-cli on macOS. Unset leaves Kiro
       # CLI unconfigured.
       - ${LOOPFORGE_KIRO_DATA_DIR:-${LOOPFORGE_DATA_DIR}/kiro-host}:/kiro-host:ro
+    # Only the database whose profile is active is waited for.
     depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
       mysql:
         condition: service_healthy
+        required: false
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/health', timeout=2).close()"]
       interval: 3s
@@ -73,5 +107,6 @@ services:
       start_period: 10s
     restart: unless-stopped
 volumes:
+  postgres-data:
   mysql-data:
   platform-data:
