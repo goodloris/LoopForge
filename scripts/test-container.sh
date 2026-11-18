@@ -8,11 +8,16 @@ TASK_DIR="$(mktemp -d "$ROOT_DIR/.local/container-e2e.XXXXXX")"
 TASK_PROJECT="loopforge-e2e-$(date +%s)-$$"
 TASK_PORT="${LOOPFORGE_CONTAINER_TEST_PORT:-8093}"
 TASK_MYSQL_PORT="${LOOPFORGE_CONTAINER_MYSQL_PORT:-33317}"
-export TASK_DIR TASK_PORT TASK_MYSQL_PORT TASK_PROJECT
+TASK_POSTGRES_PORT="${LOOPFORGE_CONTAINER_POSTGRES_PORT:-35437}"
+# postgres (default) or mysql.
+TASK_DATABASE="${LOOPFORGE_CONTAINER_DATABASE:-postgres}"
+export TASK_DIR TASK_PORT TASK_MYSQL_PORT TASK_POSTGRES_PORT TASK_PROJECT TASK_DATABASE
 python3 - <<'PY'
 import os,secrets,pathlib
 root=pathlib.Path(os.environ['TASK_DIR'])
-values={'LOOPFORGE_DB_PASSWORD':secrets.token_hex(24),'LOOPFORGE_DB_ROOT_PASSWORD':secrets.token_hex(24),'AGENTFLOW_SESSION_SECRET':secrets.token_hex(32),'AGENTFLOW_HTTP_PORT':os.environ['TASK_PORT'],'LOOPFORGE_MYSQL_PORT':os.environ['TASK_MYSQL_PORT'],'COMPOSE_PROJECT_NAME':os.environ['TASK_PROJECT'],'LOOPFORGE_DATA_DIR':str(root/'data')}
+password=secrets.token_hex(24)
+dsn={'postgres':f'postgres://loopforge:{password}@postgres:5432/loopforge?sslmode=disable','mysql':f'loopforge:{password}@tcp(mysql:3306)/loopforge'}[os.environ['TASK_DATABASE']]
+values={'LOOPFORGE_DATABASE':os.environ['TASK_DATABASE'],'LOOPFORGE_COMPOSE_DSN':dsn,'LOOPFORGE_DB_PASSWORD':password,'LOOPFORGE_DB_ROOT_PASSWORD':secrets.token_hex(24),'AGENTFLOW_SESSION_SECRET':secrets.token_hex(32),'AGENTFLOW_HTTP_PORT':os.environ['TASK_PORT'],'LOOPFORGE_MYSQL_PORT':os.environ['TASK_MYSQL_PORT'],'LOOPFORGE_POSTGRES_PORT':os.environ['TASK_POSTGRES_PORT'],'COMPOSE_PROJECT_NAME':os.environ['TASK_PROJECT'],'LOOPFORGE_DATA_DIR':str(root/'data')}
 (root/'data'/'home').mkdir(parents=True);(root/'data'/'workspaces').mkdir()
 for name,data in [('install.env',''.join(f'{k}="{v}"\n' for k,v in values.items())),('admin-password',secrets.token_urlsafe(20)),('no-key-password',secrets.token_urlsafe(20))]:
     p=root/name;p.write_text(data);p.chmod(0o600)
@@ -28,7 +33,7 @@ fi
 COMPOSE=(docker compose -f "$ROOT_DIR/compose.yaml")
 if [[ "${LOOPFORGE_CONTAINER_SKIP_BUILD:-0}" != '1' ]]; then COMPOSE+=(-f "$ROOT_DIR/compose.dev.yaml"); fi
 if [[ -f "$TASK_DIR/image.json" ]]; then COMPOSE+=(-f "$TASK_DIR/image.json"); fi
-COMPOSE+=( --env-file "$TASK_DIR/install.env" --project-name "$TASK_PROJECT")
+COMPOSE+=( --env-file "$TASK_DIR/install.env" --project-name "$TASK_PROJECT" --profile "$TASK_DATABASE")
 cleanup() {
   docker ps -aq --filter "network=${TASK_PROJECT}_default" | xargs -r docker rm -f > /dev/null 2>&1 || true
   "${COMPOSE[@]}" --profile platform down --volumes --remove-orphans > /dev/null 2>&1 || true
@@ -46,9 +51,15 @@ for attempt in $(seq 1 60); do
 done
 if [[ "$TASK_READY" != '1' ]]; then echo 'Container did not become ready' >&2; exit 1; fi
 # Fresh schema only; keep migrations explicit and outside application startup.
-for sql in migrations/001_run_obs_generated_columns.sql migrations/seed/001_public_catalog.sql migrations/seed/002_welcome_project.sql; do
-  "${COMPOSE[@]}" exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" mysql -u loopforge loopforge' < "$sql"
-done
+if [[ "$TASK_DATABASE" == postgres ]]; then
+  for sql in migrations/postgres/001_baseline_extensions.sql migrations/postgres/seed/001_public_catalog.sql migrations/postgres/seed/002_welcome_project.sql; do
+    "${COMPOSE[@]}" exec -T postgres psql -X -q -v ON_ERROR_STOP=1 -U loopforge -d loopforge < "$sql"
+  done
+else
+  for sql in migrations/001_run_obs_generated_columns.sql migrations/seed/001_public_catalog.sql migrations/seed/002_welcome_project.sql; do
+    "${COMPOSE[@]}" exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" mysql -u loopforge loopforge' < "$sql"
+  done
+fi
 export LOOPFORGE_TEST_URL="http://127.0.0.1:$TASK_PORT"
 export LOOPFORGE_TEST_PASSWORD
 LOOPFORGE_TEST_PASSWORD="$(cat "$TASK_DIR/admin-password")"

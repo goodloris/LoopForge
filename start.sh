@@ -14,15 +14,25 @@
 #   ./start.sh release    switch a source-built installation back to GHCR
 #   MIRROR=ghcr.nju.edu.cn ./start.sh
 #                         pull ghcr.io images from that host and tag them back
+#   LOOPFORGE_DATABASE=mysql ./start.sh
+#                         new installation on MySQL instead of PostgreSQL
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 source scripts/docker-access.sh
 source scripts/ghcr-mirror.sh
 
+case "${1:--d}" in
+  up|-d|detach|dev|release) ;;
+  # An installation from before PostgreSQL was the default gets
+  # LOOPFORGE_DATABASE=mysql here, so it keeps its MySQL service.
+  *) [[ ! -f .env ]] || { bash scripts/configure.sh | grep -vx 'Keeping existing .env' || true; } ;;
+esac
+source scripts/database.sh
+
 compose() {
   [[ -f .env ]] || docker_access_fail 'Not installed yet. Run ./start.sh first.'
   select_docker_access || docker_access_fail 'Docker is not running, or this user cannot access it.'
-  docker_access compose --profile platform "$@"
+  docker_access compose --profile platform --profile "$LOOPFORGE_DATABASE" "$@"
 }
 
 cmd="${1:--d}"
@@ -40,13 +50,13 @@ PY
     ;;
   pull)
     # An empty MIRROR keeps the original refresh. A registry host pulls the pinned
-    # ghcr.io tag from that host and tags it back before MySQL is refreshed.
+    # ghcr.io tag from that host and tags it back before the database is refreshed.
     if [[ -n "${MIRROR:-}" ]]; then
       [[ -f .env ]] || docker_access_fail 'Not installed yet. Run ./start.sh first.'
       select_docker_access || docker_access_fail 'Docker is not running, or this user cannot access it.'
     fi
     if mirror_published_ghcr always; then
-      compose pull --policy always mysql
+      compose pull --policy always "$LOOPFORGE_DATABASE"
     else
       compose pull --ignore-buildable --policy always
     fi

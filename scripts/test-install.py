@@ -32,12 +32,15 @@ class InstallerTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         (self.root / 'scripts').mkdir()
         (self.root / 'migrations/seed').mkdir(parents=True)
-        for name in ('install.sh', 'configure.sh', 'docker-access.sh', 'ghcr-mirror.sh', 'install-address.py', 'install-compose.py', 'install-observability-schema.sh', 'install-schema-extensions.sh', 'manual-migration-hints.sh'):
+        (self.root / 'migrations/postgres/seed').mkdir(parents=True)
+        for name in ('install.sh', 'configure.sh', 'database.sh', 'docker-access.sh', 'ghcr-mirror.sh', 'install-address.py', 'install-compose.py', 'install-observability-schema.sh', 'install-schema-extensions.sh', 'manual-migration-hints.sh'):
             shutil.copyfile(ROOT / 'scripts' / name, self.root / 'scripts' / name)
         shutil.copyfile(ROOT / 'start.sh', self.root / 'start.sh')
         for name in ('001_run_obs_generated_columns.sql', '031_generic_backend_openssh.sql', '034_generic_backend_pip.sql'):
             (self.root / 'migrations' / name).write_text((ROOT / 'migrations' / name).read_text())
         (self.root / 'migrations/seed/001_test.sql').write_text('INSERT IGNORE INTO agents (id) VALUES (1);\n')
+        shutil.copyfile(ROOT / 'migrations/postgres/001_baseline_extensions.sql', self.root / 'migrations/postgres/001_baseline_extensions.sql')
+        (self.root / 'migrations/postgres/seed/001_test.sql').write_text('INSERT INTO agents (id) VALUES (1) ON CONFLICT DO NOTHING;\n')
         (self.root / 'mock').mkdir()
         self.executable('docker', '''#!/usr/bin/env bash
 printf '%s %s\\n' "${MOCK_PRIVILEGED:-0}" "$*" >> "$MOCK_LOG"
@@ -50,10 +53,13 @@ if [[ "$1" == pull && "${MOCK_PULL_FAIL:-0}" == 1 ]]; then exit 42; fi
 if [[ "$1" == tag && "${MOCK_TAG_FAIL:-0}" == 1 ]]; then exit 1; fi
 if [[ "$*" == 'compose version' && "${MOCK_COMPOSE_MISSING:-0}" == 1 && ! -f "$MOCK_COMPOSE_INSTALLED" ]]; then exit 1; fi
 if [[ "$*" == *'ps --status running'* ]]; then echo platform; fi
+if [[ "$*" == *'config --format json'* ]]; then echo '{"services":{"platform":{"image":"mock/platform:1"}}}'; fi
+# Images before PostgreSQL support print no -database-dsn flag.
+if [[ "$1" == run && "$*" == *'-help'* && "${MOCK_IMAGE_MYSQL_ONLY:-0}" != 1 ]]; then echo '  -database-dsn string'; fi
 if [[ "${MOCK_EXPIRE_AFTER_BUILD:-0}" == 1 && "$*" == *'build platform'* ]]; then touch "$MOCK_SUDO_EXPIRED_FILE"; fi
-if [[ "$*" == *'exec -T mysql'* ]]; then
-  if [[ "$*" == *'count(*) from users'* ]]; then echo 0; exit 0; fi
+if [[ "$*" == *'exec -T mysql'* || "$*" == *'exec -T postgres'* ]]; then
   query=$(cat)
+  if [[ "$query" == *'count(*) from users'* ]]; then echo 0; exit 0; fi
   printf '%s\n' "$query" >> "$MOCK_SQL_LOG"
   if [[ "$query" == *'information_schema.columns'* ]]; then printf '%s\n' "${MOCK_COLUMN_COUNT:-1}"; fi
 fi
@@ -66,8 +72,8 @@ fi
 export MOCK_PRIVILEGED=1
 exec "$@"
 ''')
-        self.environ = dict(os.environ, PATH=str(self.root / 'mock') + ':' + os.environ['PATH'], MOCK_LOG=str(self.root / 'docker.log'), MOCK_SQL_LOG=str(self.root / 'mysql.log'), AGENTFLOW_HTTP_PORT='18765', LOOPFORGE_PUBLIC_URL='https://team.example.test', LOOPFORGE_BIND='0.0.0.0')
-        for name in ('LOOPFORGE_DOCKER_USE_SUDO', 'LOOPFORGE_DATA_DIR', 'LOOPFORGE_IMAGE', 'COMPOSE_FILE', 'LOOPFORGE_BUILD_FROM_SOURCE', 'LOOPFORGE_PULL_POLICY', 'MIRROR', 'MOCK_USER', 'MOCK_DIRECT', 'MOCK_SUDO_DENIED', 'MOCK_IMAGE_PRESENT', 'MOCK_PULL_FAIL', 'MOCK_TAG_FAIL'):
+        self.environ = dict(os.environ, PATH=str(self.root / 'mock') + ':' + os.environ['PATH'], MOCK_LOG=str(self.root / 'docker.log'), MOCK_SQL_LOG=str(self.root / 'sql.log'), AGENTFLOW_HTTP_PORT='18765', LOOPFORGE_PUBLIC_URL='https://team.example.test', LOOPFORGE_BIND='0.0.0.0')
+        for name in ('LOOPFORGE_DOCKER_USE_SUDO', 'LOOPFORGE_DATA_DIR', 'LOOPFORGE_IMAGE', 'COMPOSE_FILE', 'LOOPFORGE_BUILD_FROM_SOURCE', 'LOOPFORGE_PULL_POLICY', 'MIRROR', 'LOOPFORGE_DATABASE', 'MOCK_IMAGE_MYSQL_ONLY', 'MOCK_USER', 'MOCK_DIRECT', 'MOCK_SUDO_DENIED', 'MOCK_IMAGE_PRESENT', 'MOCK_PULL_FAIL', 'MOCK_TAG_FAIL'):
             self.environ.pop(name, None)
         self.environ.pop('MOCK_COLUMN_COUNT', None)
 
@@ -97,7 +103,7 @@ exec "$@"
         operations = [line for line in lines if 'compose' in line]
         self.assertTrue(operations)
         self.assertTrue(all(line.startswith('1 ') for line in operations), operations)
-        self.assertTrue(any('exec -T mysql' in line for line in operations))
+        self.assertTrue(any('exec -T postgres' in line for line in operations))
 
     def test_non_root_with_direct_access_never_uses_sudo(self):
         self.assert_success(self.install(MOCK_USER='1000', MOCK_DIRECT='1', MOCK_SUDO_DENIED='1'))
@@ -115,6 +121,146 @@ exec "$@"
         self.assertIn('sudo -v', result.stderr)
         self.assertNotIn('up -d --no-build', (self.root / 'docker.log').read_text())
 
+    def env_values(self):
+        values = {}
+        for line in (self.root / '.env').read_text().splitlines():
+            key, _, value = line.partition('=')
+            values[key] = ' '.join(shlex.split(value))
+        return values
+
+    def start(self, *args, **values):
+        return subprocess.run(['bash', 'start.sh', *args], cwd=self.root, env=dict(self.environ, **values), text=True, capture_output=True, stdin=subprocess.DEVNULL, timeout=15)
+
+    def test_new_install_defaults_to_postgres(self):
+        self.assert_success(self.install())
+        env = self.env_values()
+        password = env['LOOPFORGE_DB_PASSWORD']
+        self.assertEqual(env['LOOPFORGE_DATABASE'], 'postgres')
+        self.assertEqual(env['LOOPFORGE_COMPOSE_DSN'], f'postgres://loopforge:{password}@postgres:5432/loopforge?sslmode=disable')
+        self.assertEqual(env['AGENTFLOW_DATABASE_DSN'], f'postgres://loopforge:{password}@127.0.0.1:35432/loopforge?sslmode=disable')
+        self.assertNotIn('AGENTFLOW_MYSQL_DSN', env)
+        self.assertEqual(env['COMPOSE_PROFILES'], 'postgres')
+        log = (self.root / 'docker.log').read_text()
+        self.assertIn('compose --profile platform --profile postgres up -d --no-build --wait', log)
+        self.assertNotIn('exec -T mysql', log)
+        sql = (self.root / 'sql.log').read_text()
+        # Baseline before seed, both from migrations/postgres; no MySQL script.
+        self.assertLess(sql.index('ADD COLUMN IF NOT EXISTS adapter'), sql.index('ON CONFLICT DO NOTHING'))
+        self.assertNotIn('INSERT IGNORE', sql)
+        self.assertNotIn('python3-pip', sql)
+        self.assertLess(log.index('up -d --no-build --wait'), log.index('exec -T postgres'))
+
+    def test_mysql_install_keeps_the_mysql_schema_steps(self):
+        self.assert_success(self.install(LOOPFORGE_DATABASE='mysql', MOCK_COLUMN_COUNT='0'))
+        env = self.env_values()
+        password = env['LOOPFORGE_DB_PASSWORD']
+        self.assertEqual(env['LOOPFORGE_DATABASE'], 'mysql')
+        self.assertEqual(env['LOOPFORGE_COMPOSE_DSN'], f'loopforge:{password}@tcp(mysql:3306)/loopforge')
+        self.assertEqual(env['AGENTFLOW_DATABASE_DSN'], f'loopforge:{password}@tcp(127.0.0.1:33315)/loopforge')
+        log = (self.root / 'docker.log').read_text()
+        self.assertIn('pull --policy missing platform mysql', log)
+        self.assertIn('compose --profile platform --profile mysql up -d', log)
+        self.assertNotIn('postgres', log)
+        sql = (self.root / 'sql.log').read_text()
+        self.assertIn('ALTER TABLE run_telemetry', sql)
+        self.assertIn('INSERT IGNORE', sql)
+        self.assertIn('python3-pip python3-venv', sql)
+        self.assertIn('033_generic_sop_mr_node.sql', sql)
+
+    def test_postgres_has_no_manual_migration_hints(self):
+        self.assert_success(self.install())
+        self.assertNotIn('033_generic_sop_mr_node', (self.root / 'sql.log').read_text())
+
+    def test_unknown_database_is_refused_before_creating_config(self):
+        result = self.install(LOOPFORGE_DATABASE='sqlite')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('postgres or mysql', result.stderr)
+        self.assertFalse((self.root / '.env').exists())
+
+    def legacy_mysql_env(self):
+        # The .env configure.sh wrote before PostgreSQL became the default.
+        (self.root / '.env').write_text(
+            "LOOPFORGE_DB_PASSWORD=legacypw\nLOOPFORGE_DB_ROOT_PASSWORD=legacyroot\nLOOPFORGE_MYSQL_PORT=33315\n"
+            "COMPOSE_PROJECT_NAME=loopforge\nAGENTFLOW_HTTP_PORT=18765\n"
+            "AGENTFLOW_MYSQL_DSN='loopforge:legacypw@tcp(127.0.0.1:33315)/loopforge'\nAGENTFLOW_SESSION_SECRET=legacysecret\n"
+            f"AGENTFLOW_AUTH_REQUIRED=true\nLOOPFORGE_DATA_DIR={shlex.quote(str(self.root / 'data'))}\nLOOPFORGE_BIND=0.0.0.0\n"
+            "LOOPFORGE_PUBLIC_URL=https://team.example.test\nLOOPFORGE_IMAGE=''\nAGENTFLOW_GITHUB_CLIENT_ID=''\n")
+        (self.root / '.env').chmod(0o600)
+
+    def test_existing_mysql_install_keeps_mysql(self):
+        self.legacy_mysql_env()
+        result = self.install(LOOPFORGE_DATABASE='postgres')
+        self.assert_success(result)
+        self.assertIn('Existing MySQL installation: keeping MySQL', result.stdout)
+        env = self.env_values()
+        self.assertEqual(env['LOOPFORGE_DATABASE'], 'mysql')
+        self.assertEqual(env['LOOPFORGE_DB_PASSWORD'], 'legacypw')
+        self.assertEqual(env['AGENTFLOW_SESSION_SECRET'], 'legacysecret')
+        self.assertEqual(env['LOOPFORGE_COMPOSE_DSN'], 'loopforge:legacypw@tcp(mysql:3306)/loopforge')
+        self.assertEqual(env['COMPOSE_PROFILES'], 'mysql')
+        self.assertNotIn('AGENTFLOW_DATABASE_DSN', env)
+        log = (self.root / 'docker.log').read_text()
+        self.assertIn('pull --policy missing platform mysql', log)
+        self.assertNotIn('postgres', log)
+        config = (self.root / '.env').read_text()
+        second = self.install()
+        self.assert_success(second)
+        self.assertNotIn('Existing MySQL installation', second.stdout)
+        self.assertEqual((self.root / '.env').read_text(), config)
+
+    def test_start_pull_on_an_existing_mysql_install_refreshes_mysql(self):
+        self.legacy_mysql_env()
+        result = self.start('pull')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('Existing MySQL installation: keeping MySQL', result.stdout)
+        log = (self.root / 'docker.log').read_text()
+        self.assertIn('compose --profile platform --profile mysql pull --ignore-buildable --policy always', log)
+        self.assertIn('exec -T mysql', log)
+        self.assertNotIn('postgres', log)
+
+    def test_editing_the_database_in_env_rewrites_only_the_dsns(self):
+        self.assert_success(self.install())
+        env = self.env_values()
+        config = self.root / '.env'
+        config.write_text(config.read_text().replace('LOOPFORGE_DATABASE=postgres', 'LOOPFORGE_DATABASE=mysql'))
+        result = self.install()
+        self.assert_success(result)
+        self.assertIn('Updated .env: LOOPFORGE_COMPOSE_DSN, COMPOSE_PROFILES, AGENTFLOW_DATABASE_DSN', result.stdout)
+        switched = self.env_values()
+        self.assertEqual(switched['LOOPFORGE_DB_PASSWORD'], env['LOOPFORGE_DB_PASSWORD'])
+        self.assertEqual(switched['AGENTFLOW_SESSION_SECRET'], env['AGENTFLOW_SESSION_SECRET'])
+        self.assertTrue(switched['LOOPFORGE_COMPOSE_DSN'].endswith('@tcp(mysql:3306)/loopforge'))
+        self.assertTrue(switched['AGENTFLOW_DATABASE_DSN'].endswith('@tcp(127.0.0.1:33315)/loopforge'))
+        self.assertIn('platform mysql', (self.root / 'docker.log').read_text())
+
+    def test_new_install_of_an_image_without_postgres_falls_back_to_mysql(self):
+        result = self.install(MOCK_IMAGE_MYSQL_ONLY='1')
+        self.assert_success(result)
+        self.assertIn('predates PostgreSQL support; this new installation uses MySQL', result.stdout)
+        env = self.env_values()
+        self.assertEqual(env['LOOPFORGE_DATABASE'], 'mysql')
+        self.assertEqual(env['COMPOSE_PROFILES'], 'mysql')
+        self.assertTrue(env['LOOPFORGE_COMPOSE_DSN'].endswith('@tcp(mysql:3306)/loopforge'))
+        log = (self.root / 'docker.log').read_text()
+        self.assertIn('run --rm --entrypoint /app/bin/agentflow mock/platform:1 -help', log)
+        self.assertIn('pull --policy missing mysql', log)
+        self.assertIn('compose --profile platform --profile mysql up -d', log)
+        self.assertNotIn('--profile postgres up', log)
+
+    def test_existing_postgres_install_refuses_an_image_without_postgres(self):
+        self.assert_success(self.install())
+        (self.root / 'docker.log').unlink()
+        result = self.install(MOCK_IMAGE_MYSQL_ONLY='1')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('predates PostgreSQL support', result.stderr)
+        self.assertEqual(self.env_values()['LOOPFORGE_DATABASE'], 'postgres')
+        self.assertNotIn('up -d', (self.root / 'docker.log').read_text())
+
+    def test_source_build_skips_the_image_probe(self):
+        self.assert_success(self.install(LOOPFORGE_BUILD_FROM_SOURCE='1', MOCK_IMAGE_MYSQL_ONLY='1'))
+        self.assertEqual(self.env_values()['LOOPFORGE_DATABASE'], 'postgres')
+        self.assertNotIn(' run --rm', (self.root / 'docker.log').read_text())
+
     def pinned_image(self):
         text = (ROOT / 'compose.yaml').read_text()
         import re
@@ -126,7 +272,7 @@ exec "$@"
     def test_default_install_pulls_pinned_release(self):
         self.assert_success(self.install())
         log = (self.root / 'docker.log').read_text()
-        self.assertIn('pull --policy missing platform mysql', log)
+        self.assertIn('pull --policy missing platform postgres', log)
         self.assertNotIn('build platform', log)
         self.assertNotIn('ghcr.nju.edu.cn', log)
         self.assertIn("LOOPFORGE_IMAGE=''", (self.root / '.env').read_text())
@@ -142,7 +288,7 @@ exec "$@"
                 self.assert_success(self.install(MIRROR=mirror_env))
                 log = (self.root / 'docker.log').read_text()
                 self.assertLess(log.index(f'pull {mirror}'), log.index(f'tag {mirror} {image}'))
-                self.assertLess(log.index(f'tag {mirror} {image}'), log.index('pull --policy missing platform mysql'))
+                self.assertLess(log.index(f'tag {mirror} {image}'), log.index('pull --policy missing platform postgres'))
                 self.assertNotIn('MIRROR=', (self.root / '.env').read_text())
 
     def test_mirror_keeps_a_local_image(self):
@@ -151,7 +297,7 @@ exec "$@"
         self.assert_success(result)
         log = (self.root / 'docker.log').read_text()
         self.assertNotIn('ghcr.nju.edu.cn', log)
-        self.assertIn('pull --policy missing platform mysql', log)
+        self.assertIn('pull --policy missing platform postgres', log)
         self.assertIn('Using local image', result.stdout)
 
     def test_mirror_always_refreshes_from_the_configured_host(self):
@@ -162,14 +308,14 @@ exec "$@"
         mirror = 'mirror.example.test/' + image[len('ghcr.io/'):]
         self.assertIn(f'pull {mirror}', log)
         self.assertIn('pull --policy missing platform', log)
-        self.assertIn('pull --policy always mysql', log)
+        self.assertIn('pull --policy always postgres', log)
         self.assertNotIn('pull --policy always platform', log)
 
     def test_upstream_mirror_host_keeps_the_direct_pull(self):
         self.use_compose_file()
         self.assert_success(self.install(MIRROR='ghcr.io'))
         log = (self.root / 'docker.log').read_text()
-        self.assertIn('pull --policy missing platform mysql', log)
+        self.assertIn('pull --policy missing platform postgres', log)
         self.assertNotIn(' tag ', log)
 
     def test_invalid_mirror_fails_before_pull(self):
@@ -193,12 +339,12 @@ exec "$@"
         self.assertNotIn('ghcr.nju.edu.cn', log)
 
     def test_start_pull_reapplies_schema_extensions_after_containers_are_up(self):
-        self.assert_success(self.install())
+        self.assert_success(self.install(LOOPFORGE_DATABASE='mysql'))
         (self.root / 'docker.log').unlink()
         result = subprocess.run(['bash', 'start.sh', 'pull'], cwd=self.root, env=dict(self.environ, MOCK_COLUMN_COUNT='0'), text=True, capture_output=True, stdin=subprocess.DEVNULL, timeout=15)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         log = (self.root / 'docker.log').read_text()
-        sql = (self.root / 'mysql.log').read_text()
+        sql = (self.root / 'sql.log').read_text()
         self.assertIn('Installed: run_telemetry.adapter', result.stdout)
         self.assertIn('Installed: run_logs.level', result.stdout)
         self.assertIn('ALTER TABLE run_telemetry', sql)
@@ -209,7 +355,7 @@ exec "$@"
         self.assertLess(log.index('up -d --no-build --wait'), log.index('exec -T mysql'))
 
     def test_start_pull_names_the_migration_when_columns_cannot_be_checked(self):
-        self.assert_success(self.install())
+        self.assert_success(self.install(LOOPFORGE_DATABASE='mysql'))
         result = subprocess.run(['bash', 'start.sh', 'pull'], cwd=self.root, env=dict(self.environ, MOCK_COLUMN_COUNT='?'), text=True, capture_output=True, stdin=subprocess.DEVNULL, timeout=15)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('Could not inspect run_telemetry.adapter', result.stderr)
@@ -226,7 +372,7 @@ exec "$@"
         log = (self.root / 'docker.log').read_text()
         self.assertIn(f'pull {mirror}', log)
         self.assertIn(f'tag {mirror} {image}', log)
-        self.assertIn('pull --policy always mysql', log)
+        self.assertIn('pull --policy always postgres', log)
         self.assertNotIn('pull --ignore-buildable --policy always', log)
 
     def test_mirror_uses_the_last_image_assignment_in_env(self):
@@ -302,7 +448,7 @@ exec "$@"
         self.assert_success(result)
         self.assertNotIn('COMPOSE_FILE=', (self.root / '.env').read_text())
         log = (self.root / 'docker.log').read_text()
-        self.assertIn('pull --policy missing platform mysql', log)
+        self.assertIn('pull --policy missing platform postgres', log)
         self.assertNotIn('build platform', log)
 
     def test_start_refuses_local_build(self):
@@ -313,7 +459,7 @@ exec "$@"
     def test_prebuilt_image_skips_build(self):
         self.assert_success(self.install(LOOPFORGE_IMAGE='registry.example.test/loopforge:tested'))
         log = (self.root / 'docker.log').read_text()
-        self.assertIn('pull --policy missing platform mysql', log)
+        self.assertIn('pull --policy missing platform postgres', log)
         self.assertNotIn('build platform', log)
         self.assertIn('--no-build --wait --wait-timeout 180', log)
 

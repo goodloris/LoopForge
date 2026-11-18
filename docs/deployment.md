@@ -2,7 +2,7 @@
 
 ## Native development
 
-`bash scripts/dev.sh` explicitly configures local secrets, starts only this checkout's MySQL service, builds the platform, provisions the `admin` account, installs the missing observability generated columns through an explicit script, applies `migrations/seed/*.sql`, and starts the server on port 8090. Existing catalog definitions are preserved by `INSERT IGNORE`. Keep `.env`, `.local/` and database volumes outside version control.
+`bash scripts/dev.sh` explicitly configures local secrets, starts only this checkout's database service (PostgreSQL by default, see [Database](#database)), builds the platform, provisions the `admin` account, runs `scripts/install-schema-extensions.sh` (the baseline and seed of the selected database), and starts the server on port 8090. Existing catalog definitions are preserved (`ON CONFLICT DO NOTHING` on PostgreSQL, `INSERT IGNORE` on MySQL). Keep `.env`, `.local/` and database volumes outside version control.
 
 For a native installation, use Node.js 22+ on the API host and install the CLIs you choose. CodeBuddy is also used for requirement clarification; scheduled assistant tasks use whichever supported CLI the task selects:
 
@@ -17,9 +17,30 @@ Ensure the service can find `codebuddy` and Node.js on its PATH, or set `AGENTFL
 
 A conversation workspace on a custom Dockerfile without Node.js, npm or Python 3 uses the platform's own copies. On first use the platform copies its Node.js, npm and a relocatable Python into `$LOOPFORGE_DATA_DIR/cli/toolchain/<build>/`, plus each bundled CLI (CodeBuddy, Codex, DeepSeek Harness) the first time a sandbox needs it, and mounts the directory read-only at the end of the sandbox `PATH`. Tools the image ships take precedence. Only glibc images of the platform's architecture use it; Alpine (musl) images need their own Node.js, npm and Python 3. A new platform build creates a new directory and leaves the previous ones in place: after an upgrade, delete the other `cli/toolchain/<build>/` directories (about 200 MB each plus the CLIs copied into them).
 
-Stop the foreground service with Ctrl-C. Start it again with the same command. MySQL data stays in its Compose volume. `docker compose stop mysql` stops the database without deleting it.
+Stop the foreground service with Ctrl-C. Start it again with the same command. Database data stays in its Compose volume. `docker compose stop postgres` (or `mysql`) stops the database without deleting it.
 
 Use `AGENTFLOW_DATABASE_DSN` (or the `-database-dsn` flag) for your own database: a go-sql-driver MySQL DSN, or a `postgres://` URL for PostgreSQL. `AGENTFLOW_MYSQL_DSN` and `-mysql-dsn` remain supported aliases. A fresh account command or server connection creates missing schema objects. Apply existing-installation data migrations individually after reviewing their prerequisites; do not blindly replay all historical migrations against a new database.
+
+## Database
+
+New installations use PostgreSQL. MySQL is still supported and is chosen once, on the first run:
+
+```bash
+./start.sh                           # PostgreSQL (default)
+LOOPFORGE_DATABASE=mysql ./start.sh  # MySQL
+```
+
+`scripts/configure.sh` records the choice as `LOOPFORGE_DATABASE` in `.env`, together with the database password and two DSNs: `LOOPFORGE_COMPOSE_DSN` for the platform container (`postgres:5432` or `mysql:3306` on the Compose network) and `AGENTFLOW_DATABASE_DSN` for a process on the host (`scripts/dev.sh`, `loopforge-account`). `compose.yaml` defines both database services under the Compose profiles `postgres` and `mysql`; `./start.sh` and the scripts pass `--profile "$LOOPFORGE_DATABASE"`, so only that one runs. Each has its own volume, `postgres-data` or `mysql-data`. `.env` also sets `COMPOSE_PROFILES` to the database, so a plain `docker compose up -d`, `ps` or `down` includes it as before. A `--profile` flag replaces that list: name the database too, as in `docker compose --profile platform --profile postgres ps`. A command that names the service, such as `docker compose exec -T postgres psql -U loopforge loopforge`, needs no profile.
+
+The bundled PostgreSQL is `postgres:17` (Debian), the image CI tests the repository against. It is initialized with `POSTGRES_INITDB_ARGS=--encoding=UTF8 --locale=C.UTF-8`, so the `loopforge` database is UTF8 with `C.UTF-8` collation and ctype. It listens on `127.0.0.1:35432` (`LOOPFORGE_POSTGRES_PORT`); MySQL keeps `127.0.0.1:33315` (`LOOPFORGE_MYSQL_PORT`).
+
+For your own PostgreSQL server, create the database as [migrations/postgres/README.md](../migrations/postgres/README.md#建库要求) describes: PostgreSQL 12 or later, `ENCODING 'UTF8' LC_COLLATE 'C.UTF-8' LC_CTYPE 'C.UTF-8' TEMPLATE template0`. Alpine images report `datcollate = C` for the same request; both sort by byte. Then set `AGENTFLOW_DATABASE_DSN=postgres://user:password@host:5432/loopforge?sslmode=...`, start the platform once so gorm creates the tables, and apply `migrations/postgres/001_baseline_extensions.sql` and `migrations/postgres/seed/*.sql` in that order.
+
+**Existing MySQL installations keep MySQL.** A `.env` written before PostgreSQL became the default has no `LOOPFORGE_DATABASE`. The first `./start.sh`, `./start.sh pull` or `bash scripts/install.sh` after updating adds `LOOPFORGE_DATABASE=mysql` and `LOOPFORGE_COMPOSE_DSN`, prints that it is keeping MySQL, and changes no secret or data. Nothing else is needed. LoopForge does not migrate data from MySQL to PostgreSQL, and there is no conversion script. A PostgreSQL installation starts empty.
+
+Changing `LOOPFORGE_DATABASE` in `.env` later rewrites only the two DSNs on the next run and starts the other database empty, next to the old volume. Do it only on an installation without data you want to keep.
+
+The published image pinned in `compose.yaml` (0.3.8) predates PostgreSQL support. Until a newer release is pinned, a new `./start.sh` installation detects that the image has no `-database-dsn` flag, switches `.env` to MySQL and says so. `./start.sh dev` builds this checkout and uses PostgreSQL. An existing PostgreSQL `.env` with such an image stops with instructions instead of switching.
 
 ## Container installation
 
@@ -34,7 +55,7 @@ MIRROR=ghcr.nju.edu.cn ./start.sh  # same install; replace the ghcr.io host with
 ./start.sh release     # switch a source build back to the published image
 ```
 
-The installer checks Docker, Compose, Python 3 and curl. It offers to install missing Python/curl packages using apt, dnf or yum on Linux (Homebrew on macOS), Docker using its official installer, and the missing Linux x86_64/arm64 Compose plugin using the pinned official release with SHA-256 verification. A plugin is installed for the active Docker user, or system-wide when Docker requires sudo. macOS Compose comes from Docker Desktop. Set `LOOPFORGE_YES=1` to accept installation prompts; internet access and package-manager/administrator permissions are still required. The installer generates `.env` with unique secrets, pulls and starts the containers, installs the observability columns and applies `migrations/seed/*.sql`. It is safe to re-run. Set `AGENTFLOW_HTTP_PORT` or `LOOPFORGE_MYSQL_PORT` in the environment before the first run (or edit `.env` later) when the default ports are taken.
+The installer checks Docker, Compose, Python 3 and curl. It offers to install missing Python/curl packages using apt, dnf or yum on Linux (Homebrew on macOS), Docker using its official installer, and the missing Linux x86_64/arm64 Compose plugin using the pinned official release with SHA-256 verification. A plugin is installed for the active Docker user, or system-wide when Docker requires sudo. macOS Compose comes from Docker Desktop. Set `LOOPFORGE_YES=1` to accept installation prompts; internet access and package-manager/administrator permissions are still required. The installer generates `.env` with unique secrets, pulls and starts the containers, then runs `scripts/install-schema-extensions.sh`: on PostgreSQL `migrations/postgres/001_baseline_extensions.sql` and `migrations/postgres/seed/*.sql`, on MySQL the observability columns, `migrations/seed/*.sql`, 031 and 034. It is safe to re-run. Set `AGENTFLOW_HTTP_PORT`, `LOOPFORGE_POSTGRES_PORT` or `LOOPFORGE_MYSQL_PORT` in the environment before the first run (or edit `.env` later) when the default ports are taken.
 
 Run it as the installation owner, including an ordinary Linux user. If that user cannot access Docker directly, the installer validates sudo and uses `sudo -n docker` consistently for Compose, schema installation and seeds. Before each operation it checks whether sudo credentials expired during a long build, prompting again in a terminal or failing with instructions in unattended mode. It does not require adding the user to the Docker group or logging out. For unattended installations run `sudo -v` first; `LOOPFORGE_YES=1` accepts installation prompts but does not bypass operating-system permissions. Without sudo or Docker access it fails immediately with instructions. Rootless Docker uses its active context's Unix socket; remote Docker contexts need a separately configured deployment because sandbox workspaces are local bind mounts.
 
@@ -138,7 +159,7 @@ The image bundles kiro-cli 3.3.0 with its runtime in `KIRO_RUNTIME_DIR=/opt/kiro
 
 ## Workers and runners
 
-The upstream process roles remain `-role api`, `-role worker` and `-role all`. API and worker instances must share the MySQL database and configuration appropriate to their deployment. Set `AGENTFLOW_CONTROL_TOKEN`, `AGENTFLOW_CONTROL_URL` and `AGENTFLOW_WORKER_URL` when separating control and execution. Set `AGENTFLOW_PLATFORM_MCP_URL` to the actual platform URL reachable from execution containers.
+The upstream process roles remain `-role api`, `-role worker` and `-role all`. API and worker instances must share the database and configuration appropriate to their deployment. Set `AGENTFLOW_CONTROL_TOKEN`, `AGENTFLOW_CONTROL_URL` and `AGENTFLOW_WORKER_URL` when separating control and execution. Set `AGENTFLOW_PLATFORM_MCP_URL` to the actual platform URL reachable from execution containers.
 
 Personal runners are connected from the execution-machine page with a short-lived binding code. The installer is served at `/runners/install.sh`. `AGENTFLOW_RUNNER_BINARY` can point to binaries with `{os}` and `{arch}` substitutions. Container images bundle Linux/macOS amd64/arm64 runner and gate binaries. Native source installations can build on demand with Go.
 
@@ -148,11 +169,13 @@ Configure provider credentials in the platform UI, not the host's global CLI con
 
 ## Observability schema
 
-After the base tables have been created, run `bash scripts/install-schema-extensions.sh` for the Compose database. It installs absent `run_telemetry.adapter` and `run_logs.level` columns and their indexes from upstream migration `001_run_obs_generated_columns.sql`, then replays the `INSERT IGNORE` starter catalog. Both steps can be repeated without touching existing rows. The installer runs it before printing the address, and `./start.sh pull` runs it again after recreating containers, so an older data volume upgraded to a newer image picks up the columns the new code reads. Application startup does not run data migrations.
+After the base tables have been created, run `bash scripts/install-schema-extensions.sh` for the Compose database. On PostgreSQL it applies `migrations/postgres/001_baseline_extensions.sql` (the same columns, `ADD COLUMN IF NOT EXISTS`) and then the `ON CONFLICT DO NOTHING` seed in `migrations/postgres/seed/`. On MySQL it installs absent `run_telemetry.adapter` and `run_logs.level` columns and their indexes from upstream migration `001_run_obs_generated_columns.sql`, then replays the `INSERT IGNORE` starter catalog. Both steps can be repeated without touching existing rows. The installer runs it before printing the address, and `./start.sh pull` runs it again after recreating containers, so an older data volume upgraded to a newer image picks up the columns the new code reads. Application startup does not run data migrations.
 
 For an external MySQL deployment, review that migration and check column existence before applying its corresponding statements. Stored generated columns can rebuild large existing tables; schedule the operation accordingly.
 
 ### Which migrations an upgrade needs
+
+This section is about MySQL. PostgreSQL is supported for new installations only: its seed already holds what the MySQL data migrations add, and future changes come as numbered scripts in `migrations/postgres/` (see its README).
 
 `migrations/` holds three kinds of script. Check the release notes for the files a given version adds, then read the script's own header before running it.
 
@@ -164,7 +187,7 @@ For an external MySQL deployment, review that migration and check column existen
 
 ## Updating existing public SOPs
 
-Repository binding is optional for all built-in generic SOPs. To update the original catalog instructions on an existing installation, explicitly apply:
+These scripts are for MySQL installations; a PostgreSQL installation already has their result from its seed. Repository binding is optional for all built-in generic SOPs. To update the original catalog instructions on an existing installation, explicitly apply:
 
 ```bash
 docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" mysql -u loopforge loopforge' < migrations/016_public_optional_repositories.sql
@@ -188,7 +211,7 @@ docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" mysql -u loopfor
 
 The installer and `./start.sh pull` do not run it. It rewrites only unedited shipped prompts and is safe to repeat. They do run `034_generic_backend_pip.sql`, which adds `python3-pip` and `python3-venv` to the unedited built-in `generic-backend` Dockerfile to match the platform image.
 
-`scripts/install-schema-extensions.sh` (installer and `./start.sh pull`) and `scripts/dev.sh` end with a read-only check, `scripts/manual-migration-hints.sh`, that names 033 or 035 with this command while a built-in template still lacks the `mr` node or still holds the pre-035 测试验证 prompt.
+`scripts/install-schema-extensions.sh` (installer and `./start.sh pull`) and `scripts/dev.sh` end with a read-only check, `scripts/manual-migration-hints.sh`, that names 033 or 035 with this command while a built-in template still lacks the `mr` node or still holds the pre-035 测试验证 prompt. On PostgreSQL it reports nothing.
 
 ## GitHub credentials
 
@@ -220,6 +243,6 @@ Other dedicated/self-hosted configurations are described in the [official CodeBu
 
 ## Isolated container acceptance
 
-Run `python3 scripts/test-install.py -v` for installer regression tests covering sudo selection, direct Docker access, unattended permission failures, repeated installation, image mode and access URLs. With a locally built platform image, `LOOPFORGE_INSTALL_TEST_IMAGE=your-image bash scripts/test-install-live.sh` verifies real root and UID 65534 installations, non-loopback HTTP access, first-account creation and repeated installation in isolated Compose projects on random ports. This live test requires a Linux root test runner to drop privileges; it removes its own containers and volumes afterwards. To also exercise real sudo inside a disposable UID 1000 installer container, build `scripts/testdata/install-sudo.Dockerfile` with `--build-arg LOOPFORGE_TEST_BASE=your-image`, then pass that test image as `LOOPFORGE_INSTALL_SUDO_TEST_IMAGE`. The production installer itself does not require root.
+Run `python3 scripts/test-install.py -v` for installer regression tests covering sudo selection, direct Docker access, unattended permission failures, repeated installation, image mode and access URLs. With a locally built platform image, `LOOPFORGE_INSTALL_TEST_IMAGE=your-image bash scripts/test-install-live.sh` verifies real root and UID 65534 installations (PostgreSQL by default; `LOOPFORGE_INSTALL_TEST_DATABASE=mysql` for MySQL), non-loopback HTTP access, first-account creation and repeated installation in isolated Compose projects on random ports. This live test requires a Linux root test runner to drop privileges; it removes its own containers and volumes afterwards. To also exercise real sudo inside a disposable UID 1000 installer container, build `scripts/testdata/install-sudo.Dockerfile` with `--build-arg LOOPFORGE_TEST_BASE=your-image`, then pass that test image as `LOOPFORGE_INSTALL_SUDO_TEST_IMAGE`. The production installer itself does not require root.
 
-From the repository root, run `bash scripts/test-container.sh` after installing `e2e/` dependencies and Chromium. It builds the production image, creates an isolated Compose project and database on ports 8093/33317, provisions test accounts, explicitly applies the observability baseline and public catalog, checks bundled CLIs and cross-platform runner/gate binaries, and runs the public browser suite. Its containers and volumes are removed afterwards. Override `LOOPFORGE_CONTAINER_TEST_PORT` and `LOOPFORGE_CONTAINER_MYSQL_PORT` when those ports are in use. Model calls are disabled for this clean-install check.
+From the repository root, run `bash scripts/test-container.sh` after installing `e2e/` dependencies and Chromium. It builds the production image, creates an isolated Compose project and database (PostgreSQL on 35437, or MySQL on 33317 with `LOOPFORGE_CONTAINER_DATABASE=mysql`) with the platform on 8093, provisions test accounts, explicitly applies the observability baseline and public catalog, checks bundled CLIs and cross-platform runner/gate binaries, and runs the public browser suite. Its containers and volumes are removed afterwards. Override `LOOPFORGE_CONTAINER_TEST_PORT`, `LOOPFORGE_CONTAINER_POSTGRES_PORT` and `LOOPFORGE_CONTAINER_MYSQL_PORT` when those ports are in use. Model calls are disabled for this clean-install check.

@@ -1,30 +1,53 @@
 #!/usr/bin/env bash
 # Seeds the local requirement-space preview started by workbench-dev.sh.
 # Run by hand only. Preview-only rows (people, the deterministic mock CLI and
-# the roles that use it) go straight into the preview MySQL, because the
+# the roles that use it) go straight into the preview database, because the
 # public API only offers real CLIs; everything else goes through the API.
+# LF_WORKBENCH_DATABASE=mysql matches a workbench-dev.sh started on MySQL.
 set -euo pipefail
 
 API="${LOOPFORGE_API:-http://127.0.0.1:18765}"
-MYSQL_CONTAINER="${LF_MYSQL_CONTAINER:-lf-workbench-mysql}"
+DATABASE="${LF_WORKBENCH_DATABASE:-postgres}"
 PROJECT="${LF_PROJECT:-proj-mall}"
 export LF_SESSION_SECRET="${LF_SESSION_SECRET:-lf-workbench-preview}"
 
-sql() { docker exec -i "$MYSQL_CONTAINER" mysql --default-character-set=utf8mb4 -uroot -proot loopforge 2>/dev/null; }
+if [ "$DATABASE" = postgres ]; then
+  sql() { docker exec -i "${LF_POSTGRES_CONTAINER:-lf-workbench-postgres}" psql -X -q -v ON_ERROR_STOP=1 -U postgres -d loopforge >/dev/null; }
+else
+  sql() { docker exec -i "${LF_MYSQL_CONTAINER:-lf-workbench-mysql}" mysql --default-character-set=utf8mb4 -uroot -proot loopforge 2>/dev/null; }
+fi
 
 curl -fsS "$API/api/auth/current" >/dev/null || { echo "API $API 不可用，先运行 scripts/workbench-dev.sh" >&2; exit 1; }
 
-python3 - "$API" "$PROJECT" <<'PY' | sql
+python3 - "$API" "$PROJECT" "$DATABASE" <<'PY' | sql
 import json, sys
 project = sys.argv[2]
-now = "NOW(3)"
+mysql = sys.argv[3] == "mysql"
+now = "NOW(3)" if mysql else "now()"
+
+def lit(value):
+    if mysql:
+        value = value.replace("\\", "\\\\")
+    return "'" + value.replace("'", "''") + "'"
+
+def upsert(table, values, update):
+    cols = ", ".join(values)
+    row = ", ".join(values.values())
+    if mysql:
+        sets = ", ".join(f"{c}=VALUES({c})" for c in update)
+        print(f"INSERT INTO {table} ({cols}) VALUES ({row}) ON DUPLICATE KEY UPDATE {sets};")
+    else:
+        sets = ", ".join(f"{c}=EXCLUDED.{c}" for c in update)
+        print(f"INSERT INTO {table} ({cols}) VALUES ({row}) ON CONFLICT (id) DO UPDATE SET {sets};")
+
 people = [(9001, "linxia", "林夏", "产品"), (9002, "zhouyu", "周宇", "设计"), (9003, "chenmo", "陈默", "前端"), (9004, "xunuo", "许诺", "后端"), (9005, "gaoyang", "高阳", "测试"),
           (9100, "tester", "自测账号", "自测")]
-print("SET NAMES utf8mb4;")
+print("SET NAMES utf8mb4;" if mysql else "SET client_encoding = 'UTF8';")
 for uid, login, cn, dept in people:
-    print(f"INSERT INTO users (id, staff_id, login_name, chinese_name, dept_id, dept_name, platform_role, created_at, updated_at) VALUES ({uid}, {uid}, '{login}', '{cn}', 0, '{dept}', 'user', {now}, {now}) ON DUPLICATE KEY UPDATE chinese_name=VALUES(chinese_name), dept_name=VALUES(dept_name);")
+    upsert("users", {"id": str(uid), "staff_id": str(uid), "login_name": lit(login), "chinese_name": lit(cn), "dept_id": "0", "dept_name": lit(dept),
+                     "platform_role": "'user'", "created_at": now, "updated_at": now}, ["chinese_name", "dept_name"])
 ex = {"id": "mock", "name": "演示执行器", "kind": "mock", "binary": "", "args": [], "protocol": "events-v1"}
-print("INSERT INTO executors (id, name, kind, payload) VALUES ('mock', '演示执行器', 'mock', %s) ON DUPLICATE KEY UPDATE payload=VALUES(payload);" % json.dumps(json.dumps(ex, ensure_ascii=False), ensure_ascii=False))
+upsert("executors", {"id": "'mock'", "name": lit("演示执行器"), "kind": "'mock'", "payload": lit(json.dumps(ex, ensure_ascii=False))}, ["payload"])
 agents = [
     ("wb-fe-architect", "前端架构师", "拆分页面与组件，给出前端方案"),
     ("wb-fe-dev", "前端开发", "按方案实现页面与交互"),
@@ -39,7 +62,7 @@ analyst = ("wb-analyst", "需求分析师", "读需求，产出一份结构化�
 for aid, name, desc in agents + [analyst[:3]]:
     executor = "codebuddy" if aid == analyst[0] else "mock"
     a = {"id": aid, "name": name, "version": 1, "projectId": project, "description": desc, "instructions": analyst[3] if aid == analyst[0] else desc, "executorId": executor}
-    print("INSERT INTO agents (id, name, payload, updated_at) VALUES ('%s', '%s', %s, %s) ON DUPLICATE KEY UPDATE name=VALUES(name), payload=VALUES(payload), updated_at=VALUES(updated_at);" % (aid, name, json.dumps(json.dumps(a, ensure_ascii=False), ensure_ascii=False), now))
+    upsert("agents", {"id": lit(aid), "name": lit(name), "payload": lit(json.dumps(a, ensure_ascii=False)), "updated_at": now}, ["name", "payload", "updated_at"])
 PY
 
 python3 - "$API" "$PROJECT" <<'PY'

@@ -1,5 +1,6 @@
 # Source build of this checkout, layered on compose.yaml:
-#   ./start.sh dev     or   docker compose -f compose.yaml -f compose.dev.yaml --profile platform up --build
+#   ./start.sh dev     or   docker compose -f compose.yaml -f compose.dev.yaml --profile platform --profile postgres up --build
+# (--profile mysql for a MySQL installation; LOOPFORGE_DATABASE in .env says which).
 # The fixed local tag keeps source builds from overwriting the pinned GHCR image.
 services:
   platform:
