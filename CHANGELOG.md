@@ -4,6 +4,9 @@ Platform releases use `vX.Y.Z` tags. This fork (goodloris/LoopForge) publishes `
 
 ## Unreleased
 
+- Delivery state now waits for the default branch (#21). An SOP that succeeds with its MR still open, or merged only into the integration branch, leaves the requirement at `deliveryState=pending`, status `in_review` (shown as 「MR 待合入」 / 「已合入集成分支」), instead of locking it as `merged`/`done`. The MR sync marks it delivered once every MR is on the default branch, including GitHub pulls whose integration branch was promoted. A pending requirement can be triggered again. **Requirements already locked before this change are not corrected**: one that shows 「交付闭环」 or `done` while its MR is still open or only on the integration branch stays that way, and MR polling does not revisit it. There is no data migration.
+- Analytics `mergedMrs` (overview summary and trend, business-domain `deliveryMetrics` and `deliveryTrend`) counts only MRs merged into the repository default branch. Merges into the integration branch move to the new `integratedMrs`; merged MRs whose target branch is not recorded yet are left out until the MR sync fills it in. Completion-to-merge latency uses default-branch merges only. Earlier reports counted integration-branch merges as merged MRs.
+
 ## 0.5.0 — PostgreSQL by default, published from this fork
 
 - `compose.yaml` pins `ghcr.io/goodloris/loopforge:0.5.0`, published by this fork's `release` workflow, for the platform and for `AGENTFLOW_ISOLATED_IMAGE`. Earlier pins pointed at `ghcr.io/tencent/loopforge`. 0.5.0 is based on upstream 0.4.0 (synced below) plus this fork's PostgreSQL support; `ghcr.io/tencent/loopforge:0.4.0` itself runs on MySQL only. `MIRROR=<host>` now pulls `<host>/goodloris/loopforge:<version>`.
