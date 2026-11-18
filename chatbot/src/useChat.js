@@ -21,7 +21,10 @@ import {
   enqueue,
   holdQueue,
   nextQueued,
+  othersQueuedOf,
+  queuedExtras,
   queuedMessage,
+  queuedPreviews,
   readQueues,
   removeQueued,
   restoreQueued,
@@ -681,6 +684,37 @@ export function useChat() {
     };
   }, [ready, missingKey, refreshUser]);
   useEffect(() => writeQueues(queues), [queues]);
+  // A shared conversation shows every member's queued messages: each browser
+  // publishes previews of its own queue on the running turn and reads the
+  // others'. The messages themselves still go out from their sender.
+  const replyRunning = generation?.status === "running";
+  const ownQueued = (activeId && queues[activeId]?.items) || [];
+  const ownQueuedKey = JSON.stringify(ownQueued.map((item) => [item.id, item.text, queuedExtras(item)]));
+  useEffect(() => {
+    if (!activeId || !replyRunning || session?.readOnly) return;
+    void write(`${sessionPath(activeId)}/queue`, { items: queuedPreviews(ownQueued) }, "PUT").catch(() => {});
+    // ownQueued is read through ownQueuedKey.
+  }, [activeId, replyRunning, generation?.id, ownQueuedKey, session?.readOnly]);
+  const [othersQueued, setOthersQueued] = useState([]);
+  useEffect(() => {
+    setOthersQueued([]);
+    if (!activeId || !replyRunning) return;
+    let closed = false;
+    const refresh = async () => {
+      try {
+        const rows = await api(`${sessionPath(activeId)}/queue`);
+        if (!closed) setOthersQueued(othersQueuedOf(rows, user?.id));
+      } catch {
+        // The next poll retries; the reply itself is unaffected.
+      }
+    };
+    void refresh();
+    const timer = setInterval(refresh, 1500);
+    return () => {
+      closed = true;
+      clearInterval(timer);
+    };
+  }, [activeId, replyRunning, generation?.id, user?.id]);
   useEffect(() => {
     const s = steeringRef.current;
     if (!s) return;
@@ -1341,6 +1375,7 @@ export function useChat() {
       (stopRequest?.sessionId === activeId && stopRequest.generationId === generation.id)),
     queue: (activeId && queues[activeId]?.items) || [],
     queueHeld: !!(activeId && queues[activeId]?.held),
+    queueOthers: othersQueued,
     removeQueued: removeQueuedMessage,
     resumeQueue,
     sendNow,

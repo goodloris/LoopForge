@@ -20,6 +20,8 @@ import (
 type assistantGenerationPayload struct {
 	domain.AssistantGeneration
 	NativeApprovals []assistantNativeApprovalState `json:"nativeApprovals,omitempty"`
+	// Queued previews the messages members queued behind this turn.
+	Queued []domain.AssistantQueuedMessage `json:"queued,omitempty"`
 }
 
 type assistantNativeApprovalState struct {

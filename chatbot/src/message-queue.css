@@ -117,3 +117,12 @@
   padding-right: 8px;
   color: var(--muted);
 }
+/* Another member's queued message: read-only, led by its sender. */
+.queued-message-author {
+  flex: none;
+  color: var(--muted);
+  font-weight: 500;
+}
+.queued-message.is-others .queued-message-text {
+  color: var(--muted);
+}

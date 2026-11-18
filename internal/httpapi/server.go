@@ -333,6 +333,8 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 	g.PUT("/api/assistant/sessions/:id/mode", asst.sessionMode)
 	g.GET("/api/assistant/sessions/:id/native-approvals", asst.nativeApprovals)
 	g.POST("/api/assistant/sessions/:id/native-approvals/:approvalId", asst.nativeApprovals)
+	g.GET("/api/assistant/sessions/:id/queue", asst.queue)
+	g.PUT("/api/assistant/sessions/:id/queue", asst.queue)
 	g.PUT("/api/assistant/sessions/:id", asst.session)
 	g.DELETE("/api/assistant/sessions/:id", asst.session)
 	g.GET("/api/assistant/tasks", asst.listTasks)

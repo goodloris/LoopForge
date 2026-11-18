@@ -1,12 +1,15 @@
 import HarnessIcon from "./HarnessIcon";
 import { IconButton } from "./ui";
+import { queuedExtras } from "./message-queue.js";
 
 // Messages typed while a reply runs, shown as a tray tucked under the top of
 // the composer like Codex. They go out in order after the reply ends;
 // stopping the reply holds them until the user continues. "引导" on one of
-// them interrupts the running reply with it.
+// them interrupts the running reply with it. Other members' queued messages
+// show above, read-only, with their sender.
 export default function QueuedMessages({
   items = [],
+  others = [],
   steering = null,
   held = false,
   busy = false,
@@ -16,7 +19,7 @@ export default function QueuedMessages({
   onResume,
   onSendNow,
 }) {
-  if (!items.length && !steering) return null;
+  if (!items.length && !steering && !others.length) return null;
   // While a steer is in flight the reply is briefly not running; the other
   // rows still belong to the interrupted turn.
   const interrupting = busy || !!steering;
@@ -55,9 +58,30 @@ export default function QueuedMessages({
             <span className="queued-message-state">正在引导</span>
           </li>
         ) : null}
+        {others.map((item) => (
+          <li key={`${item.authorId}:${item.id}`} className="queued-message is-others">
+            <HarnessIcon
+              name="queue"
+              size={14}
+              interactive={false}
+              className="queued-message-icon"
+              aria-hidden="true"
+            />
+            <span className="queued-message-author">{item.authorName || "其他成员"}</span>
+            <span className="queued-message-text" title={item.text}>
+              {item.text || "图片与文件"}
+            </span>
+            {item.attachments ? (
+              <span className="queued-message-extra">
+                <HarnessIcon name="paperclip" size={11} aria-hidden="true" />
+                {item.attachments}
+              </span>
+            ) : null}
+            <span className="queued-message-state">排队中</span>
+          </li>
+        ))}
         {items.map((item) => {
-          const extra =
-            (item.attachments?.length || 0) + (item.references?.length || 0);
+          const extra = queuedExtras(item);
           return (
             <li key={item.id} className="queued-message">
               <HarnessIcon

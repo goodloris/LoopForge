@@ -109,6 +109,10 @@ describe("sending while a reply runs", () => {
     expect(generationPosts()).toHaveLength(0);
     // Queuing must not interrupt the running reply.
     expect(writeMock.mock.calls.some(([path]) => path.includes("/generation/steer") || path.includes("/generation/cancel"))).toBe(false);
+    // The other members see it waiting, through the turn's queue previews.
+    await waitFor(() =>
+      expect(writeMock).toHaveBeenCalledWith("/api/assistant/sessions/s1/queue", { items: [expect.objectContaining({ text: "应该看 CI 而不是 lint", attachments: 0 })] }, "PUT"),
+    );
 
     await finish("failed");
     await waitFor(() => expect(generationPosts()).toHaveLength(1));

@@ -1882,6 +1882,7 @@ export default function App() {
                 ) : null}
                 <QueuedMessages
                   items={chat.queue}
+                  others={chat.queueOthers || []}
                   steering={chat.steering}
                   held={chat.queueHeld}
                   busy={chat.busy}
