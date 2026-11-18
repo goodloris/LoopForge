@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -175,5 +176,85 @@ func TestGitHubMergeBranchShortCircuitsMergedPullAndReopensClosed(t *testing.T) 
 	}
 	if len(writes) != 2 || writes[0] != "POST" || writes[1] != "PUT 21" {
 		t.Fatalf("closed unmerged pull must be re-opened then merged: %v", writes)
+	}
+}
+
+// D26: the work branch is pushed right before the integration merge, so the
+// listed head sha is stale (409) and GitHub may still compute mergeability
+// (405). The merge must refetch the pull and retry, and neither refusal may
+// be reported as a token problem.
+func TestGitHubMergeRetriesStaleHeadAndPendingMergeability(t *testing.T) {
+	st, err := repo.OpenTest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(st.Close)
+	if err := st.PutProject(domain.Project{ID: "public", Name: "Public"}); err != nil {
+		t.Fatal(err)
+	}
+	r := domain.Repository{ID: "github-repo", ProjectID: "public", Provider: "github", Name: "repo", GongfengProjectID: "github:example/repo", DefaultBranch: "main", WebURL: "https://github.com/example/repo"}
+	if err := st.PutRepository(r); err != nil {
+		t.Fatal(err)
+	}
+	old := githubMergeRetryDelays
+	githubMergeRetryDelays = []time.Duration{time.Millisecond, time.Millisecond, time.Millisecond}
+	t.Cleanup(func() { githubMergeRetryDelays = old })
+
+	var puts []string
+	refuse := map[string]int{} // sha -> remaining refusals
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == "GET" && r.URL.Path == "/repos/example/repo/pulls":
+			_, _ = w.Write([]byte(`[{"number":9,"state":"open","head":{"ref":"work","sha":"before-push"},"base":{"ref":"integration"}}]`))
+		case r.Method == "GET" && r.URL.Path == "/repos/example/repo/pulls/9":
+			_, _ = w.Write([]byte(`{"number":9,"state":"open","head":{"ref":"work","sha":"after-push"},"base":{"ref":"integration"}}`))
+		case r.Method == "PUT" && r.URL.Path == "/repos/example/repo/pulls/9/merge":
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			sha, _ := body["sha"].(string)
+			puts = append(puts, sha)
+			if sha == "before-push" {
+				w.WriteHeader(http.StatusConflict)
+				_, _ = w.Write([]byte(`{"message":"Head branch was modified. Review and try the merge again."}`))
+				return
+			}
+			if refuse[sha] > 0 {
+				refuse[sha]--
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				_, _ = w.Write([]byte(`{"message":"Pull Request is not mergeable"}`))
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]bool{"merged": true})
+		default:
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+	s := NewService()
+	s.ConfigureWithStore(domain.SyncConfig{}, st)
+	s.githubAPIBase = srv.URL
+
+	refuse["after-push"] = 1
+	ref, err := s.EnsureAndMergeBranchMR(r.GongfengProjectID, "work", "integration", "Title", "")
+	if err != nil || ref != "#9" {
+		t.Fatalf("merge after stale head: ref=%q err=%v", ref, err)
+	}
+	if want := []string{"before-push", "after-push", "after-push"}; strings.Join(puts, ",") != strings.Join(want, ",") {
+		t.Fatalf("merge attempts=%v want %v", puts, want)
+	}
+
+	puts = nil
+	refuse["after-push"] = 99
+	_, err = s.EnsureAndMergeBranchMR(r.GongfengProjectID, "work", "integration", "Title", "")
+	if err == nil || len(puts) != len(githubMergeRetryDelays)+1 {
+		t.Fatalf("persistent refusal must stop after the retry budget: attempts=%d err=%v", len(puts), err)
+	}
+	if strings.Contains(err.Error(), "token and repository permissions") || !strings.Contains(err.Error(), "not a token problem") {
+		t.Fatalf("merge race reported as a credential problem: %v", err)
+	}
+	if got := (&githubHTTPError{Status: 403}).Error(); !strings.Contains(got, "Git token") {
+		t.Fatalf("403 must still point at the token: %s", got)
 	}
 }

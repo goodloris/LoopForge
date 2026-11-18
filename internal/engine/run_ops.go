@@ -461,6 +461,11 @@ func (e *Engine) retryContext(ctx context.Context, runID, nodeID, reason, humanC
 	if nodeID == "" {
 		nodeID = resumeNodeID(r)
 	}
+	if nodeID == "" && r.Status == "failed" {
+		// Every node succeeded and the run failed while settling (e.g. the
+		// integration merge): rerun the final node, which settles again.
+		nodeID = finalNodeID(r.WorkflowSnapshot)
+	}
 	if r.Nodes[nodeID] == nil {
 		return fmt.Errorf("retry node not found")
 	}
@@ -1019,6 +1024,17 @@ func resumeNodeID(r domain.Run) string {
 	for _, id := range order {
 		if nr := r.Nodes[id]; nr != nil && nr.Status != "succeeded" {
 			return id
+		}
+	}
+	return ""
+}
+
+// finalNodeID is the last node in definition order that no other node
+// depends on.
+func finalNodeID(wf domain.WorkflowDefinition) string {
+	for i := len(wf.Nodes) - 1; i >= 0; i-- {
+		if len(descendants(wf, wf.Nodes[i].ID)) == 0 {
+			return wf.Nodes[i].ID
 		}
 	}
 	return ""

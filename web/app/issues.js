@@ -253,7 +253,7 @@ function issueStageTone(stage){
   if(key==='confirm')return {tone:'warn',icon:'pending-review'};
   if(key==='clarifying')return {tone:'warn',icon:'user-hold'};
   if(key==='attention')return {tone:'error',icon:'alert'};
-  if(key==='closed')return ['已完成','交付闭环','MR 已合入','已合入基线'].includes(label)?{tone:'success',icon:'check'}:{tone:'neutral',icon:'close'};
+  if(key==='closed')return ['已完成','交付闭环','MR 已合入','已合入集成分支'].includes(label)?{tone:'success',icon:'check'}:{tone:'neutral',icon:'close'};
   return {tone:'neutral',icon:'circle'};
 }
 function issueStageBadge(stage){
@@ -320,7 +320,7 @@ function issueStatusBucket(issue){
   if(stage.key==='closed'){
     const label=stage.label||'';
     if(label==='已关闭'||label==='关闭'||label==='MR 已关闭'||label==='工蜂已关闭')return 'closed';
-    if(label==='已完成'||label==='交付闭环'||label==='MR 已合入'||label==='已合入基线')return 'done';
+    if(label==='已完成'||label==='交付闭环'||label==='MR 已合入'||label==='已合入集成分支')return 'done';
   }
   return issue.status||'backlog';
 }

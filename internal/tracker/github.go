@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -103,7 +104,11 @@ func (g *githubClient) request(method, suffix string, input, output any) error {
 	}
 	defer res.Body.Close()
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return fmt.Errorf("GitHub returned HTTP %d; check the project owner's Git token and repository permissions", res.StatusCode)
+		var payload struct {
+			Message string `json:"message"`
+		}
+		_ = json.NewDecoder(io.LimitReader(res.Body, 64<<10)).Decode(&payload)
+		return &githubHTTPError{Status: res.StatusCode, Message: strings.TrimSpace(payload.Message)}
 	}
 	if output == nil {
 		_, err = io.Copy(io.Discard, io.LimitReader(res.Body, 4<<20))
@@ -111,6 +116,39 @@ func (g *githubClient) request(method, suffix string, input, output any) error {
 	}
 	return json.NewDecoder(io.LimitReader(res.Body, 8<<20)).Decode(output)
 }
+
+// githubHTTPError is a non-2xx GitHub response. Only authentication and
+// visibility failures point at the token; merge-state answers do not.
+type githubHTTPError struct {
+	Status  int
+	Message string
+}
+
+func (e *githubHTTPError) Error() string {
+	detail := ""
+	if e.Message != "" {
+		detail = " (" + e.Message + ")"
+	}
+	switch e.Status {
+	case http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound:
+		return fmt.Sprintf("GitHub returned HTTP %d%s; check the project owner's Git token and repository permissions", e.Status, detail)
+	case http.StatusMethodNotAllowed, http.StatusConflict:
+		return fmt.Sprintf("GitHub refused the merge with HTTP %d%s: the pull request head moved or its mergeability is not computed yet, or it has a merge conflict; this is not a token problem", e.Status, detail)
+	default:
+		return fmt.Sprintf("GitHub returned HTTP %d%s", e.Status, detail)
+	}
+}
+
+// mergeRaceStatus reports a merge refusal that can clear by itself: 409 when
+// the sha no longer matches the head, 405 while GitHub computes mergeability.
+func mergeRaceStatus(err error) bool {
+	var he *githubHTTPError
+	return errors.As(err, &he) && (he.Status == http.StatusConflict || he.Status == http.StatusMethodNotAllowed)
+}
+
+// githubMergeRetryDelays is the backoff between merge attempts after a
+// head-moved or mergeability-pending refusal. Tests shorten it.
+var githubMergeRetryDelays = []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second}
 
 type githubPull struct {
 	Number   int        `json:"number"`
@@ -233,16 +271,47 @@ func (s *Service) githubMergeBranch(project, branch, target, title, description 
 			return "", err
 		}
 	}
-	var result struct {
-		Merged bool `json:"merged"`
-	}
-	if err := g.request("PUT", "/pulls/"+strconv.Itoa(p.Number)+"/merge", map[string]any{"merge_method": "merge", "sha": p.Head.SHA}, &result); err != nil {
+	if err := g.mergePull(p); err != nil {
 		return "", err
 	}
-	if !result.Merged {
-		return "", fmt.Errorf("GitHub did not merge pull request #%d", p.Number)
-	}
 	return p.ref(), nil
+}
+
+// mergePull merges p, bound to its head sha. The work branch is usually
+// pushed right before this call, so GitHub may still report the previous head
+// (409) or not have computed mergeability (405). Those refusals are retried
+// with backoff against a freshly fetched pull request.
+func (g *githubClient) mergePull(p githubPull) error {
+	path := "/pulls/" + strconv.Itoa(p.Number)
+	for attempt := 0; ; attempt++ {
+		var result struct {
+			Merged bool `json:"merged"`
+		}
+		err := g.request("PUT", path+"/merge", map[string]any{"merge_method": "merge", "sha": p.Head.SHA}, &result)
+		if err == nil {
+			if !result.Merged {
+				return fmt.Errorf("GitHub did not merge pull request #%d", p.Number)
+			}
+			return nil
+		}
+		if !mergeRaceStatus(err) {
+			return err
+		}
+		if attempt >= len(githubMergeRetryDelays) {
+			return fmt.Errorf("merge pull request #%d failed after %d attempts: %w", p.Number, attempt+1, err)
+		}
+		time.Sleep(githubMergeRetryDelays[attempt])
+		var fresh githubPull
+		if err := g.request("GET", path, nil, &fresh); err != nil {
+			return err
+		}
+		if fresh.merged() {
+			return nil
+		}
+		if fresh.Head.SHA != "" {
+			p.Head.SHA = fresh.Head.SHA
+		}
+	}
 }
 
 func (s *Service) pullGitHubIssues(store IssueStoreAdapter, repo domain.Repository) (int, error) {

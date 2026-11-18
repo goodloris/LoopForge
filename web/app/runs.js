@@ -1118,6 +1118,29 @@ function childSOPPanelHTML(r,nodeId){
   const rows=(child.workflowSnapshot?.nodes||[]).map(n=>{const c=child.nodes?.[n.id]||{};return `<div class="child-sop-row"><span>${escapeHTML(n.name||n.id)}</span><span class="status ${escapeHTML(c.status||'pending')}">${statusText(c.status)||'待执行'}</span>${c.status==='failed'&&c.error?`<small>${escapeHTML(String(c.error).slice(0,200))}</small>`:''}</div>`}).join('');
   return `<div class="child-sop-panel"><div class="child-sop-head"><b>子 SOP：${escapeHTML(child.workflowSnapshot?.name||child.workflowId||'')}</b><span class="status ${runDisplayStatusClass(child)}">${runDisplayStatus(child)}</span>${open}</div>${rows}</div>`;
 }
+// 运行失败的原因。节点可能全部完成而运行仍失败（收尾合入集成分支失败），
+// 这时节点上看不到错误，概览要直接给出原因和下一步。只看最近一次重试之后的事件。
+function runFailureReason(r){
+  if(r?.status!=='failed')return null;
+  const events=r.events||[];
+  let from=0;
+  events.forEach((e,idx)=>{if(e?.type==='node.retry_requested')from=idx+1});
+  const recent=events.slice(from).reverse();
+  const merge=recent.find(e=>e?.type==='mr.auto_merge_failed'),failed=recent.find(e=>e?.type==='run.failed');
+  const nodes=Object.values(r.nodes||{});
+  const settled=nodes.length>0&&nodes.every(n=>n?.status==='succeeded');
+  if(!merge&&!settled)return null;
+  return{
+    title:merge?'合入集成分支失败':'节点均已完成，运行收尾失败',
+    message:String(merge?.message||failed?.message||'运行失败'),
+    hint:settled?'点「重试运行」会重跑最后一个节点并再次合入；已完成的上游节点不会重跑。':'',
+  };
+}
+function runFailureCalloutHTML(r){
+  const f=runFailureReason(r);
+  if(!f)return '';
+  return `<div class="child-sop-callout failed run-failure-callout" role="alert"><div><b>${escapeHTML(f.title)}</b><p>${escapeHTML(f.message.slice(0,600))}</p>${f.hint?`<p>${escapeHTML(f.hint)}</p>`:''}</div></div>`;
+}
 function childSOPCalloutHTML(r){
   const out=[];
   for(const [nodeId,x] of Object.entries(r?.nodes||{})){
@@ -1238,7 +1261,7 @@ function renderRunDetail(r){
     header?.insertAdjacentHTML('afterend',callout);
     host.querySelector('.node-inspector .approval-callout')?.remove();
   }
-  const childCallout=r.status==='queued'?'':childSOPCalloutHTML(r);if(childCallout)host.querySelector('.run-detail-header')?.insertAdjacentHTML('afterend',childCallout);
+  const childCallout=r.status==='queued'?'':runFailureCalloutHTML(r)+childSOPCalloutHTML(r);if(childCallout)host.querySelector('.run-detail-header')?.insertAdjacentHTML('afterend',childCallout);
   if(pg.child){const note=`<p class="child-sop-trace-note">这是 SOP 节点，下面显示的是子 SOP 运行 <code>${escapeHTML(pg.runId.slice(-12))}</code> 全部节点的内容。</p>`;host.querySelectorAll('.trace-section>.section-heading,.worker-log-section>.section-heading').forEach(h=>h.insertAdjacentHTML('afterend',note))}
   const runMeta=host.querySelector('.run-header-meta');if(runMeta)runMeta.insertAdjacentHTML('beforeend',`${taskTriggerBadge(ctx.task)}<span class="run-meta-chip">Sandbox <code>${escapeHTML(r.sandboxId||'—')}</code></span>`);
   const nodeSandbox=host.querySelector('.runtime-details span:first-child');if(nodeSandbox)nodeSandbox.remove();
