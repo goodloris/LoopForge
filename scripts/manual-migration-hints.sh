@@ -6,10 +6,14 @@
 # 033 is pending while a built-in code SOP has no node with id 'mr'; 035 while
 # a built-in 测试验证 role still holds the unedited pre-035 prompt, the text 035
 # rewrites (an edited prompt is left alone and is not reported).
+# PostgreSQL has nothing to report: it is supported for new installations
+# only, and its seed already holds the 033 node and the 035 prompt.
 cd "$(dirname "$0")/.." || exit 0
 source scripts/docker-access.sh
+source scripts/database.sh
+[[ "$LOOPFORGE_DATABASE" == mysql ]] || exit 0
 
-pending=$(docker_access compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" mysql -N -B -u loopforge loopforge' 2>/dev/null <<'SQL'
+pending=$(db_query 2>/dev/null <<'SQL'
 SET NAMES utf8mb4;
 SELECT '033_generic_sop_mr_node.sql' FROM generic_templates
 WHERE id IN ('generic-backend-delivery', 'generic-frontend-delivery', 'issue-fix-production')

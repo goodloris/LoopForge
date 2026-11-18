@@ -1,13 +1,20 @@
 #!/usr/bin/env bash
 # Explicit operator step for the Compose database, after base tables exist.
-# Apply each absent generated-column definition from the upstream migration.
+# PostgreSQL: migrations/postgres/001_baseline_extensions.sql, which is all
+# IF NOT EXISTS. MySQL: apply each absent generated-column definition from the
+# upstream migration, which MySQL cannot repeat.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 source scripts/docker-access.sh
+source scripts/database.sh
 
-mysql_query() {
-  docker_access compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysql --batch --skip-column-names -u loopforge loopforge'
-}
+if [[ "$LOOPFORGE_DATABASE" == postgres ]]; then
+  db_sql < migrations/postgres/001_baseline_extensions.sql
+  printf 'Installed: migrations/postgres/001_baseline_extensions.sql\n'
+  exit 0
+fi
+
+mysql_query() { db_query; }
 
 for entry in 'run_telemetry adapter' 'run_logs level'; do
   read -r table_name column_name <<< "$entry"
