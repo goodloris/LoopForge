@@ -2,9 +2,11 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -209,6 +211,9 @@ func applyKiroLogin(options AgentCLIOptions, home AgentCLIHome, homeEnv string, 
 	if err := writeAgentCLIFile(home, ".kiro/settings/cli.json", []byte(`{"toolSearch.enabled":false}`)); err != nil {
 		return nil, nil, err
 	}
+	if err := writeKiroReadRoots(home, options.ReadRoots); err != nil {
+		return nil, nil, err
+	}
 	if !options.Sandboxed && !options.Docker && strings.TrimSpace(os.Getenv(kiroDataDirEnv)) == "" {
 		if machine, err := os.UserHomeDir(); err == nil && machine != "" {
 			env["HOME"] = machine
@@ -328,4 +333,44 @@ func resetKiroConversationHome(home AgentCLIHome) error {
 		return err
 	}
 	return clear(".kiro/settings", func(name string) bool { return name == "mcp.json" || name == "cli.json" })
+}
+
+// kiroPermissionsRel is the user-scope Kiro V3 permission policy.
+const kiroPermissionsRel = ".kiro/settings/permissions.yaml"
+
+// writeKiroReadRoots denies every file read outside roots through the
+// user-scope permission policy, or removes a policy an earlier run left. A
+// deny wins over --trust-tools, which otherwise trusts reads anywhere on
+// disk; Kiro's own workspace-escape rule refuses symlinks that leave the
+// workspace. Verified against kiro-cli 3.4.0: absolute paths outside the
+// roots are refused, read, grep and glob inside them still work. The
+// agent profile's toolsSettings.allowedPaths is not enforced by V3.
+// ponytail: roots are glob patterns, so a root containing *?[]{} would be
+// over-denied (the safe direction); the platform's clarify paths never do.
+func writeKiroReadRoots(home AgentCLIHome, roots []string) error {
+	var exclude []string
+	for _, root := range roots {
+		root = filepath.ToSlash(filepath.Clean(strings.TrimSpace(root)))
+		if root == "." || !strings.HasPrefix(root, "/") || root == "/" {
+			continue
+		}
+		exclude = append(exclude, root, root+"/**")
+	}
+	if len(exclude) == 0 {
+		dir, err := openAgentCLIHome(home)
+		if err != nil {
+			return err
+		}
+		defer dir.Close()
+		if err := dir.Remove(kiroPermissionsRel); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	// JSON is YAML, and needs no quoting rules of its own.
+	data, err := json.Marshal(map[string]any{"rules": []any{map[string]any{"capability": "fs_read", "effect": "deny", "match": []string{"/**"}, "exclude": exclude}}})
+	if err != nil {
+		return err
+	}
+	return writeAgentCLIFile(home, kiroPermissionsRel, data)
 }

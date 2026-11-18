@@ -98,32 +98,62 @@ function scheduleIssueStatusValues(job){
   return ['backlog','todo'];
 }
 function scheduleModelAPI(){return window.AgentFlowAssistantModels}
+// The clarification picker lists every CLI the viewer can use. A saved model
+// still listed wins; without one a viewer lacking a CodeBuddy key starts on
+// Kiro CLI (or another listed CLI) instead of a CodeBuddy model that the
+// server would refuse.
 function selectedClarifyModel(){
   const api=window.AgentFlowAssistantModels;
   const stored=localStorage.getItem('agentflow.clarifyModel')||'';
-  // Clarification runs on CodeBuddy only; a saved "codex:…" id falls back.
+  const models=api?.catalog?.()?.models||[];
+  if(stored&&models.some(m=>m.id===stored))return stored;
+  if(!clarifyViewerHasCodeBuddyKey()){
+    const engine=m=>m.engine||'codebuddy';
+    const other=models.find(m=>engine(m)==='kiro')||models.find(m=>engine(m)!=='codebuddy');
+    if(other)return other.id;
+  }
   if(api?.codeBuddyModel)return api.codeBuddyModel(stored);
   return stored||(api&&api.DEFAULT)||'default';
+}
+function clarifyViewerHasCodeBuddyKey(){
+  const me=typeof state==='undefined'?null:state.currentUser;
+  return !!((typeof userById==='function'&&userById(me?.id))||me||{}).codeBuddyApiKeyConfigured;
 }
 function setClarifyModel(id){
   if(!id)return;
   localStorage.setItem('agentflow.clarifyModel',id);
   $$('[data-clarify-model-value]').forEach(el=>{el.value=id});
+  refreshClarifyEngineNote();
 }
 function clarifyModelPickerHTML(disabled){
   const id=escapeHTML(selectedClarifyModel());
   return `<div class="clarify-model-field" data-clarify-model><input type="hidden" data-clarify-model-value value="${id}"><button type="button" class="ai-model-toggle" data-model-toggle aria-haspopup="listbox" aria-expanded="false"${disabled?' disabled':''}><span class="ai-model-icon" data-family="glm">智</span><span data-model-label>选择模型</span><span class="ai-model-caret" aria-hidden="true"></span></button><div class="ai-model-menu" hidden role="listbox"></div></div>`;
 }
-// Clarification has no Kiro CLI path yet; say so before anyone clicks.
+// Clarification runs on the platform server with the selected CLI; say
+// whose credentials it needs before anyone clicks.
 function clarifyEngineNoteHTML(){
-  const hasKey=!!(userById(state.currentUser?.id)||state.currentUser||{}).codeBuddyApiKeyConfigured;
-  return `<p class="clarify-engine-note${hasKey?'':' is-warn'}" role="note">${hasKey?'需求澄清使用 CodeBuddy 模型，凭证取需求责任人（未指派时为项目 Owner）的 CodeBuddy API Key。':'需求澄清目前只支持 CodeBuddy：需要需求责任人（未指派时为项目 Owner）在个人配置中配置 CodeBuddy API Key，Kiro CLI 等其他执行器不可用。'}</p>`;
+  const api=window.AgentFlowAssistantModels,catalog=api?.catalog?.()||{};
+  const engine=api?.engineOf?.(selectedClarifyModel(),catalog)||'codebuddy';
+  const name=(catalog.engines||[]).find(e=>e.id===engine)?.name||engine;
+  let text,warn=false;
+  if(engine==='kiro'){
+    text='需求澄清在平台服务器上用 Kiro CLI 运行，使用平台的 kiro-cli 订阅登录，不需要 API Key；平台未安装 kiro-cli 或未完成 kiro-cli login 时会在开始前提示。';
+  }else if(engine==='codebuddy'){
+    warn=!clarifyViewerHasCodeBuddyKey();
+    text='需求澄清使用 CodeBuddy 模型，凭证取需求责任人（未指派时为项目 Owner）的 CodeBuddy API Key。'+(warn?'你还没有配置 CodeBuddy API Key：请在个人配置中配置，或在上方改选 Kiro CLI 等其他执行器的模型。':'');
+  }else{
+    text=`需求澄清在平台服务器上用 ${name} 运行，凭证取需求责任人（未指派时为项目 Owner）在个人配置中的 ${name} API Key。`;
+  }
+  return `<p class="clarify-engine-note${warn?' is-warn':''}" role="note" data-clarify-engine-note>${escapeHTML(text)}</p>`;
+}
+function refreshClarifyEngineNote(){
+  $$('[data-clarify-engine-note]').forEach(el=>{el.outerHTML=clarifyEngineNoteHTML()});
 }
 function bindClarifyModelPicker(host){
   if(!host)return;
   const api=window.AgentFlowAssistantModels,toggle=host.querySelector('[data-model-toggle]'),menu=host.querySelector('.ai-model-menu');
   if(!api||!toggle||!menu)return;
-  const paint=()=>{const keep=selectedClarifyModel();const hidden=host.querySelector('[data-clarify-model-value]');if(hidden)hidden.value=keep;api.paint(toggle,keep)};
+  const paint=()=>{const keep=selectedClarifyModel();const hidden=host.querySelector('[data-clarify-model-value]');if(hidden)hidden.value=keep;api.paint(toggle,keep);refreshClarifyEngineNote()};
   api.load?.().then(paint).catch(paint);
   if(!bindClarifyModelPicker.docBound){
     bindClarifyModelPicker.docBound=true;
@@ -145,7 +175,7 @@ function bindClarifyModelPicker(host){
     menu.hidden=!open;
     toggle.setAttribute('aria-expanded',open?'true':'false');
     if(open){
-      api.renderCodeBuddyList(menu, selectedClarifyModel(), id=>{
+      api.renderList(menu, selectedClarifyModel(), id=>{
         setClarifyModel(id);
         api.paint(toggle, id);
         menu.hidden=true;
