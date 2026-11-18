@@ -277,6 +277,7 @@ func (h *agentToolGateway) buildCatalog(ctx context.Context, session *AgentToolS
 				out[i] = h.workspaceOpenDescriptorFor(session)
 			}
 		}
+		out = append(out, workspacePlatformDraftTools(session)...)
 		for _, server := range session.MCPServers {
 			if !session.SelectedMCPIDs[server.ID] {
 				continue
@@ -405,7 +406,7 @@ func (h *agentToolGateway) buildCatalog(ctx context.Context, session *AgentToolS
 		}
 	}
 	if session.Mode == AgentToolAssistant {
-		out = append(out, agentToolDescriptor{Name: "workbench_tool_schema", Description: "读取平台工具的准确参数契约。提交写入草稿前先读取对应工具 schema；不要猜字段、路径或参数包装。", InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}},"required":["name"],"additionalProperties":false}`), Kind: "workbench"})
+		out = append(out, workbenchToolSchemaDescriptor())
 		if strings.TrimSpace(session.SpaceID) != "" {
 			out = append(out, publishArtifactDescriptor(session, false))
 		}

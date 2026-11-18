@@ -53,18 +53,22 @@ func TestWorkspaceCatalogAndCallRejectPlatformCapabilities(t *testing.T) {
 	g := &agentToolGateway{deps: h.deps}
 	list := g.handleRPC(withAgentToolToken(context.Background(), s.Token), s, agentToolRPCRequest{ID: 1, Method: "tools/list"})
 	data, _ := json.Marshal(list)
-	for _, name := range []string{"agents_save", "workflows_save", "submit_assistant_reply", "workbench_workspace_write", "workbench_workspace_command", "workbench_workspace_open", "workbench_workspace_tree", "workbench_workspace_submit_mr", "workbench_github_pr_create", "workbench_attachment_read", "workbench_workspace_attach", "workbench_delivery_register"} {
-		if strings.Contains(string(data), `"name":"`+name+`"`) {
+	for _, name := range []string{"agents_save", "workflows_save", "issues_save", "issues_dispatch", "runs_start", "workbench_workspace_write", "workbench_workspace_command", "workbench_workspace_open", "workbench_workspace_tree", "workbench_workspace_submit_mr", "workbench_github_pr_create", "workbench_attachment_read", "workbench_workspace_attach", "workbench_delivery_register"} {
+		if strings.Contains(string(data), `"name":"`+name+`"`) || strings.Contains(string(data), `"name":"agentflow__`+name+`"`) {
 			t.Fatalf("workspace leaked %s", name)
 		}
-		params, _ := json.Marshal(map[string]any{"name": name, "arguments": map[string]any{}})
-		out := g.handleRPC(withAgentToolToken(context.Background(), s.Token), s, agentToolRPCRequest{ID: 2, Method: "tools/call", Params: params})
-		raw, _ := json.Marshal(out)
-		if !strings.Contains(string(raw), `"isError":true`) && out.Error == nil {
-			t.Fatalf("legacy tool callable: %s", raw)
+		for _, called := range []string{name, "agentflow__" + name} {
+			params, _ := json.Marshal(map[string]any{"name": called, "arguments": map[string]any{}})
+			out := g.handleRPC(withAgentToolToken(context.Background(), s.Token), s, agentToolRPCRequest{ID: 2, Method: "tools/call", Params: params})
+			raw, _ := json.Marshal(out)
+			if !strings.Contains(string(raw), `"isError":true`) && out.Error == nil {
+				t.Fatalf("legacy tool callable: %s", raw)
+			}
 		}
 	}
-	for _, name := range []string{"workbench_platform_mode", "workbench_publish_artifact"} {
+	// Platform writes stay possible as drafts the platform resolves after the
+	// turn, so a shared conversation can dispatch without leaving its workspace.
+	for _, name := range []string{"workbench_platform_mode", "workbench_publish_artifact", "submit_assistant_reply", "workbench_tool_schema", "agentflow__issues_list", "agentflow__workflows_list"} {
 		if !strings.Contains(string(data), `"name":"`+name+`"`) {
 			t.Fatalf("missing integration: %s", name)
 		}
@@ -109,7 +113,8 @@ func TestEncodedCLIArgumentsPreserveGatewayRestrictions(t *testing.T) {
 		t.Fatal("old token accepted an encoded call after handoff")
 	}
 	ctx = withAgentToolToken(context.Background(), s.Token)
-	if _, err := g.callTool(ctx, s, params); err == nil {
+	write := json.RawMessage(`{"name":"agentflow__issues_save","arguments":"{\"body\":{\"title\":\"x\"}}"}`)
+	if _, err := g.callTool(ctx, s, write); err == nil {
 		t.Fatal("encoded argument bypassed workspace catalog restriction")
 	}
 }
