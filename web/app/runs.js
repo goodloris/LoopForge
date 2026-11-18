@@ -1118,6 +1118,29 @@ function childSOPPanelHTML(r,nodeId){
   const rows=(child.workflowSnapshot?.nodes||[]).map(n=>{const c=child.nodes?.[n.id]||{};return `<div class="child-sop-row"><span>${escapeHTML(n.name||n.id)}</span><span class="status ${escapeHTML(c.status||'pending')}">${statusText(c.status)||'待执行'}</span>${c.status==='failed'&&c.error?`<small>${escapeHTML(String(c.error).slice(0,200))}</small>`:''}</div>`}).join('');
   return `<div class="child-sop-panel"><div class="child-sop-head"><b>子 SOP：${escapeHTML(child.workflowSnapshot?.name||child.workflowId||'')}</b><span class="status ${runDisplayStatusClass(child)}">${runDisplayStatus(child)}</span>${open}</div>${rows}</div>`;
 }
+// 运行失败的原因。节点可能全部完成而运行仍失败（收尾合入集成分支失败），
+// 这时节点上看不到错误，概览要直接给出原因和下一步。只看最近一次重试之后的事件。
+function runFailureReason(r){
+  if(r?.status!=='failed')return null;
+  const events=r.events||[];
+  let from=0;
+  events.forEach((e,idx)=>{if(e?.type==='node.retry_requested')from=idx+1});
+  const recent=events.slice(from).reverse();
+  const merge=recent.find(e=>e?.type==='mr.auto_merge_failed'),failed=recent.find(e=>e?.type==='run.failed');
+  const nodes=Object.values(r.nodes||{});
+  const settled=nodes.length>0&&nodes.every(n=>n?.status==='succeeded');
+  if(!merge&&!settled)return null;
+  return{
+    title:merge?'合入集成分支失败':'节点均已完成，运行收尾失败',
+    message:String(merge?.message||failed?.message||'运行失败'),
+    hint:settled?'点「重试运行」会重跑最后一个节点并再次合入；已完成的上游节点不会重跑。':'',
+  };
+}
+function runFailureCalloutHTML(r){
+  const f=runFailureReason(r);
+  if(!f)return '';
+  return `<div class="child-sop-callout failed run-failure-callout" role="alert"><div><b>${escapeHTML(f.title)}</b><p>${escapeHTML(f.message.slice(0,600))}</p>${f.hint?`<p>${escapeHTML(f.hint)}</p>`:''}</div></div>`;
+}
 function childSOPCalloutHTML(r){
   const out=[];
   for(const [nodeId,x] of Object.entries(r?.nodes||{})){
@@ -1238,7 +1261,7 @@ function renderRunDetail(r){
     header?.insertAdjacentHTML('afterend',callout);
     host.querySelector('.node-inspector .approval-callout')?.remove();
   }
-  const childCallout=r.status==='queued'?'':childSOPCalloutHTML(r);if(childCallout)host.querySelector('.run-detail-header')?.insertAdjacentHTML('afterend',childCallout);
+  const childCallout=r.status==='queued'?'':runFailureCalloutHTML(r)+childSOPCalloutHTML(r);if(childCallout)host.querySelector('.run-detail-header')?.insertAdjacentHTML('afterend',childCallout);
   if(pg.child){const note=`<p class="child-sop-trace-note">这是 SOP 节点，下面显示的是子 SOP 运行 <code>${escapeHTML(pg.runId.slice(-12))}</code> 全部节点的内容。</p>`;host.querySelectorAll('.trace-section>.section-heading,.worker-log-section>.section-heading').forEach(h=>h.insertAdjacentHTML('afterend',note))}
   const runMeta=host.querySelector('.run-header-meta');if(runMeta)runMeta.insertAdjacentHTML('beforeend',`${taskTriggerBadge(ctx.task)}<span class="run-meta-chip">Sandbox <code>${escapeHTML(r.sandboxId||'—')}</code></span>`);
   const nodeSandbox=host.querySelector('.runtime-details span:first-child');if(nodeSandbox)nodeSandbox.remove();
@@ -1288,10 +1311,13 @@ function defaultRunEval(){return{enabled:true,version:1,threshold:70,dimensions:
   {id:'recovery',name:'错误恢复',question:'相同错误是否反复出现？',weight:10},
   {id:'delivery',name:'交付完整',question:'终态、产物和验证信号是否齐全？',weight:10}
 ]}}
-// Run evals run on CodeBuddy only; a saved "codex:…" id falls back.
-function runEvalModel(){const api=window.AgentFlowAssistantModels,stored=state.runEvalModel||localStorage.getItem('agentflow.runEvalModel')||'';if(api?.codeBuddyModel)return api.codeBuddyModel(stored);return stored||(api&&api.DEFAULT)||'default'}
+// Run evals run on any CLI the catalog lists (CodeBuddy, Kiro CLI, …) on this
+// server; a CodeBuddy eval needs the user's own key, not the shared one.
+function runEvalModel(){const api=window.AgentFlowAssistantModels;return state.runEvalModel||localStorage.getItem('agentflow.runEvalModel')||(api&&api.DEFAULT)||'default'}
 function setRunEvalModel(id){state.runEvalModel=id;localStorage.setItem('agentflow.runEvalModel',id)}
-function runEvalHasKey(){return !!(userById(state.currentUser?.id)||state.currentUser||{}).codeBuddyApiKeyConfigured}
+function runEvalEngine(){return window.AgentFlowAssistantModels?.engineOf?.(runEvalModel())||'codebuddy'}
+function runEvalHasKey(){const engine=runEvalEngine();if(engine==='codebuddy')return !!(userById(state.currentUser?.id)||state.currentUser||{}).codeBuddyApiKeyConfigured;return !!(window.AgentFlowAssistantModels?.catalog?.().engines||[]).find(e=>e.id===engine)?.configured}
+function runEvalCredentialHint(){const engine=runEvalEngine();if(engine==='codebuddy')return '请先在个人配置中配置自己的 CodeBuddy API Key';if(engine==='kiro')return 'Kiro CLI 不可用：请在平台上安装 kiro-cli 并运行 kiro-cli login（订阅登录）';const name=(window.AgentFlowAssistantModels?.catalog?.().engines||[]).find(e=>e.id===engine)?.name||engine;return `请先在个人配置中配置 ${name} 凭证`}
 function runEvalApplyable(rec){if(!rec||rec.status==='applied')return false;const action=((rec.target||'')+'.'+(rec.action||'')).replace(/^\./,'').toLowerCase();const full=rec.action&&rec.action.includes('.')?rec.action.toLowerCase():action;return ['workflow.update_node','agent.upsert_gate','agent.remove_gate','agent.append_instructions','agent.append_task_prompt'].includes(full)}
 function runEvalPaneHTML(run){
   const rec=state.runEval?.runId===run.id?state.runEval:null,busy=!!state.runEvalBusy,thoughts=state.runEvalThoughts||[];
@@ -1339,7 +1365,7 @@ function runEvalPaneHTML(run){
   }
 
   if(rec?.status==='failed'){
-    return `<section class="run-eval-section">${heroCard}<div class="run-eval-error-card"><div class="error-head"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg><b>评测执行失败</b></div><pre>${escapeHTML(rec.error||'模型未返回结果')}</pre><p class="error-tip">请检查个人配置中的 CodeBuddy API Key 配置或网络状态后重新评测。</p></div></section>`;
+    return `<section class="run-eval-section">${heroCard}<div class="run-eval-error-card"><div class="error-head"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg><b>评测执行失败</b></div><pre>${escapeHTML(rec.error||'模型未返回结果')}</pre><p class="error-tip">请检查所选模型对应执行器的凭证（CodeBuddy API Key、Kiro CLI 登录等）或网络状态后重新评测。</p></div></section>`;
   }
 
   if(!rec||!rec.status){
@@ -1389,7 +1415,7 @@ function bindRunEvalModelPicker(host){
     const open=menu.hidden;
     menu.hidden=!open;
     toggle.setAttribute('aria-expanded',open?'true':'false');
-    if(open)api.renderCodeBuddyList(menu,runEvalModel(),id=>{setRunEvalModel(id);paint();menu.hidden=true;toggle.setAttribute('aria-expanded','false')});
+    if(open)api.renderList(menu,runEvalModel(),id=>{setRunEvalModel(id);paint();menu.hidden=true;toggle.setAttribute('aria-expanded','false')});
   };
   document.addEventListener('click',e=>{if(host.contains(e.target))return;menu.hidden=true;toggle.setAttribute('aria-expanded','false')});
 }
@@ -1409,7 +1435,7 @@ async function loadRunEval(runId,background){
 }
 async function startRunEval(run){
   if(!['succeeded','failed','cancelled'].includes(run.status))return toast('请等 SOP 跑完后再评测');
-  if(!runEvalHasKey()){toast('请先在个人配置中配置自己的 CodeBuddy API Key','err');switchView('settings');return}
+  if(!runEvalHasKey()){toast(runEvalCredentialHint(),'err');if(runEvalEngine()!=='kiro')switchView('settings');return}
   state.runEvalBusy=true;state.runEvalThoughts=['正在提交评测…'];
   const host=$('#runDetail'),pane=host?.querySelector('[data-run-pane="eval"]');
   if(pane){pane.innerHTML=runEvalPaneHTML(run);bindRunEvalPane(run,host)}

@@ -273,11 +273,11 @@ curl -u "$AGENTFLOW_USER:$AGENTFLOW_PASS" -X POST \
 
 ## Run 评测
 
-只评测终态 run（`succeeded|failed|cancelled`）。使用当前登录用户的 CodeBuddy Key 和助手模型目录，不自动触发。
+只评测终态 run（`succeeded|failed|cancelled`），不自动触发。`model` 为 CodeBuddy 模型时使用当前登录用户的 CodeBuddy Key 和助手模型目录；`kiro:<model>` 等其他 CLI 的模型在平台服务器上以无工具的一次性调用执行（Kiro CLI 需要服务器上的 `kiro-cli` 登录，其他 CLI 需要当前用户的 API Key）。
 
 ### `POST /api/runs/{runId}/eval`
 
-请求 `{ "model": "default" }`，`model` 可选。成功 `202` 返回评测记录（`status=running`）。进行中的 run 返回 `409`；未登录 `401`；未配置个人 CodeBuddy Key `400`。
+请求 `{ "model": "default" }`，`model` 可选。成功 `202` 返回评测记录（`status=running`）。进行中的 run 返回 `409`；未登录 `401`；所选执行器不可用（未配置个人 CodeBuddy Key、服务器没有 kiro-cli 等）`400`。
 
 ### `GET /api/runs/{runId}/eval`
 

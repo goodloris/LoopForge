@@ -14,11 +14,13 @@ var (
 	ErrReportCredentials = errors.New("本次 SOP 执行身份未配置 CodeBuddy 凭据")
 	ErrReportModel       = errors.New("所选 CodeBuddy 模型不可用")
 	ErrReportCLI         = errors.New("CodeBuddy CLI 调用失败，请检查 API 服务环境和日志")
+	ErrReportKiro        = errors.New("平台未安装 kiro-cli 或未完成 kiro-cli login，无法用 Kiro CLI 生成汇报")
+	ErrReportKiroCLI     = errors.New("Kiro CLI 调用失败，请检查平台的 kiro-cli 登录和日志")
 	ErrReportFormat      = errors.New("AI 未通过 submit_notification_report 提交有效报告")
 )
 
 func reportFailureReason(err error) string {
-	for _, reason := range []error{ErrReportCredentials, ErrReportModel, ErrReportCLI, ErrReportFormat} {
+	for _, reason := range []error{ErrReportCredentials, ErrReportModel, ErrReportCLI, ErrReportKiro, ErrReportKiroCLI, ErrReportFormat} {
 		if errors.Is(err, reason) {
 			return reason.Error()
 		}

@@ -46,7 +46,7 @@ type Issue struct {
 	RepositoryBranches map[string]string `json:"repositoryBranches,omitempty"`
 	LatestTaskID       string            `json:"latestTaskId,omitempty"`
 	AutomationState    string            `json:"automationState,omitempty"` // ignored means scheduled SOPs must not claim it
-	DeliveryState      string            `json:"deliveryState,omitempty"`   // merged, reopened
+	DeliveryState      string            `json:"deliveryState,omitempty"`   // pending, merged, reopened
 	DeliveryMRURL      string            `json:"deliveryMrUrl,omitempty"`
 	DeliveryMRState    string            `json:"deliveryMrState,omitempty"` // merged (default branch), integrated (baseline), opened, closed, reopened, unknown
 	// DeliveryMRs lists one MR per delivered repository. DeliveryMRURL is its
@@ -231,6 +231,11 @@ func (i Issue) TrackerClosed() bool {
 	return state == "closed" || state == "已关闭"
 }
 
+// DeliveryStatePending marks a work item whose SOP delivered MRs that have not
+// all reached the default branch yet (open, or only on the integrate branch).
+// The MR sync moves it to "merged" once they land.
+const DeliveryStatePending = "pending"
+
 // DeliveryLocked reports whether a merged MR or completed delivery has made this work item final.
 // A user can explicitly reopen it to allow a follow-up run.
 func (i Issue) DeliveryLocked() bool {
@@ -255,7 +260,7 @@ func (i Issue) DeliveryLockedLabel() string {
 	case "merged":
 		return "MR 已合入"
 	case "integrated":
-		return "已合入基线"
+		return "已合入集成分支"
 	case "closed":
 		return "MR 已关闭"
 	default:
@@ -353,8 +358,8 @@ func (i Issue) ExecutionBlockedReason() string {
 			return "工作项已关闭，请先重新打开后再触发 SOP"
 		case "MR 已合入":
 			return "关联 MR 已合入，请先重新打开工作项再触发 SOP"
-		case "已合入基线":
-			return "已合入基线，请先重新打开工作项再触发 SOP"
+		case "已合入集成分支":
+			return "已合入集成分支，请先重新打开工作项再触发 SOP"
 		case "MR 已关闭":
 			return "关联 MR 已关闭，请先重新打开工作项再触发 SOP"
 		default:

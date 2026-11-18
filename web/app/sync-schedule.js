@@ -114,6 +114,11 @@ function clarifyModelPickerHTML(disabled){
   const id=escapeHTML(selectedClarifyModel());
   return `<div class="clarify-model-field" data-clarify-model><input type="hidden" data-clarify-model-value value="${id}"><button type="button" class="ai-model-toggle" data-model-toggle aria-haspopup="listbox" aria-expanded="false"${disabled?' disabled':''}><span class="ai-model-icon" data-family="glm">智</span><span data-model-label>选择模型</span><span class="ai-model-caret" aria-hidden="true"></span></button><div class="ai-model-menu" hidden role="listbox"></div></div>`;
 }
+// Clarification has no Kiro CLI path yet; say so before anyone clicks.
+function clarifyEngineNoteHTML(){
+  const hasKey=!!(userById(state.currentUser?.id)||state.currentUser||{}).codeBuddyApiKeyConfigured;
+  return `<p class="clarify-engine-note${hasKey?'':' is-warn'}" role="note">${hasKey?'需求澄清使用 CodeBuddy 模型，凭证取需求责任人（未指派时为项目 Owner）的 CodeBuddy API Key。':'需求澄清目前只支持 CodeBuddy：需要需求责任人（未指派时为项目 Owner）在个人配置中配置 CodeBuddy API Key，Kiro CLI 等其他执行器不可用。'}</p>`;
+}
 function bindClarifyModelPicker(host){
   if(!host)return;
   const api=window.AgentFlowAssistantModels,toggle=host.querySelector('[data-model-toggle]'),menu=host.querySelector('.ai-model-menu');

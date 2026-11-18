@@ -62,6 +62,7 @@ func TestMarkAndReopenDeliveredIssue(t *testing.T) {
 		t.Fatal(err)
 	}
 	mergedAt := time.Now().UTC().Add(-time.Minute)
+	recordMergedMR(t, s, "org/repo", 1, issue.ID, "master")
 	if err := s.MarkIssueDelivered(issue.ID, "https://git.example.com/org/repo/merge_requests/1", mergedAt); err != nil {
 		t.Fatal(err)
 	}
@@ -93,9 +94,29 @@ func TestMarkAndReopenDeliveredIssue(t *testing.T) {
 	if err := s.MarkIssueDeliveredFromSOP(issue.ID, "https://git.example.com/org/repo/merge_requests/2", time.Now().UTC().Add(2*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
+	// The new SOP delivered an MR that is still open: the reopen is replaced
+	// by a pending delivery, and the MR merge locks the item.
+	pending, _ := s.Issue(issue.ID)
+	if pending.DeliveryLocked() || pending.DeliveryState != domain.DeliveryStatePending || pending.Status != "in_review" {
+		t.Fatalf("new SOP success with an open MR must wait for the merge: %+v", pending)
+	}
+	if err := s.UpdateMRDeliveryState("org/repo", 2, "merged", "master", time.Time{}, time.Now().UTC().Add(3*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
 	lockedAgain, _ := s.Issue(issue.ID)
-	if !lockedAgain.DeliveryLocked() {
-		t.Fatalf("new SOP success should lock a reopened issue: %+v", lockedAgain)
+	if !lockedAgain.DeliveryLocked() || lockedAgain.Status != "done" {
+		t.Fatalf("merging the new MR should lock a reopened issue: %+v", lockedAgain)
+	}
+}
+
+// recordMergedMR stores a merged MR row for issueID, as the MR sync would.
+func recordMergedMR(t *testing.T, s *Store, project string, iid int, issueID, target string) {
+	t.Helper()
+	if err := s.EnsureMRDeliveryState(project, iid, domain.GongfengMRURL(project, iid), issueID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.recordMRState(project, iid, "merged", target, time.Now().UTC(), time.Now().UTC()); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -113,6 +134,7 @@ func TestExternalClosedIssueKeepsStatusDuringDelivery(t *testing.T) {
 	if err := s.PutIssue(issue); err != nil {
 		t.Fatal(err)
 	}
+	recordMergedMR(t, s, "org/repo", 1, issue.ID, "master")
 	if err := s.MarkIssueDelivered(issue.ID, "https://git.example.com/org/repo/merge_requests/1", time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
@@ -413,18 +435,18 @@ func TestMultiRepositoryDeliveryMRs(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, _ := s.Issue(issue.ID)
-	if !got.DeliveryLocked() || len(got.DeliveryMRs) != 2 || got.DeliveryMRURL != urlA || got.DeliveryMRState != "opened" {
-		t.Fatalf("multi-repo delivery not recorded: %+v", got)
+	if got.DeliveryLocked() || got.DeliveryState != domain.DeliveryStatePending || got.Status != "in_review" || len(got.DeliveryMRs) != 2 || got.DeliveryMRURL != urlA || got.DeliveryMRState != "opened" {
+		t.Fatalf("multi-repo delivery with an open MR must wait for it: %+v", got)
 	}
-	if got.DeliveryMRs[0].State != "merged" || got.DeliveryMRs[1].State != "opened" || got.DeliveryLockedLabel() != "交付闭环" {
-		t.Fatalf("per-MR states / label wrong: %+v label=%s", got.DeliveryMRs, got.DeliveryLockedLabel())
+	if got.DeliveryMRs[0].State != "merged" || got.DeliveryMRs[1].State != "opened" {
+		t.Fatalf("per-MR states wrong: %+v", got.DeliveryMRs)
 	}
 	// Both MRs are registered for polling; the second merge lands the item.
 	if err := s.UpdateMRDeliveryState("org/b", 2, "merged", "master", time.Time{}, time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 	got, _ = s.Issue(issue.ID)
-	if got.DeliveryMRState != "merged" || got.DeliveryLockedLabel() != "MR 已合入" || got.DeliveryMRURL != urlA {
+	if !got.DeliveryLocked() || got.Status != "done" || got.DeliveryMRState != "merged" || got.DeliveryLockedLabel() != "MR 已合入" || got.DeliveryMRURL != urlA {
 		t.Fatalf("all MRs merged must read MR 已合入: %+v", got)
 	}
 	// A leftover MR from an earlier run must not join or relabel the item.

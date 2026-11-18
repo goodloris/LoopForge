@@ -1369,7 +1369,7 @@ function obsCrossProjectTable(){
     :`该责任人目前只在当前项目有执行记录，个人与项目切换不会把其他项目加进来。`;
   return {key:'projects',title:'该责任人在各项目',sub:note,tables:[{headers:['项目','运行','需求','Tokens','成本'],rows:rows.map(r=>obsRow([`<b>${escapeHTML(obsProjectName(r.projectId))}</b>${r.projectId===current?'<span class="obs-pill">当前</span>':''}`,String(r.runs||0),String(r.uniqueIssues||0),formatTokens(r.tokens),costLabel(r.costCny,r.costKnown)],'',r.projectId===current?'obs-current-project':''))}]};
 }
-const OBS_DELIVERY_FILTERS=[['all','全部'],['delivered','已交付'],['sop','SOP 成功'],['direct','对话改代码'],['withmr','有 PR'],['mr','PR 已合入'],['baseline','已合入基线'],['github','GitHub'],['local','本地']];
+const OBS_DELIVERY_FILTERS=[['all','全部'],['delivered','已交付'],['sop','SOP 成功'],['direct','对话改代码'],['withmr','有 PR'],['mr','PR 已合入'],['baseline','已合入集成分支'],['github','GitHub'],['local','本地']];
 function obsDeliveryMRs(it){
   const list=it.mrs?.length?it.mrs:it.mrUrl?[{url:it.mrUrl,project:it.mrProject,iid:it.mrIid,state:it.mrState}]:[];
   const seen=new Map();
@@ -1410,7 +1410,7 @@ function obsDelivery(){
     obsKpiGroup('交付结果',[
       {label:'已交付',value:String(d.delivered||0),meter:d.issues?d.delivered*100/d.issues:0,foot:`SOP 成功或对话直接交付，且已在默认分支 · ${d.issues||0} 个有执行的单${d.directIssues?`（含 ${d.directIssues} 个只在对话里改）`:''}`,tip:['「已合入 / 已交付」只统计默认分支。','对话直接改代码的需求没有 SOP，PR 合入默认分支即算交付。']},
       {label:'完成需求 / Bug',value:`${d.requirementCount||0} / ${d.bugFixCount||0}`,foot:'按 SOP 统计标签归类，需求去重'},
-      {label:'PR 已合入',value:String(d.mrMerged||0),meter:(d.totalMrs??d.withMr)?d.mrMerged*100/(d.totalMrs??d.withMr):0,foot:`按 PR 计数 · 默认分支；${d.mrIntegrated||0} 个已合入基线`},
+      {label:'PR 已合入',value:String(d.mrMerged||0),meter:(d.totalMrs??d.withMr)?d.mrMerged*100/(d.totalMrs??d.withMr):0,foot:`按 PR 计数 · 默认分支；${d.mrIntegrated||0} 个已合入集成分支`},
       {label:'人均周吞吐',value:summary.weeklyActiveContributors?Number(summary.weeklyThroughputPerUser||0).toFixed(2):'—',foot:`近 7 天 ${summary.weeklyDeliveredIssues||0} 个交付 / ${summary.weeklyActiveContributors||0} 人`},
     ]),
     obsKpiGroup('耗时与返工',[
@@ -1465,7 +1465,7 @@ function obsOwnersCard(){
   const table=rows.length?`<div class="obs-tw"><table class="obs-table"><thead><tr><th>负责人</th><th>已交付</th><th>进行中</th><th>未交付</th><th>平均端到端</th><th>Tokens</th><th>成本</th></tr></thead><tbody>${rows.map(r=>`<tr class="run-row${filter==='user:'+r.id?' obs-row-hl':''}" data-obs-delivery="user:${escapeHTML(r.id)}"><td><b>${escapeHTML(r.name)}</b></td><td>${r.delivered}</td><td>${r.active}</td><td>${r.undelivered}</td><td>${r.durationLabel}</td><td>${formatTokens(r.tokens)}</td><td>${costLabel(r.costCny,r.costKnown)}</td></tr>`).join('')}</tbody></table></div>`:'';
   return obsCard('owners','按负责人','已交付 / 进行中 / 未交付；点一人筛选明细','',`<div class="obs-legend"><span><i style="background:var(--c1)"></i>已交付</span><span><i style="background:var(--c3)"></i>进行中</span><span><i style="background:var(--c4)"></i>未交付</span></div>${chart}${table}`,{expand:true});
 }
-function obsMrLabel(s){return s==='merged'?'<span class="obs-mr merged">已合入</span>':s==='integrated'?'<span class="obs-mr integrated">已合入基线</span>':({opened:'待合入',reopened:'重开',closed:'已关闭',none:'无 PR',unknown:'待查合入'}[s]||s||'—')}
+function obsMrLabel(s){return s==='merged'?'<span class="obs-mr merged">已合入</span>':s==='integrated'?'<span class="obs-mr integrated">已合入集成分支</span>':({opened:'待合入',reopened:'重开',closed:'已关闭',none:'无 PR',unknown:'待查合入'}[s]||s||'—')}
 // A conversation requirement has no SOP status: its state is its MRs'.
 function obsDirectDeliveryText(it){
   if(it.delivered)return '对话直接交付';
@@ -1561,7 +1561,7 @@ function buildObsReportHTML(){
     ['P95 执行',summary.executionP95DurationMs?duration(summary.executionP95DurationMs):'—',summary.executionAverageDurationMs?`平均 ${duration(summary.executionAverageDurationMs)}`:'—'],
     ['对话改代码',`${summary.conversationIssues||0} 个需求`,`${summary.conversationWorkspaces||0} 个工作区 · ${formatTokens(summary.conversationTokens||0)} · ${obsPlain(costLabel(summary.conversationCostCny||0,true))}`],
     ['已交付',d.delivered||0,`${d.issues||0} 个有执行的单`],
-    ['PR 已合入',d.mrMerged||0,`${d.mrIntegrated||0} 已合入基线`],
+    ['PR 已合入',d.mrMerged||0,`${d.mrIntegrated||0} 已合入集成分支`],
   ].map(([l,v,f])=>`<article><span>${l}</span><b>${v}</b><small>${f}</small></article>`).join('');
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHTML(scope.project)} 用量报告</title>
 <style>

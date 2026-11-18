@@ -1852,6 +1852,16 @@ html[data-theme="dark"] .agent-studio-v2{box-shadow:0 18px 56px rgba(0,0,0,.42),
 .clarify-empty h3{margin:0 0 7px;font-size:18px}.clarify-empty p{max-width:480px;margin:0 auto 20px;color:var(--muted);line-height:1.65}
 .clarify-intro,.clarify-ready-head{display:flex;align-items:center;gap:10px;margin-bottom:13px}.clarify-intro>span,.clarify-check{display:grid;place-items:center;width:34px;height:34px;border-radius:10px;background:var(--blue);color:white;font-weight:800}
 .clarify-intro>div:nth-child(2){flex:1;min-width:0}
+.clarify-engine-note {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--muted, #6b7280);
+}
+
+.clarify-engine-note.is-warn {
+  color: var(--warning, #b45309);
+}
+
 .clarify-model-field {
   position: relative !important;
   z-index: 15 !important;

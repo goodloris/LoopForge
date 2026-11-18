@@ -1713,7 +1713,7 @@ if (issueCurrentStage(gongfengMerged).label !== 'MR 已合入' || issueOutcome(g
   throw new Error('a merged MR must outrank a closed Gongfeng issue');
 }
 const gongfengIntegrated = { id: 'gf-integrated', source: 'gongfeng', status: 'closed', closeSource: 'external', externalRef: { externalState: 'closed' }, deliveryState: 'merged', deliveryMrState: 'integrated', deliveryMrUrl: 'https://git.example.com/org/repo/merge_requests/10' };
-if (issueCurrentStage(gongfengIntegrated).label !== '已合入基线' || issueStatusBucket(gongfengIntegrated) !== 'done') {
+if (issueCurrentStage(gongfengIntegrated).label !== '已合入集成分支' || issueStatusBucket(gongfengIntegrated) !== 'done') {
   throw new Error('baseline merge must outrank a closed Gongfeng issue');
 }
 const delivered = { id: 'delivered', source: 'tapd', status: 'closed', closeSource: 'external', deliveryState: 'merged', deliveryMrState: 'opened', externalRef: { externalState: 'closed' } };

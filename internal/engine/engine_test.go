@@ -1221,7 +1221,14 @@ func TestFinishSucceededWithoutDeliveryMRKeepsWorkspace(t *testing.T) {
 			finished, _ := s.Run(runID)
 			got, _ := s.Issue(issue.ID)
 			_, statErr := os.Stat(path)
-			if tc.mr || tc.noRepo {
+			if tc.mr {
+				// The MR is still open: the item waits in review for the merge.
+				if got.DeliveryState != domain.DeliveryStatePending || got.Status != "in_review" || len(got.DeliveryMRList()) != 1 || !os.IsNotExist(statErr) || finished.WorkspaceCleanedAt.IsZero() {
+					t.Fatalf("delivered run: issue=%+v stat=%v cleaned=%v", got, statErr, finished.WorkspaceCleanedAt)
+				}
+				return
+			}
+			if tc.noRepo {
 				if got.DeliveryState != "merged" || !os.IsNotExist(statErr) || finished.WorkspaceCleanedAt.IsZero() {
 					t.Fatalf("delivered run: delivery=%q stat=%v cleaned=%v", got.DeliveryState, statErr, finished.WorkspaceCleanedAt)
 				}
