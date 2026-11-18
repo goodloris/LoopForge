@@ -424,7 +424,9 @@ document.addEventListener('keydown',e=>{
     return;
   }
   if(e.key==='Escape'){
-    if(host.querySelector('[data-user-combobox].is-open'))return;
+    // Wherever focus is, Escape with a picker open closes only that picker.
+    const picker=host.querySelector('[data-user-combobox].is-open');
+    if(picker){e.preventDefault();e.stopPropagation();closeUserCombobox(picker,true);return}
     e.preventDefault();e.stopPropagation();
     if(!w.saving)closeProjectWizard({force:w.step==='done'});
     return;

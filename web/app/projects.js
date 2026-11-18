@@ -25,17 +25,24 @@ function userCombobox(name,selected,emptyLabel='请选择用户',attributes=''){
   const options=(state.data.users||[]).map(u=>`<button type="button" class="user-combobox-option${Number(u.id)===Number(selected)?' selected':''}" data-user-option="${u.id}" data-search="${escapeHTML(`${u.loginName||''} ${u.chineseName||''}`.toLowerCase())}"><span>${escapeHTML(userDisplay(u))}</span>${Number(u.id)===Number(selected)?'<i>✓</i>':''}</button>`).join('');
   return `<div class="user-combobox" data-user-combobox><input type="hidden" name="${escapeHTML(name)}" value="${selected?escapeHTML(String(selected)):''}" ${attributes}><button type="button" class="user-combobox-trigger" data-user-combobox-trigger aria-haspopup="listbox" aria-expanded="false"><span>${escapeHTML(label)}</span><i>⌄</i></button><div class="user-combobox-panel" data-user-combobox-panel hidden><input type="search" data-user-combobox-search placeholder="搜索中文名 / 英文名" autocomplete="off"><div class="user-combobox-options" role="listbox">${options}</div><p class="user-combobox-empty" hidden>没有匹配的用户</p></div></div>`;
 }
+// Escape closes only the picker; focus returns to its trigger instead of falling to <body>,
+// where the next Escape would reach the surrounding dialog.
+function closeUserCombobox(box,refocus=false){
+  const panel=box.querySelector('[data-user-combobox-panel]'),trigger=box.querySelector('[data-user-combobox-trigger]');
+  if(panel)panel.hidden=true;box.classList.remove('is-open');trigger?.setAttribute('aria-expanded','false');
+  if(refocus)trigger?.focus();
+}
 function bindUserSearches(root=document){
   if(!document.body.dataset.userComboboxBound){document.body.dataset.userComboboxBound='true';document.addEventListener('click',()=>document.querySelectorAll('[data-user-combobox].is-open').forEach(box=>{box.classList.remove('is-open');const panel=box.querySelector('[data-user-combobox-panel]'),trigger=box.querySelector('[data-user-combobox-trigger]');if(panel)panel.hidden=true;if(trigger)trigger.setAttribute('aria-expanded','false')}))}
   root.querySelectorAll('[data-user-combobox]').forEach(box=>{
     const value=box.querySelector('input[type="hidden"]'),trigger=box.querySelector('[data-user-combobox-trigger]'),panel=box.querySelector('[data-user-combobox-panel]'),search=box.querySelector('[data-user-combobox-search]'),empty=box.querySelector('.user-combobox-empty');
-    const close=()=>{panel.hidden=true;box.classList.remove('is-open');trigger.setAttribute('aria-expanded','false')};
+    const close=()=>closeUserCombobox(box);
     trigger.onclick=e=>{e.stopPropagation();document.querySelectorAll('[data-user-combobox].is-open').forEach(other=>{if(other!==box){other.classList.remove('is-open');const p=other.querySelector('[data-user-combobox-panel]');if(p)p.hidden=true;other.querySelector('[data-user-combobox-trigger]')?.setAttribute('aria-expanded','false')}});const opening=panel.hidden;panel.hidden=!opening;box.classList.toggle('is-open',opening);trigger.setAttribute('aria-expanded',String(opening));if(opening){search.value='';box.querySelectorAll('[data-user-option]').forEach(o=>o.hidden=false);empty.hidden=true;setTimeout(()=>search.focus(),0)}};
     trigger.addEventListener('click',()=>{if(panel.hidden)return;const rect=trigger.getBoundingClientRect(),below=window.innerHeight-rect.bottom-14,above=rect.top-14,up=below<240&&above>below,height=Math.min(250,Math.max(100,up?above:below));Object.assign(panel.style,{position:'fixed',left:rect.left+'px',right:'auto',width:rect.width+'px',top:up?'auto':(rect.bottom+5)+'px',bottom:up?(window.innerHeight-rect.top+5)+'px':'auto'});box.querySelector('.user-combobox-options').style.maxHeight=Math.max(50,height-55)+'px'});
     panel.onclick=e=>e.stopPropagation();search.onclick=e=>e.stopPropagation();
     search.oninput=()=>{const query=search.value.trim().toLowerCase();let visible=0;box.querySelectorAll('[data-user-option]').forEach(option=>{option.hidden=Boolean(query&&!String(option.dataset.search||'').includes(query));if(!option.hidden)visible++});empty.hidden=visible>0};
     box.querySelectorAll('[data-user-option]').forEach(option=>option.onclick=e=>{e.stopPropagation();value.value=option.dataset.userOption;trigger.querySelector('span').textContent=option.querySelector('span').textContent;box.querySelectorAll('[data-user-option]').forEach(o=>{const selected=o===option;o.classList.toggle('selected',selected);o.setAttribute('aria-selected',String(selected));o.querySelector('i')?.remove();if(selected){const mark=document.createElement('i');mark.textContent='✓';o.append(mark)}});const avatar=box.closest('.member-row')?.querySelector('.member-avatar'),user=userById(value.value);if(avatar)avatar.innerHTML=userAvatarHTML(user,48);value.dispatchEvent(new Event('change',{bubbles:true}));close()});
-    box.addEventListener('keydown',e=>{if(e.key==='Escape')close()});
+    box.addEventListener('keydown',e=>{if(e.key==='Escape'&&box.classList.contains('is-open')){e.preventDefault();e.stopPropagation();closeUserCombobox(box,true)}});
   });
 }
 // Project admin has two levels: #/projects lists cards, #/projects/<id>[/<tab>] edits one project.
