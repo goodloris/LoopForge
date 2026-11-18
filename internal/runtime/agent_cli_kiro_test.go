@@ -27,7 +27,7 @@ func TestAgentCLICommandKiro(t *testing.T) {
 	if !slices.Contains(chat, "--trust-tools=read,grep,glob,disclose_context,invoke_sub_agent,@agentflow_session") || slices.Contains(chat, "--trust-all-tools") {
 		t.Fatalf("chat must trust only read tools and the MCP servers: %q", chat)
 	}
-	clarify := AgentCLICommand(AgentCLIKiro, AgentCLICommandOptions{Prompt: "q", Chat: true, MCPOnly: true, ReadCode: true, MCPServers: []string{"agentflow_session"}}).Argv
+	clarify := AgentCLICommand(AgentCLIKiro, AgentCLICommandOptions{Prompt: "q", Chat: true, MCPOnly: true, ReadRoots: []string{"/srv/checkout"}, MCPServers: []string{"agentflow_session"}}).Argv
 	if !slices.Contains(clarify, "--trust-tools=read,grep,glob,@agentflow_session") {
 		t.Fatalf("clarification must trust only the file read tools and MCP: %q", clarify)
 	}
@@ -218,6 +218,39 @@ func TestApplyAgentCLICredentialKiroUsesMachineLogin(t *testing.T) {
 	}
 	if requirements := ProviderRequirements(AgentCLIKiro); !requirements.PrivateHome {
 		t.Fatalf("requirements = %+v", requirements)
+	}
+}
+
+// ReadRoots deny file reads outside the roots through permissions.yaml; a
+// later run without roots removes the policy again.
+func TestApplyKiroReadRoots(t *testing.T) {
+	dir := t.TempDir()
+	home := HostAgentCLIHome(dir)
+	if _, _, err := ApplyAgentCLICredential(AgentCLIKiro, ProviderCredential{}, AgentCLIOptions{ReadRoots: []string{"/srv/checkout/", "relative", "/"}}, home, "/h", []string{"kiro-cli"}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, ".kiro", "settings", "permissions.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var policy struct {
+		Rules []struct {
+			Capability, Effect string
+			Match, Exclude     []string
+		}
+	}
+	if err := json.Unmarshal(data, &policy); err != nil || len(policy.Rules) != 1 {
+		t.Fatalf("policy %s: %v", data, err)
+	}
+	rule := policy.Rules[0]
+	if rule.Capability != "fs_read" || rule.Effect != "deny" || !slices.Equal(rule.Match, []string{"/**"}) || !slices.Equal(rule.Exclude, []string{"/srv/checkout", "/srv/checkout/**"}) {
+		t.Fatalf("rule = %+v", rule)
+	}
+	if _, _, err := ApplyAgentCLICredential(AgentCLIKiro, ProviderCredential{}, AgentCLIOptions{}, home, "/h", []string{"kiro-cli"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".kiro", "settings", "permissions.yaml")); !os.IsNotExist(err) {
+		t.Fatalf("policy left behind: %v", err)
 	}
 }
 

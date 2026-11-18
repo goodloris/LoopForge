@@ -97,6 +97,10 @@ type AgentCLIOptions struct {
 	// Sandboxed marks any isolating sandbox (Docker, seatbelt, bwrap): Kiro
 	// CLI runs on a copy of the login there, never on the machine's own.
 	Sandboxed bool
+	// ReadRoots confine Kiro CLI's file reads to these directories (paths
+	// as the process sees them): requirement clarification runs on the
+	// platform server, where the rest of the disk holds its secrets.
+	ReadRoots []string
 }
 
 // agentCLIKeyEnv holds the user's key for CLIs whose configuration names
