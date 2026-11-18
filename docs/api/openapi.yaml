@@ -2241,6 +2241,39 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+  /api/workflows/{workflowId}/verify-gate:
+    parameters:
+      - $ref: "#/components/parameters/WorkflowId"
+    get:
+      tags: [Workflows]
+      operationId: getWorkflowVerifyGate
+      summary: Whether the SOP's test gate finds .loopforge/verify on the target branches
+      description: Read-only. `gate` is true when a role of the SOP has the `loopforge-verify` command gate. Each repository of the requirement (`issueId`) or of the project (`projectId`, else the SOP's project) reports `configured`, `missing` or `unknown`; GitHub repositories are checked on their main branch, others and failed checks are `unknown`.
+      parameters:
+        - {name: issueId, in: query, schema: {type: string}}
+        - {name: projectId, in: query, schema: {type: string}}
+      responses:
+        "200":
+          description: Gate and per-repository status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  gate: {type: boolean}
+                  repositories:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: {type: string}
+                        name: {type: string}
+                        branch: {type: string}
+                        status: {type: string, enum: [configured, missing, unknown]}
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /api/workflow-metrics:
     get:
       tags: [Analytics]

@@ -2766,3 +2766,8 @@ textarea.pw-input{height:auto;min-height:64px;padding:9px 12px;line-height:1.55;
   .pw-footer{padding:12px 16px}
   .pw-row2,.pw-actions,.pw-status-list{grid-template-columns:1fr}
 }
+/* 测试门禁提示（需求详情与流程设计器共用） */
+.verify-gate-hint{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin:10px 0;color:var(--hui-secondary);font-size:12.5px;line-height:1.5}
+.verify-gate-hint>.harness-icon{flex:none;color:var(--hui-warn)}
+.verify-gate-hint a{color:var(--hui-accent);text-decoration:none}
+.verify-gate-hint a:hover{text-decoration:underline}

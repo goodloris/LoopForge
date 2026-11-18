@@ -122,6 +122,7 @@ curl -H "Authorization: Bearer $AGENTFLOW_TOKEN" "$AGENTFLOW_URL/api/health"
 | `POST` | `/api/workflows/{id}/revisions/{revisionId}/restore` |
 | `POST` | `/api/workflows/{id}/publish` |
 | `POST` | `/api/workflows/{id}/clone` |
+| `GET` | `/api/workflows/{id}/verify-gate` |
 | `GET` | `/api/workflow-metrics` |
 | `GET` | `/api/analytics` |
 | `GET` | `/api/observability/spec` |

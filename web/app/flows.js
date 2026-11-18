@@ -108,8 +108,48 @@ let workflowPublishing=false;
 function workflowNeedsPublish(wf=state.workflow){
   return !!wf&&(state.workflowDirty||wf.status!=='published'||(wf.publishedRevision||wf.revision)!==wf.revision);
 }
+// --- 测试门禁：.loopforge/verify ------------------------------------------------
+// Built-in code SOPs gate 测试验证 on .loopforge/verify from each repository's target
+// branch; without it the verdict is the Agent's. The server checks the branches
+// (GET /api/workflows/:id/verify-gate) and answers unknown when it cannot tell.
+const VERIFY_GATE_DOC='https://github.com/Tencent/LoopForge/blob/main/docs/deployment.md#test-command-gate';
+const verifyGateCache=new Map();
+function loadVerifyGate(workflowId,{issueId='',projectId=''}={}){
+  const key=`${workflowId}|${issueId}|${projectId}`,hit=verifyGateCache.get(key);
+  if(hit&&Date.now()-hit.at<60000)return hit.promise;
+  const query=issueId?`?issueId=${encodeURIComponent(issueId)}`:projectId?`?projectId=${encodeURIComponent(projectId)}`:'';
+  const promise=api(`/api/workflows/${encodeURIComponent(workflowId)}/verify-gate${query}`,{silent:true}).catch(()=>null);
+  verifyGateCache.set(key,{at:Date.now(),promise});
+  return promise;
+}
+function verifyGateHintHTML(result){
+  if(!result?.gate)return '';
+  const repos=result.repositories||[],missing=repos.filter(r=>r.status==='missing'),unknown=repos.filter(r=>r.status==='unknown');
+  const names=list=>repos.length>1?`：${list.map(r=>r.name||r.id).join('、')}`:'';
+  let text='';
+  if(!repos.length)text='没有绑定仓库时按工作区里的 .loopforge/verify 判定；没有这个文件时测试结论由 Agent 判定';
+  else if(missing.length)text=`未配置验证命令（.loopforge/verify），测试结论由 Agent 判定${names(missing)}`;
+  else if(unknown.length)text=`无法确认是否配置了验证命令（.loopforge/verify），未配置时测试结论由 Agent 判定${names(unknown)}`;
+  if(!text)return '';
+  return `<p class="verify-gate-hint" role="note">${huiIcon('warning')}<span>${escapeHTML(text)}</span><a href="${VERIFY_GATE_DOC}" target="_blank" rel="noopener noreferrer">配置说明</a></p>`;
+}
+function mountVerifyGateHint(el,workflowId,opts={}){
+  if(!el)return;
+  const key=`${workflowId||''}|${opts.issueId||''}|${opts.projectId||''}`;
+  if(el.dataset.verifyKey===key&&el.dataset.verifyDone)return;
+  el.dataset.verifyKey=key;delete el.dataset.verifyDone;
+  if(!workflowId||!el.innerHTML)el.hidden=true;
+  if(!workflowId)return;
+  loadVerifyGate(workflowId,opts).then(result=>{
+    if(el.dataset.verifyKey!==key)return;
+    el.innerHTML=verifyGateHintHTML(result);el.hidden=!el.innerHTML;el.dataset.verifyDone='1';
+    window.AgentFlowHarnessIcons?.hydrate?.(el);
+  });
+}
 function renderFlowHeader(){
   const wf=state.workflow;
+  // A draft that was never saved has no stored definition to check yet.
+  mountVerifyGateHint($('#verifyGateHint'),wf&&(state.data?.workflows||[]).some(w=>w.id===wf.id)?wf.id:'',{projectId:wf&&!catalogGeneric(wf)?(wf.projectId||state.projectFilter||''):state.projectFilter||''});
   const title=$('#flowCommandTitle');
   if(title){title.textContent=wf?(wf.name||'未命名流程'):'选择或新建 SOP';title.title=wf?.name||''}
   const copyName=$('#copyWorkflowName');if(copyName)copyName.hidden=!wf
