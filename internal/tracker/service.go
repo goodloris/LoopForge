@@ -2,6 +2,7 @@ package tracker
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"maps"
@@ -87,6 +88,9 @@ func NewService() *Service {
 		cfg: &syncConfigHolder{},
 	}
 }
+
+// SetGitHubAPIBase points GitHub calls at another API root (tests).
+func (s *Service) SetGitHubAPIBase(base string) { s.githubAPIBase = base }
 
 // Configure updates the sync config and recreates MCP clients.
 // Prefer catalog HTTP MCP Headers (the same assets Agent steps use). Fall back
@@ -362,55 +366,70 @@ func (s *Service) PullAll(store IssueStoreAdapter) error {
 	return lastErr
 }
 
+// ErrSyncInProgress reports that another pull holds the sync slot.
+var ErrSyncInProgress = errors.New("sync already in progress")
+
+// PullScheduleJob pulls the source a trigger job names before it dispatches:
+// "github" / "gongfeng" pull the job project's repositories of that provider
+// and "tapd" pulls the job's TAPD iteration. An empty source pulls nothing:
+// the job only dispatches issues already imported.
 func (s *Service) PullScheduleJob(store IssueStoreAdapter, job domain.ScheduleJob) (int, []string, error) {
+	source := strings.ToLower(strings.TrimSpace(job.Source))
+	switch source {
+	case "":
+		return 0, nil, nil
+	case "github", "gongfeng":
+	case "tapd":
+		if strings.TrimSpace(job.TAPDWorkspaceID) == "" || strings.TrimSpace(job.TAPDIterationID) == "" {
+			return 0, nil, fmt.Errorf("schedule job needs TAPD workspace and iteration")
+		}
+	default:
+		return 0, nil, fmt.Errorf("unknown schedule source %q", job.Source)
+	}
 	if !s.beginSync() {
-		return 0, nil, fmt.Errorf("sync already in progress")
+		return 0, nil, ErrSyncInProgress
 	}
 	defer s.endSync()
-	switch strings.ToLower(strings.TrimSpace(job.Source)) {
-	case "github":
-		count := 0
-		var last error
-		for _, repo := range store.Repositories() {
-			if repo.Provider == "github" && (job.ProjectID == "" || repo.ProjectID == job.ProjectID) {
-				n, err := s.pullGitHubIssues(store, repo)
-				count += n
-				if err != nil {
-					last = err
-				}
-			}
+	count := 0
+	var ids []string
+	var errs []error
+	for _, repo := range store.Repositories() {
+		if job.ProjectID != "" && repo.ProjectID != job.ProjectID {
+			continue
 		}
-		return count, nil, last
-	case "gongfeng":
-		count := 0
-		var last error
-		for _, repo := range store.Repositories() {
-			if job.ProjectID != "" && repo.ProjectID != job.ProjectID {
-				continue
+		switch {
+		case repo.Provider == "github" && source == "github":
+			started := time.Now().UTC()
+			n, err := s.pullGitHubIssues(store, repo)
+			status, message := "success", fmt.Sprintf("GitHub: imported %d work items", n)
+			if err != nil {
+				status, message = "failed", err.Error()
+				errs = append(errs, fmt.Errorf("GitHub %s: %w", repo.Name, err))
 			}
-			if repo.Provider != "gongfeng" || repo.GongfengProjectID == "" {
-				continue
-			}
+			s.addLog(domain.SyncLog{ID: fmt.Sprintf("sync-%d", started.UnixNano()), Direction: "pull", Source: "github", Action: "sync_issues", Status: status, Count: n, Message: message, ProjectID: repo.ProjectID, StartedAt: started, FinishedAt: time.Now().UTC()})
+			count += n
+		case repo.Provider == "gongfeng" && repo.GongfengProjectID != "" && source == "gongfeng":
 			client, _, err := s.trackerClientForProject("gongfeng", repo.ProjectID)
 			if err != nil {
-				last = err
+				errs = append(errs, err)
 				continue
 			}
 			n, err := s.pullGongfengIssues(client, store, repo)
 			count += n
 			if err != nil {
-				last = err
+				errs = append(errs, err)
 			}
 		}
-		return count, nil, last
-	case "tapd":
-		if strings.TrimSpace(job.TAPDWorkspaceID) == "" || strings.TrimSpace(job.TAPDIterationID) == "" {
-			return 0, nil, fmt.Errorf("schedule job needs TAPD workspace and iteration")
-		}
-		return s.pullScheduledTAPDPool(store, job)
-	default:
-		return 0, nil, fmt.Errorf("unknown schedule source %q", job.Source)
 	}
+	if source == "tapd" {
+		n, tapdIDs, err := s.pullScheduledTAPDPool(store, job)
+		count += n
+		ids = tapdIDs
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return count, ids, errors.Join(errs...)
 }
 
 // --- Gongfeng Issues ---
@@ -528,7 +547,8 @@ func gongfengSyncedIssue(repo domain.Repository, gi gongfengIssue, existing doma
 	if found {
 		applyExistingIssue(&issue, existing)
 	} else {
-		issue.Number = gi.IID
+		// Number stays 0: the store assigns the next project number. The
+		// Gongfeng IID is the external ID (ExternalRef.ExternalIID).
 		issue.CreatedAt = parseTime(gi.CreatedAt)
 	}
 	issue.UpdatedAt = time.Now().UTC()
@@ -600,7 +620,6 @@ func (s *Service) CreateGongfengIssue(store IssueStoreAdapter, issue domain.Issu
 		SyncedAt:      time.Now().UTC(),
 	}
 	if gi.IID > 0 {
-		issue.Number = gi.IID
 		stableID := fmt.Sprintf("gf-%s-%d", repo.ID, gi.IID)
 		oldID := issue.ID
 		issue.ID = stableID

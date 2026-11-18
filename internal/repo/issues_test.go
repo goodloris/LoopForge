@@ -227,3 +227,45 @@ func TestRestoreTrackerBindingFromStableID(t *testing.T) {
 		t.Fatalf("existing snapshot should win: %+v", wiped)
 	}
 }
+
+// The project default SOP filled in on save is marked defaulted; an SOP a
+// caller sets is a choice, and re-saving keeps whichever origin is stored.
+func TestIssueWorkflowDefaultedTracksOrigin(t *testing.T) {
+	s, err := OpenTest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.PutProject(domain.Project{ID: "p", Name: "P", WorkflowID: GenericBackendDeliveryWorkflowID}); err != nil {
+		t.Fatal(err)
+	}
+	get := func(id string) domain.Issue { v, _ := s.Issue(id); return v }
+	if err := s.PutIssue(domain.Issue{ID: "imported", ProjectID: "p", Title: "t", Source: "github", Kind: "issue", Status: "todo"}); err != nil {
+		t.Fatal(err)
+	}
+	v := get("imported")
+	if v.WorkflowID == "" || !v.WorkflowDefaulted {
+		t.Fatalf("default not marked: %q %v", v.WorkflowID, v.WorkflowDefaulted)
+	}
+	v.Title = "edited"
+	if err := s.PutIssue(v); err != nil {
+		t.Fatal(err)
+	}
+	if !get("imported").WorkflowDefaulted {
+		t.Fatal("unrelated edit turned the default into a choice")
+	}
+	v = get("imported")
+	v.WorkflowID = "chosen"
+	if err := s.PutIssue(v); err != nil {
+		t.Fatal(err)
+	}
+	if v = get("imported"); v.WorkflowID != "chosen" || v.WorkflowDefaulted {
+		t.Fatalf("chosen SOP marked defaulted: %q %v", v.WorkflowID, v.WorkflowDefaulted)
+	}
+	if err := s.PutIssue(domain.Issue{ID: "explicit", ProjectID: "p", Title: "t", WorkflowID: "chosen", WorkflowDefaulted: true, Status: "todo"}); err != nil {
+		t.Fatal(err)
+	}
+	if get("explicit").WorkflowDefaulted {
+		t.Fatal("client-sent workflowDefaulted was trusted")
+	}
+}

@@ -56,9 +56,12 @@ func TestProjectRunAdmissionConcurrentAndIsolated(t *testing.T) {
 	}
 }
 
-func TestProjectRunAdmissionRetainsAllStartedOutcomes(t *testing.T) {
+// Runs parked on a human gate, failed or cancelled release their slot; flipping
+// one back to running claims a slot again and queues behind a full bucket.
+func TestProjectRunAdmissionReleasesParkedRuns(t *testing.T) {
 	s, _ := OpenTest()
 	defer s.Close()
+	status := func(id string) string { r, _ := s.RunState(id); return r.Status }
 	for i := 0; i < 10; i++ {
 		r := admissionRun(fmt.Sprintf("held-%d", i), "p")
 		if err := s.PutRun(r); err != nil {
@@ -69,34 +72,59 @@ func TestProjectRunAdmissionRetainsAllStartedOutcomes(t *testing.T) {
 		if err := s.PutRun(r); err != nil {
 			t.Fatal(err)
 		}
+		if r, _ = s.RunState(r.ID); r.AdmissionState != "released" {
+			t.Fatalf("%s run kept its slot: %q", r.Status, r.AdmissionState)
+		}
 	}
-	if err := s.PutRun(admissionRun("first-queued", "p")); err != nil {
-		t.Fatal(err)
+	// Ten parked runs no longer block new dispatches.
+	for i := 0; i < 10; i++ {
+		id := fmt.Sprintf("fresh-%d", i)
+		if err := s.PutRun(admissionRun(id, "p")); err != nil {
+			t.Fatal(err)
+		}
+		if status(id) != "running" {
+			t.Fatalf("parked runs still occupy the project: %s is %s", id, status(id))
+		}
 	}
-	if err := s.PutRun(admissionRun("second-queued", "p")); err != nil {
-		t.Fatal(err)
+	// Approving (waiting) and retrying (failed) must not bypass the full bucket.
+	for _, id := range []string{"held-1", "held-0", "held-2"} {
+		r, _ := s.RunState(id)
+		r.Status = "running"
+		if err := s.PutRun(r); err != nil {
+			t.Fatal(err)
+		}
+		if got, _ := s.RunState(id); got.Status != "queued" || got.AdmissionState != "queued" {
+			t.Fatalf("resumed %s bypassed the limit: %s/%s", id, got.Status, got.AdmissionState)
+		}
 	}
-	promoted, err := s.PromoteQueuedRuns()
-	if err != nil || len(promoted) != 0 {
+	if promoted, err := s.PromoteQueuedRuns(); err != nil || len(promoted) != 0 {
 		t.Fatalf("promoted=%v err=%v", promoted, err)
 	}
-	r, _ := s.RunState("held-0")
-	r.Status = "succeeded"
+	// A fresh run parking on a gate frees its slot for the oldest resume.
+	r, _ := s.RunState("fresh-0")
+	r.Status = "waiting"
 	if err := s.PutRun(r); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.PutRun(admissionRun("no-insert-ahead", "p")); err != nil {
-		t.Fatal(err)
-	}
-	promoted, err = s.PromoteQueuedRuns()
-	if err != nil || len(promoted) != 1 || promoted[0] != "first-queued" {
+	if promoted, err := s.PromoteQueuedRuns(); err != nil || fmt.Sprint(promoted) != "[held-1]" {
 		t.Fatalf("promoted=%v err=%v", promoted, err)
 	}
-	cancelled, err := s.CancelQueuedRun("second-queued")
+	if got, _ := s.RunState("held-1"); got.Status != "running" || got.AdmissionState != "held" {
+		t.Fatalf("promoted resume: %s/%s", got.Status, got.AdmissionState)
+	}
+	// A run that is already running keeps its slot without a new check.
+	r, _ = s.RunState("fresh-1")
+	if err := s.PutRun(r); err != nil {
+		t.Fatal(err)
+	}
+	if status("fresh-1") != "running" {
+		t.Fatal("running progress write was queued")
+	}
+	cancelled, err := s.CancelQueuedRun("held-2")
 	if err != nil || !cancelled {
 		t.Fatalf("cancelled=%v err=%v", cancelled, err)
 	}
-	r, _ = s.RunState("second-queued")
+	r, _ = s.RunState("held-2")
 	if r.AdmissionState != "unstarted" {
 		t.Fatal(r.AdmissionState)
 	}
@@ -104,8 +132,7 @@ func TestProjectRunAdmissionRetainsAllStartedOutcomes(t *testing.T) {
 	if err := s.PutRun(r); err != nil {
 		t.Fatal(err)
 	}
-	r, _ = s.RunState(r.ID)
-	if r.Status != "queued" {
+	if status(r.ID) != "queued" {
 		t.Fatal("cancelled unstarted replay bypassed quota")
 	}
 }
@@ -155,7 +182,6 @@ func TestProjectRunAdmissionLegacyOverLimitAndSuccessfulReplay(t *testing.T) {
 	defer s.Close()
 	for i := 0; i < 12; i++ {
 		r := admissionRun(fmt.Sprintf("legacy-%d", i), "p")
-		r.Status = "failed"
 		if err := s.DB.Create(&runRow{ID: r.ID, Status: r.Status, ExecutionContext: jsonBytes(r.ExecutionContext)}).Error; err != nil {
 			t.Fatal(err)
 		}
@@ -268,22 +294,22 @@ func TestPersonalRunnerRunLimit(t *testing.T) {
 	if promoted, err := s.PromoteQueuedRuns(); err != nil || len(promoted) != 1 || promoted[0] != "cloud-extra" {
 		t.Fatalf("project release must promote only the cloud queue: %v %v", promoted, err)
 	}
-	// Failed personal runs keep their slot; success releases it in FIFO order.
+	// A failed personal run releases its slot; the machine queue moves FIFO.
 	lap, _ := s.RunState("lap-1")
 	lap.Status = "failed"
 	if err := s.PutRun(lap); err != nil {
 		t.Fatal(err)
 	}
-	if promoted, _ := s.PromoteQueuedRuns(); len(promoted) != 0 {
-		t.Fatalf("failed run released a machine slot: %v", promoted)
+	if promoted, _ := s.PromoteQueuedRuns(); len(promoted) != 1 || promoted[0] != "lap-3" {
+		t.Fatalf("machine FIFO: %v", promoted)
 	}
-	lap, _ = s.RunState("lap-2")
-	lap.Status = "succeeded"
+	lap, _ = s.RunState("lap-1")
+	lap.Status = "running"
 	if err := s.PutRun(lap); err != nil {
 		t.Fatal(err)
 	}
-	if promoted, _ := s.PromoteQueuedRuns(); len(promoted) != 1 || promoted[0] != "lap-3" {
-		t.Fatalf("machine FIFO: %v", promoted)
+	if status("lap-1") != "queued" {
+		t.Fatal("machine retry bypassed its run limit")
 	}
 	// Clearing the limit releases the remaining queue on the next pass.
 	if err := s.SetRunnerRunLimit("laptop", 0); err != nil {
@@ -292,7 +318,7 @@ func TestPersonalRunnerRunLimit(t *testing.T) {
 	if got, _ := s.Runner("laptop"); got.RunLimit != 0 {
 		t.Fatalf("limit not cleared: %+v", got)
 	}
-	if promoted, _ := s.PromoteQueuedRuns(); len(promoted) != 1 || promoted[0] != "lap-4" {
+	if promoted, _ := s.PromoteQueuedRuns(); fmt.Sprint(promoted) != "[lap-4 lap-1]" {
 		t.Fatalf("cleared limit did not release queue: %v", promoted)
 	}
 }
@@ -365,7 +391,7 @@ func TestAdmissionCountsLegacyRowsWithoutBucket(t *testing.T) {
 		if i%2 == 1 {
 			ctx = domain.TelemetryContext{IssueID: "legacy-issue"}
 		}
-		if err := s.DB.Create(&runRow{ID: fmt.Sprintf("old-%d", i), Status: "waiting", ExecutionContext: jsonBytes(ctx)}).Error; err != nil {
+		if err := s.DB.Create(&runRow{ID: fmt.Sprintf("old-%d", i), Status: "running", ExecutionContext: jsonBytes(ctx)}).Error; err != nil {
 			t.Fatal(err)
 		}
 	}

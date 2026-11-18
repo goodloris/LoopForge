@@ -15,8 +15,9 @@ func TestGongfengSyncedIssueNewIssue(t *testing.T) {
 	before := time.Now().UTC()
 	issue := gongfengSyncedIssue(repo, gi, domain.Issue{}, false)
 
-	if issue.ID != "gf-repo-1-42" || issue.Number != 42 {
-		t.Fatalf("id/number = %q/%d, want gf-repo-1-42/42", issue.ID, issue.Number)
+	// The store assigns the project number; the IID stays the external ID.
+	if issue.ID != "gf-repo-1-42" || issue.Number != 0 {
+		t.Fatalf("id/number = %q/%d, want gf-repo-1-42/0", issue.ID, issue.Number)
 	}
 	if issue.ProjectID != "proj-1" || issue.RepositoryID != "repo-1" || issue.Kind != "issue" || issue.Source != "gongfeng" {
 		t.Fatalf("unexpected identity fields: %+v", issue)

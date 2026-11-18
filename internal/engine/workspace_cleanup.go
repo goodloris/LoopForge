@@ -406,10 +406,12 @@ func (e *Engine) reclaimSandboxes() {
 // `sleep infinity` holding memory and a writable layer; after these idle
 // periods the container goes and the workspace stays. The next retry, approval
 // or resume acquires the environment again, which recreates the container and
-// reruns environment installation.
+// reruns environment installation. A run waiting on a human gate already gave
+// its admission slot back, so its container goes soon too: approvals usually
+// take longer than one environment install.
 const (
 	idleFailedRunContainerTTL  = 30 * time.Minute
-	idleWaitingRunContainerTTL = 2 * time.Hour
+	idleWaitingRunContainerTTL = 10 * time.Minute
 )
 
 func (e *Engine) discardIdleRunContainers(ctx context.Context, now time.Time) int {

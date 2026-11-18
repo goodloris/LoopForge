@@ -339,7 +339,9 @@ func (s *Service) pullGitHubIssues(store IssueStoreAdapter, repo domain.Reposito
 				continue
 			}
 			id := fmt.Sprintf("gh-%s-%d", repo.ID, item.Number)
-			issue := domain.Issue{ID: id, Number: item.Number, ProjectID: repo.ProjectID, RepositoryID: repo.ID, BaseBranch: repo.DefaultBranch, Kind: "issue", Title: item.Title, Description: item.Body, Priority: "medium", Source: "github", Status: gongfengStateToStatus(item.State), CreatedAt: item.CreatedAt, UpdatedAt: time.Now().UTC(), ExternalRef: &domain.ExternalRef{Source: "github", ExternalID: strconv.FormatInt(item.ID, 10), ExternalIID: item.Number, ExternalURL: item.URL, ExternalState: item.State, ExternalType: "issue", SyncedAt: time.Now().UTC()}}
+			// Number stays 0 so the store assigns the next project number; the
+			// GitHub issue number is the external ID (ExternalRef.ExternalIID).
+			issue := domain.Issue{ID: id, ProjectID: repo.ProjectID, RepositoryID: repo.ID, BaseBranch: repo.DefaultBranch, Kind: "issue", Title: item.Title, Description: item.Body, Priority: "medium", Source: "github", Status: gongfengStateToStatus(item.State), CreatedAt: item.CreatedAt, UpdatedAt: time.Now().UTC(), ExternalRef: &domain.ExternalRef{Source: "github", ExternalID: strconv.FormatInt(item.ID, 10), ExternalIID: item.Number, ExternalURL: item.URL, ExternalState: item.State, ExternalType: "issue", SyncedAt: time.Now().UTC()}}
 			issue.ExternalRef.SourceContentHash = githubBodyHash(item.Body)
 			if item.State == "open" {
 				issue.Status = "todo"

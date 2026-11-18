@@ -1111,7 +1111,7 @@
             <div data-schedule-kind="dispatch">
               <label>默认 SOP</label>
               <select name="workflowId" class="select"></select>
-              <label class="schedule-check schedule-check-follow"><input name="useIssueWorkflow" type="checkbox" checked> 优先使用需求已绑定的 SOP（没有则用默认 SOP）</label>
+              <label class="schedule-check schedule-check-follow"><input name="useIssueWorkflow" type="checkbox" checked> 优先使用需求上手动选择的 SOP（导入或新建时自动填入的项目默认 SOP 不算，改用上面的默认 SOP）</label>
             </div>
             <div data-schedule-kind="dispatch">
               <label>同步哪些来源</label>
@@ -1120,7 +1120,7 @@
                 <option value="gongfeng" data-legacy-tracker hidden disabled>只同步工蜂</option>
                 <option value="tapd" data-legacy-tracker hidden disabled>只同步 TAPD</option>
               </select>
-              <p class="schedule-field-hint">到点只启动所选来源、且还没跑过 SOP 的单。开启自动同步后，外部同步仍会按间隔把所有已配置来源拉进项目列表。</p>
+              <p class="schedule-field-hint">选了具体来源时，每次执行先把该来源的 Issue 拉进本项目，再启动其中还没跑过 SOP 的单，一个 Cron 即可完成「拉取 + 派发」。选「所有已配置来源」时不拉取，只启动已导入、还没跑过 SOP 的单；外部同步开启后仍按间隔拉取。</p>
             </div>
             <div data-schedule-kind="dispatch">
               <label>触发哪些状态</label>

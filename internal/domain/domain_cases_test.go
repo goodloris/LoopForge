@@ -198,6 +198,9 @@ func TestScheduleLaneAndVerificationBranches(t *testing.T) {
 	if job.ResolveWorkflow(Issue{WorkflowID: " issue "}) != "issue" || !job.DispatchesSOP() || job.DispatchLimit() != MaxScheduleDispatch {
 		t.Fatal("job defaults")
 	}
+	if job.ResolveWorkflow(Issue{WorkflowID: "project-default", WorkflowDefaulted: true}) != "default" {
+		t.Fatal("a project default filled on save overrode the job SOP")
+	}
 	job.IssueStatuses = []string{" IN_REVIEW ", "bad", "todo"}
 	if got := job.TriggerIssueStatuses(); len(got) != 2 || got[0] != "todo" {
 		t.Fatalf("statuses = %#v", got)

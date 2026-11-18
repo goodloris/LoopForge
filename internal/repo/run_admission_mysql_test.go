@@ -3,6 +3,7 @@ package repo
 import (
 	"crypto/rand"
 	"fmt"
+	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -159,73 +160,95 @@ func TestMySQLProjectRunAdmissionConcurrentAcrossStores(t *testing.T) {
 	admissionMySQLState(t, stores[0], ids[total], "running")
 }
 
-func TestMySQLProjectRunAdmissionStartedOutcomesAndFIFO(t *testing.T) {
+// Parked (waiting/failed/cancelled) runs release their slot across replicas;
+// resuming them claims a slot again, queues behind a full bucket, and the
+// queue is promoted FIFO exactly once under concurrent promotion.
+func TestMySQLProjectRunAdmissionParkedRunsReleaseAndFIFO(t *testing.T) {
 	stores, prefix := admissionMySQLStores(t)
 	project := prefix + "-project"
-	ids := make([]string, 10, 13)
-	for i := range ids {
-		ids[i] = fmt.Sprintf("%s-held-%02d", prefix, i)
+	parked := make([]string, 3)
+	for i := range parked {
+		parked[i] = fmt.Sprintf("%s-parked-%d", prefix, i)
 	}
-	first, second, newcomer := prefix+"-q-z", prefix+"-q-a", prefix+"-q-0"
-	ids = append(ids, first, second, newcomer)
+	fresh := make([]string, 10)
+	for i := range fresh {
+		fresh[i] = fmt.Sprintf("%s-fresh-%02d", prefix, i)
+	}
+	ids := append(append([]string{}, parked...), fresh...)
 	admissionMySQLCleanup(t, stores[0], ids)
 	admissionMySQLNoForeignQueue(t, stores[0], ids)
-	for i, id := range ids[:10] {
+	for i, id := range parked {
 		if err := stores[i%2].PutRun(admissionMySQLRun(id, project)); err != nil {
 			t.Fatal(err)
 		}
 		run := admissionMySQLState(t, stores[(i+1)%2], id, "running")
-		run.Status = []string{"failed", "waiting", "cancelled"}[i%3]
+		run.Status = []string{"failed", "waiting", "cancelled"}[i]
 		if err := stores[(i+1)%2].PutRun(run); err != nil {
 			t.Fatal(err)
 		}
-		run = admissionMySQLState(t, stores[i%2], id, run.Status)
-		if run.AdmissionState != "held" {
-			t.Fatalf("started %s run did not retain its slot: %q", run.Status, run.AdmissionState)
+		if run = admissionMySQLState(t, stores[i%2], id, run.Status); run.AdmissionState != "released" {
+			t.Fatalf("parked %s run kept its slot: %q", run.Status, run.AdmissionState)
 		}
 	}
-	for _, id := range []string{first, second} {
-		if err := stores[1].PutRun(admissionMySQLRun(id, project)); err != nil {
+	// Ten concurrent new runs on two replicas all start: parked runs hold nothing.
+	var wg sync.WaitGroup
+	errs := make(chan error, len(fresh))
+	for i, id := range fresh {
+		wg.Add(1)
+		go func(store *Store, id string) {
+			defer wg.Done()
+			errs <- store.PutRun(admissionMySQLRun(id, project))
+		}(stores[i%2], id)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
 			t.Fatal(err)
 		}
-		admissionMySQLState(t, stores[0], id, "queued")
-		// MySQL stores millisecond precision; queue order must beat reversed IDs.
+	}
+	for _, id := range fresh {
+		admissionMySQLState(t, stores[0], id, "running")
+	}
+	// Resuming every parked run concurrently queues all of them.
+	errs = make(chan error, len(parked))
+	for i, id := range parked {
+		wg.Add(1)
+		go func(store *Store, id string) {
+			defer wg.Done()
+			run, _ := store.RunState(id)
+			run.Status = "running"
+			errs <- store.PutRun(run)
+		}(stores[i%2], id)
 		time.Sleep(10 * time.Millisecond)
 	}
-	firstRun := admissionMySQLState(t, stores[0], first, "queued")
-	secondRun := admissionMySQLState(t, stores[1], second, "queued")
-	if !firstRun.QueueEnteredAt.Before(secondRun.QueueEnteredAt) {
-		t.Fatal("test requires distinct persisted queue timestamps")
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
+	queued := make([]domain.Run, len(parked))
+	for i, id := range parked {
+		queued[i] = admissionMySQLState(t, stores[1], id, "queued")
+	}
+	sort.Slice(queued, func(i, j int) bool { return queued[i].QueueEnteredAt.Before(queued[j].QueueEnteredAt) })
 	if promoted := admissionMySQLPromoteConcurrently(t, stores, ids); len(promoted) != 0 {
-		t.Fatalf("started failed/waiting/cancelled runs released slots: %v", promoted)
+		t.Fatalf("full bucket promoted %v", promoted)
 	}
-	run := admissionMySQLState(t, stores[1], ids[0], "failed")
-	run.Status = "succeeded"
-	if err := stores[1].PutRun(run); err != nil {
-		t.Fatal(err)
-	}
-	if run = admissionMySQLState(t, stores[0], run.ID, "succeeded"); run.AdmissionState != "released" {
-		t.Fatalf("successful run did not release its slot: %q", run.AdmissionState)
-	}
-	if err := stores[0].PutRun(admissionMySQLRun(newcomer, project)); err != nil {
-		t.Fatal(err)
-	}
-	admissionMySQLState(t, stores[1], newcomer, "queued")
-	for i, expected := range []string{first, second, newcomer} {
+	for i, want := range queued {
+		run := admissionMySQLState(t, stores[i%2], fresh[i], "running")
+		run.Status = []string{"waiting", "failed", "succeeded"}[i]
+		if err := stores[i%2].PutRun(run); err != nil {
+			t.Fatal(err)
+		}
 		promoted := admissionMySQLPromoteConcurrently(t, stores, ids)
-		if len(promoted) != 1 || promoted[0] != expected {
-			t.Fatalf("FIFO step %d: promoted=%v, want only %s", i, promoted, expected)
+		if len(promoted) != 1 || promoted[0] != want.ID {
+			t.Fatalf("FIFO step %d: promoted=%v, want only %s", i, promoted, want.ID)
 		}
-		run = admissionMySQLState(t, stores[1], expected, "running")
-		if run.AdmissionState != "held" {
-			t.Fatalf("promoted run %s did not acquire a slot", expected)
-		}
-		if i < 2 {
-			run.Status = "succeeded"
-			if err := stores[0].PutRun(run); err != nil {
-				t.Fatal(err)
-			}
+		if run = admissionMySQLState(t, stores[1], want.ID, "running"); run.AdmissionState != "held" {
+			t.Fatalf("promoted run %s did not acquire a slot", want.ID)
 		}
 	}
 }
