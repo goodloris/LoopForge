@@ -29,6 +29,23 @@ export function engineOfModel(id, models = []) {
 export const engineModels = (models, engine) =>
   (models || []).filter((m) => modelEngine(m) === engine);
 
+/**
+ * The CLI a new conversation starts on when this browser has no pick: the
+ * one the user's latest own conversation ran on, else the first CLI the
+ * user has configured, else CodeBuddy. A deployment with only Kiro CLI
+ * therefore never defaults to an unconfigured CodeBuddy.
+ */
+export function defaultExecutor(engines = [], sessions = [], userId = 0, models = []) {
+  const configured = (engines || []).filter((engine) => engine.configured).map((engine) => engine.id);
+  const usable = (id) => id && (!engines?.length || configured.includes(id));
+  const latest = [...(sessions || [])]
+    .filter((session) => !userId || !session.userId || session.userId === userId)
+    .sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")))
+    .map((session) => legacyEngine(session.executor) || (session.model ? engineOfModel(session.model, models) : ""))
+    .find(usable);
+  return latest || configured[0] || defaultEngine;
+}
+
 // Mirrors assistantEngineMissingKey in internal/httpapi/assistant_engines.go;
 // credentialHint turns it into a "去配置" button.
 export function engineMissingKeyMessage(engine) {

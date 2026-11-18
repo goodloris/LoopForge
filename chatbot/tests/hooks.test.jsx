@@ -246,6 +246,28 @@ describe("conversation hooks", () => {
     expect(writeMock).toHaveBeenLastCalledWith("/api/assistant/generations", expect.objectContaining({ approvalMode: "confirm" }));
   });
 
+  test("a new browser starts on the user's last CLI, not an unconfigured CodeBuddy", async () => {
+    localStorage.removeItem("loopforge.assistant.executor");
+    history.replaceState({}, "", "/");
+    const original = apiMock.getMockImplementation();
+    apiMock.mockImplementation(async (path, options) => {
+      if (path === "/api/assistant/models")
+        return { models: [{ id: "kiro:claude-sonnet-4.5", name: "Sonnet", engine: "kiro" }], engines: [{ id: "codebuddy", configured: false }, { id: "kiro", configured: true }] };
+      if (path === "/api/assistant/sessions") return [];
+      return original(path, options);
+    });
+    try {
+      const { result } = renderHook(() => useChat());
+      await waitFor(() => expect(result.current.ready).toBe(true));
+      expect(result.current.executor).toBe("kiro");
+      expect(result.current.model).toBe("kiro:claude-sonnet-4.5");
+      act(() => result.current.newChat());
+      expect(result.current.executor).toBe("kiro");
+    } finally {
+      apiMock.mockImplementation(original);
+    }
+  });
+
   test("an open conversation on a CLI without a key keeps its model", async () => {
     localStorage.removeItem("loopforge.assistant.executor");
     const original = apiMock.getMockImplementation();

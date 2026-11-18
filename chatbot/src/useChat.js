@@ -16,7 +16,7 @@ import { cliFailureSettles } from "./cli-install.jsx";
 import { useExecutionMachines } from "./useExecutionMachines.js";
 import { executionLocked } from "./execution-target.js";
 import { modelEffort } from "./effort.js";
-import { conversationEngine, engineModels } from "./engines.js";
+import { conversationEngine, defaultExecutor, engineModels } from "./engines.js";
 import {
   enqueue,
   holdQueue,
@@ -49,13 +49,16 @@ function knownExecutor(id) {
   if (id === "claude") return "claude-code";
   return EXECUTORS.some((item) => item.id === id) ? id : "codebuddy";
 }
-function storedExecutor() {
+// The CLI this browser last picked, "" before the first pick.
+function pickedExecutor() {
   try {
-    return knownExecutor(localStorage.getItem(EXECUTOR_KEY));
+    const id = localStorage.getItem(EXECUTOR_KEY);
+    return id ? knownExecutor(id) : "";
   } catch {
-    return "codebuddy";
+    return "";
   }
 }
+const storedExecutor = () => pickedExecutor() || "codebuddy";
 // The chat model is a personal preference like the executor: new
 // conversations and page reloads keep the last pick. Each CLI remembers its
 // own, because model IDs differ between CLIs.
@@ -164,6 +167,11 @@ export function useChat() {
     bindExecutionMachine,
     session?.executionTarget,
   );
+  // A browser without a pick (another device, a cleared profile) starts new
+  // conversations on what the server knows (see defaultExecutor), resolved
+  // once the catalog and the conversation list have loaded.
+  const fallbackExecutor = useRef("codebuddy");
+  const startingExecutor = () => pickedExecutor() || fallbackExecutor.current;
   const currentId = useRef(activeId),
     sessionRef = useRef(session),
     projectRef = useRef(projectId),
@@ -189,6 +197,7 @@ export function useChat() {
           : prev,
       );
     }
+    return rows || [];
   }, []);
   const changeURL = useCallback((id) => {
     const url = new URL(location.href);
@@ -222,7 +231,7 @@ export function useChat() {
       // A new conversation starts on the person's remembered model, not on
       // whatever model the previously opened conversation used.
       if (!id) {
-        const preferred = storedExecutor();
+        const preferred = startingExecutor();
         setExecutorState(preferred);
         setModel(preferredModel(executorModelList(models, preferred), preferred));
       }
@@ -266,10 +275,12 @@ export function useChat() {
         setSandboxes(sandboxRows || []);
         setModels(catalog.models || []);
         setSponsoredModels(sponsoredModelList(catalog));
-        const startExecutor = storedExecutor();
-        setModel(preferredModel(executorModelList(catalog.models, startExecutor), startExecutor));
-        await refreshSessions();
+        const rows = await refreshSessions();
         if (!current) return;
+        fallbackExecutor.current = defaultExecutor(catalog.engines, rows, auth.user?.id, catalog.models);
+        const startExecutor = startingExecutor();
+        if (!currentId.current) setExecutorState(startExecutor);
+        setModel(preferredModel(executorModelList(catalog.models, startExecutor), startExecutor));
         const recovered = connectionError;
         setError((old) => (old === recovered ? "" : old));
         setReady(true);
