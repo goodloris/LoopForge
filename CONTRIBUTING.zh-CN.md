@@ -15,6 +15,12 @@ bash scripts/scan-secrets.sh
 
 登录、语言/主题或执行链路的改动需要跑[公共浏览器验收](e2e/public/README.md)。真实模型与外部知识库测试需显式配置；请区分通过、失败、跳过与未运行。
 
+每次发布前，以及更新 kiro-cli 固定版本时（`internal/runtime/kiro_login.go` 的 `KiroCLIVersion` 和 `Dockerfile`），都要手动运行一次 Kiro CLI 真机审批测试。CI 不跑这项测试，因为它需要本机已执行 `kiro-cli login`，还会消耗少量 Kiro credits。它验证三件事：等待批准超过 Kiro 默认的 60 秒 hook 超时后，shell 命令仍被阻塞；被拒绝的命令不执行；批准后的命令会执行。
+
+```bash
+LOOPFORGE_KIRO_E2E=1 go test ./internal/runtime/ -run TestKiroConversationApprovalHookRealCLI -count=1 -v -timeout 15m
+```
+
 平台的 pull request 会跑 `core`、`browser` 和 `first-run` 三个作业。稳定检查名 `platform-required` 只有三者都成功时才通过。仓库管理员需要在 GitHub 分支保护里把 `platform-required` 手动勾成必须通过的检查。这次代码改动不会修改 GitHub 上的分支保护设置。
 
 LoopForge Local 请在 `local/` 内修改，遵循[本地开发约定](local/AGENTS.md)。先明确改动属于 Classic、Portable 或共享行为合同；三者与平台运行资产保持清晰边界。Portable 修改 `local/skills/`；Classic 的 Cursor/Claude 包在 `local/` 内运行 `python3 scripts/build-classic-hosts.py --write` 生成。工作流模板保持通用，可选工具放在 `local/tools/`，单独分发。

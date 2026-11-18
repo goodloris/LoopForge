@@ -199,7 +199,7 @@ func (k *kiroStream) translate(s *ClaudeStream, raw map[string]any) []string {
 // platform that only mounts the login (AGENTFLOW_KIRO_DATA_DIR), Kiro runs on
 // a copy of just the login (copyKiroLogin) with HOME the private HOME, so no
 // sandboxed agent can read the machine's conversations or write its login.
-// KIRO_HOME is undocumented; it was verified against kiro-cli 3.3.0.
+// KIRO_HOME is undocumented; it was verified against kiro-cli 3.3.0 and 3.4.0.
 func applyKiroLogin(options AgentCLIOptions, home AgentCLIHome, homeEnv string, argv []string) ([]string, map[string]string, error) {
 	env := map[string]string{"KIRO_HOME": homeEnv + "/.kiro", "KIRO_NO_AUTO_UPDATE": "1"}
 	// Tool search hides MCP tool schemas behind tool_load once they pass a
