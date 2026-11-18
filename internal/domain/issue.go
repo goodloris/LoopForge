@@ -19,6 +19,10 @@ type Issue struct {
 	AssigneeID     string `json:"assigneeId,omitempty"`
 	AssigneeUserID int64  `json:"assigneeUserId,omitempty"`
 	WorkflowID     string `json:"workflowId,omitempty"`
+	// WorkflowDefaulted is server-managed: WorkflowID was filled in from the
+	// project default on save, not chosen for this issue. A trigger job that
+	// prefers the issue's SOP ignores a defaulted one.
+	WorkflowDefaulted bool `json:"workflowDefaulted,omitempty"`
 	// PlaybookID is which named project combo this requirement uses.
 	PlaybookID string `json:"playbookId,omitempty"`
 	// SOPBindings is an optional per-issue override of the chosen playbook.

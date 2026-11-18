@@ -118,10 +118,11 @@ type ScheduleJob struct {
 	UpdatedAt     time.Time            `json:"updatedAt"`
 }
 
-// ResolveWorkflow picks the SOP for a scheduled dispatch: the issue's bound
-// workflow when UseIssueWorkflow is set and present, otherwise the job default.
+// ResolveWorkflow picks the SOP for a scheduled dispatch: the SOP chosen on
+// the issue when UseIssueWorkflow is set, otherwise the job default. A project
+// default filled in on save (WorkflowDefaulted) is not a choice.
 func (j ScheduleJob) ResolveWorkflow(issue Issue) string {
-	if j.UseIssueWorkflow {
+	if j.UseIssueWorkflow && !issue.WorkflowDefaulted {
 		if id := strings.TrimSpace(issue.WorkflowID); id != "" {
 			return id
 		}

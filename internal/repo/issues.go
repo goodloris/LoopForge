@@ -307,13 +307,22 @@ func (r *IssuesRepo) saveIssueLocked(v domain.Issue, fromSync, existingOnly bool
 			v.CompletedAt = now
 		}
 	}
+	// A save that keeps the stored SOP keeps its origin; any other SOP the
+	// caller sends is a choice. Clients echo workflowDefaulted, so it is
+	// derived here, never taken from the request.
+	v.WorkflowDefaulted = ok && v.WorkflowID != "" && v.WorkflowID == old.WorkflowID && old.WorkflowDefaulted
 	if v.WithoutSOP() {
 		v.SOPMode = domain.IssueSOPNone
 		v.WorkflowID, v.PlaybookID, v.SOPBindings = "", "", nil
+		v.WorkflowDefaulted = false
 		v.AutomationState = "ignored"
 	} else {
 		v.SOPMode = ""
+		chosen := v.WorkflowID
 		bindDefaultWorkflow(&v, r.projectWorkflowID(v.ProjectID), r.projectIssueWorkflowID(v.ProjectID))
+		if chosen == "" && v.WorkflowID != "" {
+			v.WorkflowDefaulted = true
+		}
 	}
 	v.UpdatedAt = now
 	if existingOnly {
