@@ -176,6 +176,7 @@ function sopCatalogCard(w,metrics,live){
 // --- 流程模板卡片 · ⋯ 菜单 -----------------------------------------------------
 const SOP_MENU_ACTIONS={
   share:{hook:'data-share-workflow',run:id=>toggleShare('workflow',id)},
+  copy:{hook:'data-copy-workflow',run:id=>cloneWorkflow(id)},
   delete:{hook:'data-delete-workflow',run:id=>deleteWorkflow(id)},
   run:{hook:'data-run-generic',run:id=>openRunModal(id)},
   edit:{hook:'data-edit-generic',run:id=>openGenericTemplateEditor(id)}
@@ -184,7 +185,7 @@ function sopCardMenuItems(w){
   if(!w)return [];
   if(catalogGeneric(w))return [{action:'run',label:'直接运行',icon:'play'},...(isPlatformAdmin()?[{action:'edit',label:'编辑模板',icon:'edit'}]:[])];
   if(!catalogOwned(w.projectId))return [];
-  return [{action:'share',label:w.shared?'取消共享':'共享给其他项目',icon:w.shared?'close':'arrow-up'},'-',{action:'delete',label:'删除',icon:'trash',danger:true}];
+  return [{action:'copy',label:'复制',icon:'copy'},{action:'share',label:w.shared?'取消共享':'共享给其他项目',icon:w.shared?'close':'arrow-up'},'-',{action:'delete',label:'删除',icon:'trash',danger:true}];
 }
 function sopCardMenuHTML(w){
   return sopCardMenuItems(w).map(item=>item==='-'?'<span class="sop-popover-sep" role="separator"></span>':`<button type="button" role="menuitem" tabindex="-1" class="issue-popover-item${item.danger?' danger':''}" data-sop-action="${item.action}" ${SOP_MENU_ACTIONS[item.action].hook}="${escapeHTML(w.id)}">${huiIcon(item.icon,'popover-icon')}${escapeHTML(item.label)}</button>`).join('');
