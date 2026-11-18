@@ -283,8 +283,8 @@ func TestPublicCodeSOPsReworkImplementAndGateTestsOnExitCode(t *testing.T) {
 			}
 		}
 		for _, nodeID := range []string{"review", "test"} {
-			if node := nodes[nodeID]; node.MaxReworks != 3 || node.OnFailure != "" {
-				t.Errorf("%s: %s needs maxReworks 3 and the default reject policy, got %d %q", id, nodeID, node.MaxReworks, node.OnFailure)
+			if node := nodes[nodeID]; node.MaxReworks != 2 || node.OnFailure != "" {
+				t.Errorf("%s: %s needs maxReworks 2 and the default reject policy, got %d %q", id, nodeID, node.MaxReworks, node.OnFailure)
 			}
 		}
 		if !strings.Contains(template.Workflow.Description, ".loopforge/verify") || !strings.Contains(template.Workflow.Description, "测试结论由 Agent 判定") {

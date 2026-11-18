@@ -96,7 +96,7 @@ CREATE DATABASE loopforge
 | 035_codebuddy_model_catalog | 上游：`user_configs.codebuddy_models` 列 | 不需要，gorm 已建（`text`）。不改内置目录数据，seed 无需改 |
 | 036_generic_backend_pip | Dockerfile 加 python3-pip、python3-venv | 不需要，seed 已含（`TestPublicTestRolesFailWithoutRunningTests` 断言等于 `runtime.IsolatedDockerfile`） |
 | 037_generic_test_role_requires_tests | 测试角色新 prompt | 不需要，seed 已含新 prompt |
-| 038_generic_sop_gates | 代码 SOP 的独立评审、测试验证加 `rejectTo=implement`、`maxReworks=3`；测试角色加 `.loopforge/verify` 退出码门禁；开发、评审、测试 prompt 与 SOP 描述 | 全新安装不需要，seed 已含（`TestPublicCodeSOPsReworkImplementAndGateTestsOnExitCode`）。**此前用 PG seed 建的安装需要手动执行** `038_generic_sop_gates.sql`：只改仍是出厂原文的字段，可重复执行；`manual-migration-hints.sh` 在独立评审节点仍是出厂原样时提示 |
+| 038_generic_sop_gates | 代码 SOP 的独立评审、测试验证加 `rejectTo=implement`、`maxReworks=2`；测试角色加 `.loopforge/verify` 退出码门禁；开发、评审、测试 prompt 与 SOP 描述 | 全新安装不需要，seed 已含（`TestPublicCodeSOPsReworkImplementAndGateTestsOnExitCode`）。**此前用 PG seed 建的安装需要手动执行** `038_generic_sop_gates.sql`：只改仍是出厂原文的字段，可重复执行；`manual-migration-hints.sh` 在独立评审节点仍是出厂原样时提示 |
 
 MySQL 脚本里有些列是 `NOT NULL DEFAULT ''` / `DEFAULT 0`（如 005 的 `source_id`、018 的 `thread_id`、011 的 `workspace_editor_id`），gorm 在 PG 上建成可空、无默认值。MySQL 全新安装同样只执行 001 和 seed（见 `scripts/install-schema-extensions.sh`），这些列在 MySQL 新库上也是 gorm 的定义，所以 PG 不需要补。
 

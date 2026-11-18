@@ -17,11 +17,11 @@ SET payload = jsonb_set(payload::jsonb, '{Workflow,description}', '"后端需求
 WHERE id = 'generic-backend-delivery'
   AND payload::jsonb #> '{Workflow,description}' = '"后端需求从需求定型到独立评审与交付。"'::jsonb;
 UPDATE generic_templates
-SET payload = jsonb_set(jsonb_set(payload::jsonb, '{Workflow,nodes,3,maxReworks}', '3'), '{Workflow,nodes,3,rejectTo}', '"implement"'), updated_at = now()
+SET payload = jsonb_set(jsonb_set(payload::jsonb, '{Workflow,nodes,3,maxReworks}', '2'), '{Workflow,nodes,3,rejectTo}', '"implement"'), updated_at = now()
 WHERE id = 'generic-backend-delivery'
   AND payload::jsonb #> '{Workflow,nodes,3}' = '{"id": "review", "name": "独立评审", "type": "agent", "agentId": "generic-backend-delivery-review", "maxAttempts": 2, "position": {"x": 835, "y": 150}, "artifactOutputs": [{"name": "review", "path": "review.md", "mediaType": "text/markdown", "required": true}]}'::jsonb;
 UPDATE generic_templates
-SET payload = jsonb_set(jsonb_set(payload::jsonb, '{Workflow,nodes,4,maxReworks}', '3'), '{Workflow,nodes,4,rejectTo}', '"implement"'), updated_at = now()
+SET payload = jsonb_set(jsonb_set(payload::jsonb, '{Workflow,nodes,4,maxReworks}', '2'), '{Workflow,nodes,4,rejectTo}', '"implement"'), updated_at = now()
 WHERE id = 'generic-backend-delivery'
   AND payload::jsonb #> '{Workflow,nodes,4}' = '{"id": "test", "name": "测试验证", "type": "agent", "agentId": "generic-backend-delivery-test", "maxAttempts": 2, "position": {"x": 1080, "y": 150}, "artifactOutputs": [{"name": "test", "path": "test-report.md", "mediaType": "text/markdown", "required": true}]}'::jsonb;
 UPDATE generic_templates
@@ -45,11 +45,11 @@ SET payload = jsonb_set(payload::jsonb, '{Workflow,description}', '"前端需求
 WHERE id = 'generic-frontend-delivery'
   AND payload::jsonb #> '{Workflow,description}' = '"前端需求从页面设计到交互与回归验证。"'::jsonb;
 UPDATE generic_templates
-SET payload = jsonb_set(jsonb_set(payload::jsonb, '{Workflow,nodes,3,maxReworks}', '3'), '{Workflow,nodes,3,rejectTo}', '"implement"'), updated_at = now()
+SET payload = jsonb_set(jsonb_set(payload::jsonb, '{Workflow,nodes,3,maxReworks}', '2'), '{Workflow,nodes,3,rejectTo}', '"implement"'), updated_at = now()
 WHERE id = 'generic-frontend-delivery'
   AND payload::jsonb #> '{Workflow,nodes,3}' = '{"id": "review", "name": "独立评审", "type": "agent", "agentId": "generic-frontend-delivery-review", "maxAttempts": 2, "position": {"x": 835, "y": 150}, "artifactOutputs": [{"name": "review", "path": "review.md", "mediaType": "text/markdown", "required": true}]}'::jsonb;
 UPDATE generic_templates
-SET payload = jsonb_set(jsonb_set(payload::jsonb, '{Workflow,nodes,4,maxReworks}', '3'), '{Workflow,nodes,4,rejectTo}', '"implement"'), updated_at = now()
+SET payload = jsonb_set(jsonb_set(payload::jsonb, '{Workflow,nodes,4,maxReworks}', '2'), '{Workflow,nodes,4,rejectTo}', '"implement"'), updated_at = now()
 WHERE id = 'generic-frontend-delivery'
   AND payload::jsonb #> '{Workflow,nodes,4}' = '{"id": "test", "name": "测试验证", "type": "agent", "agentId": "generic-frontend-delivery-test", "maxAttempts": 2, "position": {"x": 1080, "y": 150}, "artifactOutputs": [{"name": "test", "path": "test-report.md", "mediaType": "text/markdown", "required": true}]}'::jsonb;
 UPDATE generic_templates
@@ -73,11 +73,11 @@ SET payload = jsonb_set(payload::jsonb, '{Workflow,description}', '"先复现，
 WHERE id = 'issue-fix-production'
   AND payload::jsonb #> '{Workflow,description}' = '"先复现，再修复，独立评审并回归。"'::jsonb;
 UPDATE generic_templates
-SET payload = jsonb_set(jsonb_set(payload::jsonb, '{Workflow,nodes,3,maxReworks}', '3'), '{Workflow,nodes,3,rejectTo}', '"implement"'), updated_at = now()
+SET payload = jsonb_set(jsonb_set(payload::jsonb, '{Workflow,nodes,3,maxReworks}', '2'), '{Workflow,nodes,3,rejectTo}', '"implement"'), updated_at = now()
 WHERE id = 'issue-fix-production'
   AND payload::jsonb #> '{Workflow,nodes,3}' = '{"id": "review", "name": "独立评审", "type": "agent", "agentId": "issue-fix-production-review", "maxAttempts": 2, "position": {"x": 835, "y": 150}, "artifactOutputs": [{"name": "review", "path": "review.md", "mediaType": "text/markdown", "required": true}]}'::jsonb;
 UPDATE generic_templates
-SET payload = jsonb_set(jsonb_set(payload::jsonb, '{Workflow,nodes,4,maxReworks}', '3'), '{Workflow,nodes,4,rejectTo}', '"implement"'), updated_at = now()
+SET payload = jsonb_set(jsonb_set(payload::jsonb, '{Workflow,nodes,4,maxReworks}', '2'), '{Workflow,nodes,4,rejectTo}', '"implement"'), updated_at = now()
 WHERE id = 'issue-fix-production'
   AND payload::jsonb #> '{Workflow,nodes,4}' = '{"id": "test", "name": "测试验证", "type": "agent", "agentId": "issue-fix-production-test", "maxAttempts": 2, "position": {"x": 1080, "y": 150}, "artifactOutputs": [{"name": "test", "path": "test-report.md", "mediaType": "text/markdown", "required": true}]}'::jsonb;
 UPDATE generic_templates

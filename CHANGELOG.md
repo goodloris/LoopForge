@@ -5,7 +5,7 @@ Platform releases use `vX.Y.Z` tags. This fork (goodloris/LoopForge) publishes `
 ## Unreleased
 
 - A failed script node or command gate keeps its command, exit code and the tail of its output (80 lines, 4000 bytes) in the node output and error, and hands them to the node it reworks or retries. Before, the reworked node only saw `Run: exit status 1`. The output no longer goes into the error value the engine classifies, so a test log that prints `signal: killed` or `max turns` no longer changes how the failure is handled.
-- The built-in backend, frontend and defect-fix SOPs: 独立评审 and 测试验证 rework 开发实现 (`maxReworks` 3) instead of rerunning the review and failing the run, and 测试验证 gates on the exit code of `.loopforge/verify` from each repository's target branch. Without that file the test verdict stays the Agent's and `test-report.md` says so. New installs get this from the seed; existing MySQL and PostgreSQL installs run `migrations/038_generic_sop_gates.sql` or `migrations/postgres/038_generic_sop_gates.sql` by hand, and `scripts/manual-migration-hints.sh` names it while it is pending.
+- The built-in backend, frontend and defect-fix SOPs: 独立评审 and 测试验证 rework 开发实现 (`maxReworks` 2) instead of rerunning the review and failing the run, and 测试验证 gates on the exit code of `.loopforge/verify` from each repository's target branch. Without that file the test verdict stays the Agent's and `test-report.md` says so. New installs get this from the seed; existing MySQL and PostgreSQL installs run `migrations/038_generic_sop_gates.sql` or `migrations/postgres/038_generic_sop_gates.sql` by hand, and `scripts/manual-migration-hints.sh` names it while it is pending.
 
 ## 0.5.0 — PostgreSQL by default, published from this fork
 

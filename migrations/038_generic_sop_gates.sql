@@ -2,7 +2,7 @@
 -- and send failed reviews and tests back to 开发实现.
 --
 -- The backend, frontend and defect-fix SOPs change as follows:
--- - 独立评审 and 测试验证 get rejectTo = implement and maxReworks = 3. A
+-- - 独立评审 and 测试验证 get rejectTo = implement and maxReworks = 2. A
 --   REJECT from review used to rerun the review on the same code and then
 --   fail the run; it now reworks 开发实现.
 -- - The 测试验证 role gets a command gate 「验证命令（.loopforge/verify）」.
@@ -31,11 +31,11 @@ SET payload = JSON_SET(payload, '$.Workflow.description', '后端需求从需求
 WHERE id = 'generic-backend-delivery'
   AND JSON_UNQUOTE(JSON_EXTRACT(payload, '$.Workflow.description')) = '后端需求从需求定型到独立评审与交付。';
 UPDATE generic_templates
-SET payload = JSON_SET(payload, '$.Workflow.nodes[3].maxReworks', 3, '$.Workflow.nodes[3].rejectTo', 'implement'), updated_at = UTC_TIMESTAMP()
+SET payload = JSON_SET(payload, '$.Workflow.nodes[3].maxReworks', 2, '$.Workflow.nodes[3].rejectTo', 'implement'), updated_at = UTC_TIMESTAMP()
 WHERE id = 'generic-backend-delivery'
   AND JSON_EXTRACT(payload, '$.Workflow.nodes[3]') = CAST('{"id": "review", "name": "独立评审", "type": "agent", "agentId": "generic-backend-delivery-review", "maxAttempts": 2, "position": {"x": 835, "y": 150}, "artifactOutputs": [{"name": "review", "path": "review.md", "mediaType": "text/markdown", "required": true}]}' AS JSON);
 UPDATE generic_templates
-SET payload = JSON_SET(payload, '$.Workflow.nodes[4].maxReworks', 3, '$.Workflow.nodes[4].rejectTo', 'implement'), updated_at = UTC_TIMESTAMP()
+SET payload = JSON_SET(payload, '$.Workflow.nodes[4].maxReworks', 2, '$.Workflow.nodes[4].rejectTo', 'implement'), updated_at = UTC_TIMESTAMP()
 WHERE id = 'generic-backend-delivery'
   AND JSON_EXTRACT(payload, '$.Workflow.nodes[4]') = CAST('{"id": "test", "name": "测试验证", "type": "agent", "agentId": "generic-backend-delivery-test", "maxAttempts": 2, "position": {"x": 1080, "y": 150}, "artifactOutputs": [{"name": "test", "path": "test-report.md", "mediaType": "text/markdown", "required": true}]}' AS JSON);
 UPDATE generic_templates
@@ -59,11 +59,11 @@ SET payload = JSON_SET(payload, '$.Workflow.description', '前端需求从页面
 WHERE id = 'generic-frontend-delivery'
   AND JSON_UNQUOTE(JSON_EXTRACT(payload, '$.Workflow.description')) = '前端需求从页面设计到交互与回归验证。';
 UPDATE generic_templates
-SET payload = JSON_SET(payload, '$.Workflow.nodes[3].maxReworks', 3, '$.Workflow.nodes[3].rejectTo', 'implement'), updated_at = UTC_TIMESTAMP()
+SET payload = JSON_SET(payload, '$.Workflow.nodes[3].maxReworks', 2, '$.Workflow.nodes[3].rejectTo', 'implement'), updated_at = UTC_TIMESTAMP()
 WHERE id = 'generic-frontend-delivery'
   AND JSON_EXTRACT(payload, '$.Workflow.nodes[3]') = CAST('{"id": "review", "name": "独立评审", "type": "agent", "agentId": "generic-frontend-delivery-review", "maxAttempts": 2, "position": {"x": 835, "y": 150}, "artifactOutputs": [{"name": "review", "path": "review.md", "mediaType": "text/markdown", "required": true}]}' AS JSON);
 UPDATE generic_templates
-SET payload = JSON_SET(payload, '$.Workflow.nodes[4].maxReworks', 3, '$.Workflow.nodes[4].rejectTo', 'implement'), updated_at = UTC_TIMESTAMP()
+SET payload = JSON_SET(payload, '$.Workflow.nodes[4].maxReworks', 2, '$.Workflow.nodes[4].rejectTo', 'implement'), updated_at = UTC_TIMESTAMP()
 WHERE id = 'generic-frontend-delivery'
   AND JSON_EXTRACT(payload, '$.Workflow.nodes[4]') = CAST('{"id": "test", "name": "测试验证", "type": "agent", "agentId": "generic-frontend-delivery-test", "maxAttempts": 2, "position": {"x": 1080, "y": 150}, "artifactOutputs": [{"name": "test", "path": "test-report.md", "mediaType": "text/markdown", "required": true}]}' AS JSON);
 UPDATE generic_templates
@@ -87,11 +87,11 @@ SET payload = JSON_SET(payload, '$.Workflow.description', '先复现，再修复
 WHERE id = 'issue-fix-production'
   AND JSON_UNQUOTE(JSON_EXTRACT(payload, '$.Workflow.description')) = '先复现，再修复，独立评审并回归。';
 UPDATE generic_templates
-SET payload = JSON_SET(payload, '$.Workflow.nodes[3].maxReworks', 3, '$.Workflow.nodes[3].rejectTo', 'implement'), updated_at = UTC_TIMESTAMP()
+SET payload = JSON_SET(payload, '$.Workflow.nodes[3].maxReworks', 2, '$.Workflow.nodes[3].rejectTo', 'implement'), updated_at = UTC_TIMESTAMP()
 WHERE id = 'issue-fix-production'
   AND JSON_EXTRACT(payload, '$.Workflow.nodes[3]') = CAST('{"id": "review", "name": "独立评审", "type": "agent", "agentId": "issue-fix-production-review", "maxAttempts": 2, "position": {"x": 835, "y": 150}, "artifactOutputs": [{"name": "review", "path": "review.md", "mediaType": "text/markdown", "required": true}]}' AS JSON);
 UPDATE generic_templates
-SET payload = JSON_SET(payload, '$.Workflow.nodes[4].maxReworks', 3, '$.Workflow.nodes[4].rejectTo', 'implement'), updated_at = UTC_TIMESTAMP()
+SET payload = JSON_SET(payload, '$.Workflow.nodes[4].maxReworks', 2, '$.Workflow.nodes[4].rejectTo', 'implement'), updated_at = UTC_TIMESTAMP()
 WHERE id = 'issue-fix-production'
   AND JSON_EXTRACT(payload, '$.Workflow.nodes[4]') = CAST('{"id": "test", "name": "测试验证", "type": "agent", "agentId": "issue-fix-production-test", "maxAttempts": 2, "position": {"x": 1080, "y": 150}, "artifactOutputs": [{"name": "test", "path": "test-report.md", "mediaType": "text/markdown", "required": true}]}' AS JSON);
 UPDATE generic_templates
