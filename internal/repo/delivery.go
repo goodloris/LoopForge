@@ -138,6 +138,7 @@ func (r *DeliveryRepo) recordMRState(project string, iid int, state, targetBranc
 	values := map[string]any{"state": state, "target_branch": domain.NormalizeBranchName(targetBranch), "checked_at": checkedAt.UTC(), "updated_at": time.Now().UTC()}
 	if state != "merged" {
 		values["merged_at"] = nil
+		values["landed_at"] = nil
 	} else if !mergedAt.IsZero() {
 		// A response without a timestamp must not erase an authoritative time.
 		values["merged_at"] = mergedAt.UTC()
@@ -577,11 +578,48 @@ func (r *DeliveryRepo) MergedWorkMRs(project string) ([]domain.MRDeliveryState, 
 
 // ApplyDefaultBranchLanding sets the delivery label from whether the work
 // commit is contained in the default branch. The work MR URL is kept.
+//
+// It also records when the work landed (landed_at): the merged_at of the
+// first promote MR of the project merged at or after the work MR. Each promote
+// MR carries the whole integrate branch, so that is the merge that brought the
+// work onto the default branch. Without such a promote MR (direct push, or the
+// work merge time is unknown) landed_at stays NULL and analytics leave the MR
+// out of mergedMrs rather than guess.
 func (r *DeliveryRepo) ApplyDefaultBranchLanding(issueID, mrURL string, onDefault bool) error {
+	if project, iid, _, ok := domain.ParseGongfengMR(mrURL); ok {
+		var landed *time.Time
+		if onDefault {
+			landed = r.promoteMergedAt(project, iid)
+		}
+		if err := r.DB.Model(&mrDeliveryStateRow{}).Where("mr_project = ? AND mr_iid = ?", project, iid).Update("landed_at", landed).Error; err != nil {
+			return err
+		}
+	}
 	if onDefault {
 		return r.PromoteIssueToMainline(issueID, mrURL, time.Now().UTC())
 	}
 	return r.demoteIssueToBaseline(issueID, mrURL)
+}
+
+// promoteMergedAt is the merge time of the first promote MR (integrate →
+// default) of project merged at or after work MR iid.
+func (r *DeliveryRepo) promoteMergedAt(project string, iid int) *time.Time {
+	work, ok := mrDeliveryStateDB(r.DB, project, iid)
+	if !ok || work.MergedAt.IsZero() {
+		return nil
+	}
+	var rows []mrDeliveryStateRow
+	if err := r.DB.Where("mr_project = ? AND issue_id = ? AND state = ? AND merged_at >= ?", project, domain.BaselinePromoteIssueID, "merged", work.MergedAt.UTC()).
+		Order("merged_at ASC").Find(&rows).Error; err != nil {
+		return nil
+	}
+	for _, row := range rows {
+		if row.MergedAt != nil && r.classifyMRDelivery(row.toDomain()) == "merged" {
+			at := row.MergedAt.UTC()
+			return &at
+		}
+	}
+	return nil
 }
 
 func (r *DeliveryRepo) demoteIssueToBaseline(issueID, mrURL string) error {

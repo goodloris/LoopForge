@@ -101,11 +101,15 @@ func checkBusinessDeliveryMetrics(t *testing.T, s *Store) {
 	putIssue("hidden", -1, "done", from.Add(time.Hour))
 	// A completion with no start is counted but excluded from duration samples.
 	putIssue("no-start", 1, "completed", from.Add(16*time.Hour))
-	putMR := func(iid int, issueID string, at *time.Time) {
+	putMRInto := func(iid int, issueID, target string, at *time.Time) {
 		t.Helper()
-		if err := s.DB.Create(&mrDeliveryStateRow{MRProject: prefix + "/repo", MRIID: iid, IssueID: issueID, State: "merged", MergedAt: at}).Error; err != nil {
+		if err := s.DB.Create(&mrDeliveryStateRow{MRProject: prefix + "/repo", MRIID: iid, IssueID: issueID, State: "merged", TargetBranch: target, MergedAt: at}).Error; err != nil {
 			t.Fatal(err)
 		}
+	}
+	putMR := func(iid int, issueID string, at *time.Time) {
+		t.Helper()
+		putMRInto(iid, issueID, "master", at)
 	}
 	mergeAt := from.Add(17 * time.Hour) // next calendar day in Asia/Singapore
 	putMR(1, a.ID, &mergeAt)
@@ -119,6 +123,10 @@ func checkBusinessDeliveryMetrics(t *testing.T, s *Store) {
 	}
 	before := from.Add(-time.Millisecond)
 	putMR(7, a.ID, &before)
+	// Integrate-branch and unrecorded-target merges are not default-branch
+	// merges; they must not count or feed completion-to-merge latency.
+	putMRInto(8, c.ID, domain.DefaultIntegrateBranch, &mergeAt)
+	putMRInto(9, c.ID, "", &mergeAt)
 	filter := domain.AnalyticsFilter{From: from, To: to, Grain: "day", TimeZone: "Asia/Singapore"}
 	makeReport := func() domain.BusinessDomainReport {
 		return domain.BusinessDomainReport{Projects: append([]domain.BusinessDomainProjectUsage(nil), projects...), BusinessDomains: []domain.BusinessDomainUsage{{ID: prefix}}}
@@ -131,7 +139,7 @@ func checkBusinessDeliveryMetrics(t *testing.T, s *Store) {
 	if m.CompletionToMergeSamples != 1 || m.AverageCompletionToMergeMs != int64(15*time.Hour/time.Millisecond) {
 		t.Fatalf("MR latency must use successful execution and real merge time: %+v", m)
 	}
-	if m.CompletedIssues != 4 || m.MergedMRs != 3 || m.MergedMRsMissingTime != 1 || m.CompletionTimeMissingIssues != 2 || m.EstimatedCompletionIssues != 1 {
+	if m.CompletedIssues != 4 || m.MergedMRs != 3 || m.IntegratedMRs != 1 || m.MergedMRsMissingTime != 1 || m.CompletionTimeMissingIssues != 2 || m.EstimatedCompletionIssues != 1 {
 		t.Fatalf("incorrect completion / merge clocks or scope: %+v", m)
 	}
 	if m.CycleSamples != 3 || m.AverageCycleDurationMs != int64(13*time.Hour/time.Millisecond) || m.P50CycleDurationMs != int64(10*time.Hour/time.Millisecond) || m.P95CycleDurationMs != int64(26*time.Hour/time.Millisecond) {

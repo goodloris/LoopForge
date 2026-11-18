@@ -63,14 +63,18 @@ func checkMRMergeAnalytics(t *testing.T, s *Store) {
 			t.Fatal(err)
 		}
 	}
-	putMR := func(repository string, iid int, issueID, state string, at time.Time) {
+	putMRInto := func(repository string, iid int, issueID, state, target string, at time.Time) {
 		t.Helper()
 		if err := s.EnsureMRDeliveryState(repository, iid, domain.GongfengMRURL(repository, iid), issueID); err != nil {
 			t.Fatal(err)
 		}
-		if err := s.UpdateMRDeliveryState(repository, iid, state, "agentflow/integration", at, checkedAt); err != nil {
+		if err := s.UpdateMRDeliveryState(repository, iid, state, target, at, checkedAt); err != nil {
 			t.Fatal(err)
 		}
+	}
+	putMR := func(repository string, iid int, issueID, state string, at time.Time) {
+		t.Helper()
+		putMRInto(repository, iid, issueID, state, "master", at)
 	}
 	repoA, repoB := prefix+"/frontend", prefix+"/backend"
 	putMR(repoA, 1, issues[0].ID, "merged", mergeAt)
@@ -86,10 +90,15 @@ func checkMRMergeAnalytics(t *testing.T, s *Store) {
 	putMR(repoA, 10, issues[3].ID, "merged", mergeAt)
 	// Repeated polling cannot count a second merge or erase its original time.
 	putMR(repoA, 1, issues[0].ID, "merged", time.Time{})
+	// Merged into the integrate branch or with an unrecorded target: not a
+	// default-branch merge. Only the integrate-branch one is counted apart.
+	putMRInto(repoA, 11, issues[0].ID, "merged", "agentflow/integration", mergeAt)
+	putMRInto(repoB, 12, issues[0].ID, "merged", domain.DefaultIntegrateBranch, mergeAt)
+	putMRInto(repoB, 13, issues[0].ID, "merged", "", mergeAt)
 
 	filter := domain.AnalyticsFilter{ProjectID: prefix, From: mergeAt.Add(-time.Hour), To: mergeAt.Add(24 * time.Hour), RequirementsOnly: true}
 	got := s.Analytics(filter)
-	if got.Summary.TotalRuns != 0 || got.Summary.MergedMRs != 3 || got.Summary.MergedMRsMissingTime != 1 {
+	if got.Summary.TotalRuns != 0 || got.Summary.MergedMRs != 3 || got.Summary.MergedMRsMissingTime != 1 || got.Summary.IntegratedMRs != 2 {
 		t.Fatalf("merge clock must be independent of Run/poll time: %+v", got.Summary)
 	}
 	if len(got.MRMerges) != 3 || len(got.Trend) != 1 || got.Trend[0].Date != "2026-10-20" || got.Trend[0].MergedMRs != 3 {

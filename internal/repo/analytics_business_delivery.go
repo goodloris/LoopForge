@@ -379,6 +379,28 @@ func (r *AnalyticsRepo) populateBusinessDeliveryMetrics(out *domain.BusinessDoma
 	if err := q.Find(&mrs).Error; err != nil {
 		return err
 	}
+	// Only a merge into the default branch delivers; integrate-branch merges
+	// are counted apart and never feed completion-to-merge latency.
+	// A promoted integrate-branch merge counts as merged at its promote time.
+	landing := r.mergedMRLanding()
+	mainline := mrs[:0]
+	for _, mr := range mrs {
+		state, at := landing(mr)
+		switch state {
+		case "merged":
+			mr.MergedAt = at
+			mainline = append(mainline, mr)
+		case "integrated":
+			item := items[mr.IssueID]
+			if item == nil || mr.MergedAt == nil || !businessTimeInWindow(*mr.MergedAt, filter) {
+				continue
+			}
+			for _, acc := range []*businessDeliveryAccumulator{total, projects[item.issue.ProjectID], groups[projectDomains[item.issue.ProjectID]]} {
+				acc.metrics.IntegratedMRs++
+			}
+		}
+	}
+	mrs = mainline
 	for _, mr := range mrs {
 		item := items[mr.IssueID]
 		if item == nil {
