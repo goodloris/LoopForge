@@ -3,26 +3,13 @@ package repo
 import (
 	"agentflow/internal/domain"
 	"fmt"
-	"os"
 	"sync"
 	"testing"
 )
 
 func TestMySQLSharedConversationSerialClaimAndReceiptCAS(t *testing.T) {
-	dsn := os.Getenv("AGENTFLOW_TEST_MYSQL_DSN")
-	if dsn == "" {
-		t.Skip("local isolated MySQL required")
-	}
-	a, err := Open(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer a.Close()
-	b, err := Open(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer b.Close()
+	a := serverTestStore(t)
+	b := serverTestPeer(t, a)
 	runID := fmt.Sprintf("shared-mysql-%s", t.Name())
 	session, err := a.EnsureRunAssistantSession(runID, "mysql-project", "共享测试", 91)
 	if err != nil {

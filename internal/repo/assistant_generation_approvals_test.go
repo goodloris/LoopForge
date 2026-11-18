@@ -4,7 +4,6 @@ import (
 	"agentflow/internal/domain"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -110,20 +109,8 @@ func TestNativeApprovalTrafficCannotKeepDeadGenerationAlive(t *testing.T) {
 }
 
 func TestMySQLNativeApprovalsShareGenerationControlState(t *testing.T) {
-	dsn := os.Getenv("AGENTFLOW_TEST_MYSQL_DSN")
-	if dsn == "" {
-		t.Skip("local isolated MySQL required")
-	}
-	a, err := Open(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer a.Close()
-	b, err := Open(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer b.Close()
+	a := serverTestStore(t)
+	b := serverTestPeer(t, a)
 	session := fmt.Sprintf("native-approval-%d", time.Now().UnixNano())
 	g := domain.AssistantGeneration{ID: session, SessionID: session, UserID: 41, ActorID: 42, Status: "running"}
 	defer a.DB.Where("session_id = ?", session).Delete(&assistantGenerationRow{})

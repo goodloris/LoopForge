@@ -2,7 +2,6 @@ package repo
 
 import (
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
@@ -10,34 +9,14 @@ import (
 )
 
 // lease_until is written on the holder's clock. Whether a holder on another
-// replica stopped renewing is read from lease_renewed_at, which MySQL stamps
-// with its own clock, so a holder whose clock runs behind keeps a lease it
-// just renewed, and a lease nobody renewed for 45 seconds on the database
-// clock is released. SET timestamp moves the database clock of the one
-// connection the store is pinned to.
+// replica stopped renewing is read from lease_renewed_at, which the database
+// (MySQL or PostgreSQL) stamps with its own clock, so a holder whose clock
+// runs behind keeps a lease it just renewed, and a lease nobody renewed for 45
+// seconds on the database clock is released. skewDBClock moves the database
+// clock of the one connection the store is pinned to.
 func TestMySQLAbandonedLeaseAgeIsMeasuredOnTheDatabaseClock(t *testing.T) {
-	dsn := os.Getenv("AGENTFLOW_TEST_MYSQL_DSN")
-	if dsn == "" {
-		t.Skip("local isolated MySQL required")
-	}
-	s, err := Open(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	sqlDB, err := s.DB.DB()
-	if err != nil {
-		t.Fatal(err)
-	}
-	sqlDB.SetMaxOpenConns(1)
-	sqlDB.SetMaxIdleConns(1)
-	skew := func(d time.Duration) {
-		t.Helper()
-		if err := s.DB.Exec("SET timestamp = ?", float64(time.Now().Add(d).UnixMicro())/1e6).Error; err != nil {
-			t.Fatal(err)
-		}
-	}
-	defer s.DB.Exec("SET timestamp = DEFAULT")
+	s := serverTestStore(t)
+	skew := skewDBClock(t, s)
 
 	runID := fmt.Sprintf("lease-clock-%d", time.Now().UnixNano())
 	if err := s.PutRun(domain.Run{ID: runID, Status: "succeeded", Nodes: map[string]*domain.NodeRun{}}); err != nil {

@@ -23,7 +23,9 @@ func TestMain(m *testing.M) {
 	if runtime.RunMCPCallCLI(os.Args[1:]) {
 		return
 	}
-	os.Exit(m.Run())
+	code := m.Run()
+	repo.DropTestSchemas()
+	os.Exit(code)
 }
 
 func putGateTestAgent(t *testing.T, s *repo.Store, id string, gates []domain.VerificationGate) {

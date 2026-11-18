@@ -272,11 +272,19 @@ func (r *AssistantRepo) PutAssistantSession(userID int64, v domain.AssistantSess
 // gap. The server has rolled back the entire victim transaction, so retry only
 // those explicit errors (isRetryableConflict); unknown commit/connection
 // failures are not replayed.
+//
+// PostgreSQL has no gap locks: locking a missing row locks nothing, so two
+// transactions both find the session or generation missing and both insert
+// it. The later insert waits for the earlier commit and fails with a unique
+// violation, and the whole transaction is rolled back. Replaying it then
+// sees the committed row and answers like MySQL after its deadlock retry
+// (the turn is already running, or the session changed).
 func (r *AssistantRepo) retryAssistantDeadlock(transaction func() error) error {
 	var err error
 	for attempt := 0; attempt < 6; attempt++ {
 		err = transaction()
-		if !isRetryableConflict(err) || attempt == 5 {
+		retry := isRetryableConflict(err) || r.isPostgres() && IsDuplicateKey(err)
+		if !retry || attempt == 5 {
 			return err
 		}
 		select {

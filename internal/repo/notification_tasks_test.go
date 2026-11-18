@@ -3,7 +3,6 @@ package repo
 import (
 	"agentflow/internal/domain"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 )
@@ -67,15 +66,7 @@ func TestScheduledAINotificationsFreezeContentAndConfig(t *testing.T) {
 	testScheduleNotifications(t, s, "sqlite")
 }
 func TestMySQLScheduledAINotificationTransaction(t *testing.T) {
-	dsn := os.Getenv("AGENTFLOW_TEST_MYSQL_DSN")
-	if dsn == "" {
-		t.Skip("local mysql DSN not set")
-	}
-	s, err := Open(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
+	s := serverTestStore(t)
 	testScheduleNotifications(t, s, fmt.Sprint(time.Now().UnixNano()))
 }
 func TestPrivateAssistantTaskNotificationResults(t *testing.T) {

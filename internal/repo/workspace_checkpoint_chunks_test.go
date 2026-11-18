@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"testing"
 	"time"
 )
@@ -108,15 +107,7 @@ func TestWorkspaceCheckpointChunksAtomicRoundTrip(t *testing.T) {
 	checkpointChunkTest(t, s)
 }
 func TestMySQLWorkspaceCheckpointChunks(t *testing.T) {
-	dsn := os.Getenv("AGENTFLOW_TEST_MYSQL_DSN")
-	if dsn == "" {
-		t.Skip("isolated Docker MySQL required")
-	}
-	s, err := Open(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
+	s := serverTestStore(t)
 	checkpointChunkTest(t, s)
 }
 
@@ -184,20 +175,8 @@ func checkpointBackoffTest(t *testing.T, s *Store, other *RunsRepo) {
 	}
 }
 func TestMySQLWorkspaceCheckpointSharedBackoff(t *testing.T) {
-	dsn := os.Getenv("AGENTFLOW_TEST_MYSQL_DSN")
-	if dsn == "" {
-		t.Skip("isolated Docker MySQL required")
-	}
-	a, err := Open(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer a.Close()
-	b, err := Open(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer b.Close()
+	a := serverTestStore(t)
+	b := serverTestPeer(t, a)
 	checkpointBackoffTest(t, a, b.RunsRepo)
 }
 

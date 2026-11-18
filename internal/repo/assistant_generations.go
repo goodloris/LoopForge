@@ -122,22 +122,19 @@ func (r *AssistantRepo) RecordAssistantGenerationWorkspaceLease(userID int64, se
 		UpdateColumns(map[string]any{"workspace_run_id": runID, "workspace_lease": token}).Error
 }
 
-// heartbeatNow is the clock a heartbeat's age is measured on. MySQL stamps
-// heartbeats with its own UTC_TIMESTAMP(3) (see generationClock), so their age
-// is measured on that same clock: comparing them with this machine's time.Now()
+// heartbeatNow is the clock a heartbeat's age is measured on. MySQL and
+// PostgreSQL stamp heartbeats with their own clock (see generationClock), so
+// their age is measured on that same clock: comparing them with this machine's time.Now()
 // would turn any skew between the API host and the database into turns reaped
 // while alive, or never reaped. ok is false when the clock cannot be read, and
 // callers then treat the heartbeat as fresh rather than reap on a guess.
 func (r *AssistantRepo) heartbeatNow(db *gorm.DB) (time.Time, bool) {
-	if !r.isMySQL() && !r.isPostgres() {
+	clock := r.dbClockSQL()
+	if clock == "" {
 		return time.Now().UTC(), true
 	}
-	clock := "SELECT UTC_TIMESTAMP(3)"
-	if r.isPostgres() {
-		clock = "SELECT statement_timestamp()"
-	}
 	var now time.Time
-	if err := db.Raw(clock).Scan(&now).Error; err != nil || now.IsZero() {
+	if err := db.Raw("SELECT " + clock).Scan(&now).Error; err != nil || now.IsZero() {
 		return time.Time{}, false
 	}
 	return now, true
@@ -153,31 +150,28 @@ func (r *AssistantRepo) heartbeatLate(db *gorm.DB, updatedAt time.Time) bool {
 // lateHeartbeatOnly lets the database itself confirm, when the reap commits,
 // that the heartbeat is still late on its own clock.
 func (r *AssistantRepo) lateHeartbeatOnly(q *gorm.DB) *gorm.DB {
-	if r.isPostgres() {
-		return q.Where("updated_at < statement_timestamp() - ? * interval '1 microsecond'", assistantHeartbeatTimeout.Microseconds())
-	}
-	if !r.isMySQL() {
+	before := r.dbClockBeforeSQL()
+	if before == "" {
 		return q
 	}
-	return q.Where("updated_at < UTC_TIMESTAMP(3) - INTERVAL ? MICROSECOND", assistantHeartbeatTimeout.Microseconds())
+	return q.Where("updated_at < "+before, assistantHeartbeatTimeout.Microseconds())
 }
 
-// generationClock is the commit-time clock on MySQL. A Go timestamp captured
-// before a stalled commit is already older than the 45 second reap when it
-// becomes visible, so the next read interrupts a turn that just checked in.
+// generationClock is the commit-time clock on MySQL and PostgreSQL. A Go
+// timestamp captured before a stalled commit is already older than the 45
+// second reap when it becomes visible, so the next read interrupts a turn that
+// just checked in.
 func (r *AssistantRepo) generationClock() any {
-	if r.isMySQL() {
-		return clause.Expr{SQL: "UTC_TIMESTAMP(3)"}
-	}
-	if r.isPostgres() {
-		// statement_timestamp, not now(): now() is frozen at transaction start.
-		return clause.Expr{SQL: "statement_timestamp()"}
+	if clock := r.dbClockSQL(); clock != "" {
+		return clause.Expr{SQL: clock}
 	}
 	return time.Now().UTC()
 }
 
-// BeginAssistantGeneration may lock a session that does not exist yet; two
-// first messages to new sessions can deadlock on that gap and are retried.
+// BeginAssistantGeneration starts the only running turn of a session. It may
+// lock a session and a generation that do not exist yet; two first messages
+// to new sessions deadlock on that gap (MySQL) or collide on the insert
+// (PostgreSQL) and are retried, so the loser reports the running turn.
 func (r *AssistantRepo) BeginAssistantGeneration(g domain.AssistantGeneration, pending ...domain.AssistantSession) error {
 	return r.retryAssistantDeadlock(func() error {
 		return r.DB.Transaction(func(tx *gorm.DB) error {

@@ -3,7 +3,6 @@ package repo
 import (
 	"errors"
 	"fmt"
-	"os"
 	"sync"
 	"testing"
 	"time"
@@ -17,11 +16,7 @@ func TestProjectTriggerConfigSingleton(t *testing.T) {
 			var st *Store
 			var err error
 			if backend == "mysql" {
-				dsn := os.Getenv("AGENTFLOW_TEST_MYSQL_DSN")
-				if dsn == "" {
-					t.Skip("AGENTFLOW_TEST_MYSQL_DSN is not set")
-				}
-				st, err = Open(dsn)
+				st = serverTestStore(t)
 			} else {
 				st, err = OpenTest()
 			}
@@ -73,11 +68,7 @@ func TestProjectTriggerConfigSingleton(t *testing.T) {
 			}
 			peer := st
 			if backend == "mysql" {
-				peer, err = Open(os.Getenv("AGENTFLOW_TEST_MYSQL_DSN"))
-				if err != nil {
-					t.Fatal(err)
-				}
-				defer peer.Close()
+				peer = serverTestPeer(t, st)
 			}
 			var wg sync.WaitGroup
 			results := make(chan error, 8)

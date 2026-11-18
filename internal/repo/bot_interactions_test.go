@@ -3,7 +3,6 @@ package repo
 import (
 	"agentflow/internal/domain"
 	"fmt"
-	"os"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -81,15 +80,7 @@ func TestBotCardDecisionCannotOverwriteConcurrentRunWrite(t *testing.T) {
 }
 
 func TestBotInteractionMySQLLeaseCompetition(t *testing.T) {
-	dsn := os.Getenv("AGENTFLOW_BOT_TEST_MYSQL_DSN")
-	if dsn == "" {
-		t.Skip("local Docker MySQL not configured")
-	}
-	store, err := Open(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
+	store := serverTestStore(t, "AGENTFLOW_BOT_TEST_MYSQL_DSN")
 	id := fmt.Sprintf("qa-%d", time.Now().UnixNano())
 	defer store.DB.Where("bot_id = ?", id).Delete(&domain.BotConnection{})
 	var winners atomic.Int32

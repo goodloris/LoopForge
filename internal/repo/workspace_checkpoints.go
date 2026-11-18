@@ -31,7 +31,8 @@ type WorkspaceCheckpoint struct {
 	LeaseToken     string     `gorm:"size:64" json:"-"`
 	LeaseUntil     *time.Time `json:"-"`
 	// LeaseRenewedAt is when the lease was last taken or renewed, on the
-	// database clock on MySQL (see leaseRenewalClock). LeaseUntil is written
+	// database clock on MySQL and PostgreSQL (see leaseRenewalClock).
+	// LeaseUntil is written
 	// by the holder's own clock, so it cannot tell another replica how long
 	// ago the holder renewed.
 	LeaseRenewedAt *time.Time `json:"-"`
@@ -375,8 +376,8 @@ func holdsWorkspaceLease(tx *gorm.DB, runID, token string) error {
 // kept. A background save token never matches a foreground token.
 //
 // The renewal age is measured on the clock that stamped lease_renewed_at (the
-// database's on MySQL), so a holder whose clock runs behind the reader's does
-// not look silent. A lease taken before that column existed has no stamp and
+// database's on MySQL and PostgreSQL), so a holder whose clock runs behind the
+// reader's does not look silent. A lease taken before that column existed has no stamp and
 // falls back to its lease_until.
 func (r *RunsRepo) ReleaseAbandonedWorkspaceUse(runID, token string, now time.Time) (bool, error) {
 	runID, token = strings.TrimSpace(runID), strings.TrimSpace(token)
@@ -392,8 +393,8 @@ func (r *RunsRepo) ReleaseAbandonedWorkspaceUse(runID, token string, now time.Ti
 			return err
 		}
 		silent := tx.Where("lease_renewed_at IS NULL AND lease_until <= ?", now.Add(workspaceUseTerm-assistantHeartbeatTimeout))
-		if r.isMySQL() {
-			silent = silent.Or("lease_renewed_at <= UTC_TIMESTAMP(3) - INTERVAL ? MICROSECOND", assistantHeartbeatTimeout.Microseconds())
+		if before := r.dbClockBeforeSQL(); before != "" {
+			silent = silent.Or("lease_renewed_at <= "+before, assistantHeartbeatTimeout.Microseconds())
 		} else {
 			silent = silent.Or("lease_renewed_at <= ?", now.Add(-assistantHeartbeatTimeout))
 		}
@@ -408,10 +409,11 @@ func (r *RunsRepo) ReleaseAbandonedWorkspaceUse(runID, token string, now time.Ti
 }
 
 // leaseRenewalClock stamps lease_renewed_at: the database's commit-time clock
-// on MySQL, shared by every replica, and the caller's clock elsewhere.
+// on MySQL and PostgreSQL, shared by every replica, and the caller's clock on
+// sqlite.
 func (r *RunsRepo) leaseRenewalClock(now time.Time) any {
-	if r.isMySQL() {
-		return clause.Expr{SQL: "UTC_TIMESTAMP(3)"}
+	if clock := r.dbClockSQL(); clock != "" {
+		return clause.Expr{SQL: clock}
 	}
 	return now
 }
