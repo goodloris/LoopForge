@@ -16,7 +16,8 @@ func TestJobDueBranches(t *testing.T) {
 	}{
 		{domain.ScheduleJob{}, false},
 		{domain.ScheduleJob{Enabled: true, LastStatus: "running"}, false},
-		{domain.ScheduleJob{Enabled: true}, true},
+		{domain.ScheduleJob{Enabled: true}, false}, // no anchor at all
+		{domain.ScheduleJob{Enabled: true, CreatedAt: now.Add(-31 * time.Second)}, true},
 		{domain.ScheduleJob{Enabled: true, LastRunAt: now.Add(-31 * time.Second), IntervalSec: 1}, true},
 		{domain.ScheduleJob{Enabled: true, LastRunAt: now.Add(-29 * time.Second), IntervalSec: 1}, false},
 		{domain.ScheduleJob{Enabled: true, Cron: "bad", LastRunAt: now.Add(-time.Hour)}, false},

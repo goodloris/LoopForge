@@ -101,9 +101,14 @@ type ScheduleJob struct {
 	// RunAsUserID is server-managed: the user whose credentials run an AI job,
 	// set to whoever last saved it. Zero keeps the legacy project-owner
 	// selection. RunAsName is for display.
-	RunAsUserID          int64     `json:"runAsUserId,omitempty"`
-	RunAsName            string    `json:"runAsName,omitempty"`
-	LastRunAt            time.Time `json:"lastRunAt,omitempty"`
+	RunAsUserID int64     `json:"runAsUserId,omitempty"`
+	RunAsName   string    `json:"runAsName,omitempty"`
+	LastRunAt   time.Time `json:"lastRunAt,omitempty"`
+	// ScheduleFrom is server-managed: when the job was last enabled or its
+	// cron/interval changed. Timer runs count from the later of it and
+	// LastRunAt (CreatedAt for a job that never ran), so missed occurrences
+	// before it are not made up.
+	ScheduleFrom         time.Time `json:"scheduleFrom,omitzero"`
 	LastStatus           string    `json:"lastStatus,omitempty"` // running, success, failed, waiting
 	LastError            string    `json:"lastError,omitempty"`
 	LastPulled           int       `json:"lastPulled,omitempty"`
