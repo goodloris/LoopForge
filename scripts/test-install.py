@@ -54,8 +54,6 @@ if [[ "$1" == tag && "${MOCK_TAG_FAIL:-0}" == 1 ]]; then exit 1; fi
 if [[ "$*" == 'compose version' && "${MOCK_COMPOSE_MISSING:-0}" == 1 && ! -f "$MOCK_COMPOSE_INSTALLED" ]]; then exit 1; fi
 if [[ "$*" == *'ps --status running'* ]]; then echo platform; fi
 if [[ "$*" == *'config --format json'* ]]; then echo '{"services":{"platform":{"image":"mock/platform:1"}}}'; fi
-# Images before PostgreSQL support print no -database-dsn flag.
-if [[ "$1" == run && "$*" == *'-help'* && "${MOCK_IMAGE_MYSQL_ONLY:-0}" != 1 ]]; then echo '  -database-dsn string'; fi
 if [[ "${MOCK_EXPIRE_AFTER_BUILD:-0}" == 1 && "$*" == *'build platform'* ]]; then touch "$MOCK_SUDO_EXPIRED_FILE"; fi
 if [[ "$*" == *'exec -T mysql'* || "$*" == *'exec -T postgres'* ]]; then
   query=$(cat)
@@ -73,7 +71,7 @@ export MOCK_PRIVILEGED=1
 exec "$@"
 ''')
         self.environ = dict(os.environ, PATH=str(self.root / 'mock') + ':' + os.environ['PATH'], MOCK_LOG=str(self.root / 'docker.log'), MOCK_SQL_LOG=str(self.root / 'sql.log'), AGENTFLOW_HTTP_PORT='18765', LOOPFORGE_PUBLIC_URL='https://team.example.test', LOOPFORGE_BIND='0.0.0.0')
-        for name in ('LOOPFORGE_DOCKER_USE_SUDO', 'LOOPFORGE_DATA_DIR', 'LOOPFORGE_IMAGE', 'COMPOSE_FILE', 'LOOPFORGE_BUILD_FROM_SOURCE', 'LOOPFORGE_PULL_POLICY', 'MIRROR', 'LOOPFORGE_DATABASE', 'MOCK_IMAGE_MYSQL_ONLY', 'MOCK_USER', 'MOCK_DIRECT', 'MOCK_SUDO_DENIED', 'MOCK_IMAGE_PRESENT', 'MOCK_PULL_FAIL', 'MOCK_TAG_FAIL'):
+        for name in ('LOOPFORGE_DOCKER_USE_SUDO', 'LOOPFORGE_DATA_DIR', 'LOOPFORGE_IMAGE', 'COMPOSE_FILE', 'LOOPFORGE_BUILD_FROM_SOURCE', 'LOOPFORGE_PULL_POLICY', 'MIRROR', 'LOOPFORGE_DATABASE', 'MOCK_USER', 'MOCK_DIRECT', 'MOCK_SUDO_DENIED', 'MOCK_IMAGE_PRESENT', 'MOCK_PULL_FAIL', 'MOCK_TAG_FAIL'):
             self.environ.pop(name, None)
         self.environ.pop('MOCK_COLUMN_COUNT', None)
 
@@ -233,34 +231,6 @@ exec "$@"
         self.assertTrue(switched['AGENTFLOW_DATABASE_DSN'].endswith('@tcp(127.0.0.1:33315)/loopforge'))
         self.assertIn('platform mysql', (self.root / 'docker.log').read_text())
 
-    def test_new_install_of_an_image_without_postgres_falls_back_to_mysql(self):
-        result = self.install(MOCK_IMAGE_MYSQL_ONLY='1')
-        self.assert_success(result)
-        self.assertIn('predates PostgreSQL support; this new installation uses MySQL', result.stdout)
-        env = self.env_values()
-        self.assertEqual(env['LOOPFORGE_DATABASE'], 'mysql')
-        self.assertEqual(env['COMPOSE_PROFILES'], 'mysql')
-        self.assertTrue(env['LOOPFORGE_COMPOSE_DSN'].endswith('@tcp(mysql:3306)/loopforge'))
-        log = (self.root / 'docker.log').read_text()
-        self.assertIn('run --rm --entrypoint /app/bin/agentflow mock/platform:1 -help', log)
-        self.assertIn('pull --policy missing mysql', log)
-        self.assertIn('compose --profile platform --profile mysql up -d', log)
-        self.assertNotIn('--profile postgres up', log)
-
-    def test_existing_postgres_install_refuses_an_image_without_postgres(self):
-        self.assert_success(self.install())
-        (self.root / 'docker.log').unlink()
-        result = self.install(MOCK_IMAGE_MYSQL_ONLY='1')
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn('predates PostgreSQL support', result.stderr)
-        self.assertEqual(self.env_values()['LOOPFORGE_DATABASE'], 'postgres')
-        self.assertNotIn('up -d', (self.root / 'docker.log').read_text())
-
-    def test_source_build_skips_the_image_probe(self):
-        self.assert_success(self.install(LOOPFORGE_BUILD_FROM_SOURCE='1', MOCK_IMAGE_MYSQL_ONLY='1'))
-        self.assertEqual(self.env_values()['LOOPFORGE_DATABASE'], 'postgres')
-        self.assertNotIn(' run --rm', (self.root / 'docker.log').read_text())
-
     def pinned_image(self):
         text = (ROOT / 'compose.yaml').read_text()
         import re
@@ -387,7 +357,7 @@ exec "$@"
         self.assertIn('pull ghcr.nju.edu.cn/example/chosen:9', log)
         self.assertIn('tag ghcr.nju.edu.cn/example/chosen:9 ghcr.io/example/chosen:9', log)
         self.assertNotIn('example/ignored', log)
-        self.assertNotIn('ghcr.nju.edu.cn/tencent/loopforge', log)
+        self.assertNotIn('ghcr.nju.edu.cn/goodloris/loopforge', log)
 
     def test_failed_mirror_pull_does_not_retag_or_start(self):
         self.use_compose_file()
@@ -395,7 +365,7 @@ exec "$@"
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('Could not pull', result.stderr)
         log = (self.root / 'docker.log').read_text()
-        self.assertIn('pull ghcr.nju.edu.cn/tencent/loopforge:', log)
+        self.assertIn('pull ghcr.nju.edu.cn/goodloris/loopforge:', log)
         self.assertNotIn(' tag ', log)
         self.assertNotIn('up -d --no-build', log)
 
@@ -410,7 +380,7 @@ exec "$@"
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn('Could not pull', result.stderr)
         log = (self.root / 'docker.log').read_text()
-        self.assertIn('pull ghcr.nju.edu.cn/tencent/loopforge:', log)
+        self.assertIn('pull ghcr.nju.edu.cn/goodloris/loopforge:', log)
         self.assertNotIn(' tag ', log)
         self.assertNotIn('up -d --no-build', log)
 
@@ -420,7 +390,7 @@ exec "$@"
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('Could not tag', result.stderr)
         log = (self.root / 'docker.log').read_text()
-        self.assertIn('pull ghcr.nju.edu.cn/tencent/loopforge:', log)
+        self.assertIn('pull ghcr.nju.edu.cn/goodloris/loopforge:', log)
         self.assertIn(' tag ', log)
         self.assertNotIn('up -d --no-build', log)
 

@@ -98,13 +98,6 @@ install_docker() {
   esac
 }
 
-# Images before PostgreSQL support (0.3.8 and earlier) have no -database-dsn flag.
-platform_supports_postgres() {
-  local image
-  image=$(docker_access compose "${profiles[@]}" config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["services"]["platform"]["image"])') || return 1
-  docker_access run --rm --entrypoint /app/bin/agentflow "$image" -help 2>&1 | grep -q -- -database-dsn
-}
-
 wait_for_docker() {
   for _ in $(seq 1 30); do select_docker_access && return 0; sleep 2; done
   return 1
@@ -125,8 +118,6 @@ docker_access compose version >/dev/null 2>&1 || fail 'Docker Compose is still u
 
 requested_public_url="${LOOPFORGE_PUBLIC_URL:-}"
 [[ ! -e .env || -r .env ]] || fail 'The existing .env is not readable by this user. Use the installation owner or ask an administrator to correct its ownership.'
-fresh_install=0
-[[ -e .env ]] || fresh_install=1
 bash scripts/configure.sh
 [[ -r .env ]] || fail 'The existing .env is not readable by this user. Use the installation owner or ask an administrator to correct its ownership.'
 set -a; source .env; set +a
@@ -187,19 +178,6 @@ if [[ "${COMPOSE_FILE:-}" != "$dev_compose" ]]; then
   else
     step "Pulling the published LoopForge image ${LOOPFORGE_IMAGE:-pinned in compose.yaml}"
     docker_access compose "${profiles[@]}" pull --policy "$pull_policy" platform "$LOOPFORGE_DATABASE"
-  fi
-  # Until compose.yaml pins a release with PostgreSQL support, a new installation
-  # of the pinned image falls back to MySQL. Remove this once it does.
-  if [[ "$LOOPFORGE_DATABASE" == postgres ]] && ! platform_supports_postgres; then
-    [[ "$fresh_install" == 1 ]] \
-      || fail 'This platform image predates PostgreSQL support. Set LOOPFORGE_IMAGE to a newer release, build this checkout with ./start.sh dev, or set LOOPFORGE_DATABASE=mysql in .env for an installation without data.'
-    printf '\n⚠ The platform image predates PostgreSQL support; this new installation uses MySQL.\n'
-    python3 -c 'import pathlib,re; p=pathlib.Path(".env"); p.write_text(re.sub(r"(?m)^LOOPFORGE_DATABASE=.*$","LOOPFORGE_DATABASE=mysql",p.read_text()))'
-    bash scripts/configure.sh
-    set -a; source .env; set +a
-    source scripts/database.sh
-    profiles=(--profile platform --profile "$LOOPFORGE_DATABASE")
-    docker_access compose "${profiles[@]}" pull --policy "$pull_policy" mysql
   fi
   docker_access compose "${profiles[@]}" up -d --no-build --wait --wait-timeout 180
 else

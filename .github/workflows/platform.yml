@@ -173,7 +173,6 @@ jobs:
     # Pulls the GHCR release pinned in compose.yaml; release.yml smoke-tests each newly published image.
     # A pin bumped ahead of its tag has no image yet, so that commit is checked from source.
     # PostgreSQL is the default database and MySQL the option; each gets a fresh install.
-    # A pinned image from before PostgreSQL support is built from source for the default.
     name: first-run (${{ matrix.database }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -200,9 +199,6 @@ jobs:
           pinned=$(sed -n 's/^ *image: \${LOOPFORGE_IMAGE:-\(.*\)}$/\1/p' compose.yaml)
           if ! docker manifest inspect "$pinned" > /dev/null 2>&1; then
             echo "::notice::$pinned is not published yet; building this checkout"
-            ./start.sh dev
-          elif [[ "$LOOPFORGE_DATABASE" == postgres ]] && ! docker run --rm --entrypoint /app/bin/agentflow "$pinned" -help 2>&1 | grep -q -- -database-dsn; then
-            echo "::notice::$pinned predates PostgreSQL support; building this checkout"
             ./start.sh dev
           else
             ./start.sh -d
