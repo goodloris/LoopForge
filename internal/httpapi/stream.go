@@ -374,7 +374,9 @@ func clarifyRepositorySource(repository domain.Repository, selectedBaseBranch st
 }
 
 func (h *streamHandlers) runChatClarify(c *gin.Context, issue domain.Issue, request chatClarifyRequest) {
-	if err := clarifyModelEngineError(request.Model); err != nil {
+	// Refuse what no responsible user can fix (no kiro-cli here, a bad model
+	// id) before a job starts; executeClarify checks personal keys first.
+	if err := clarifyPlatformRefusal(request.Model); err != nil {
 		c.JSON(400, map[string]string{"error": err.Error()})
 		return
 	}
@@ -414,9 +416,11 @@ func (h *streamHandlers) executeClarify(ctx context.Context, issue domain.Issue,
 		return nil, "", nil, responsibleErr
 	}
 	// Fail before the tool session and repository checkout, not in the CLI.
-	if strings.TrimSpace(responsible.CodeBuddyAPIKey) == "" {
-		return nil, "", nil, errClarifyResponsibleKey
+	modelID := clarifyModelFor(request.Model, responsible)
+	if err := clarifyEngineRefusal(responsible, modelID); err != nil {
+		return nil, "", nil, err
 	}
+	engine, _ := assistantModelEngine(modelID)
 	extras := clarifyRequestTexts(request)
 	hydrateClarifyIssueFromText(&issue, extras...)
 	workItemType := "需求"
@@ -479,9 +483,12 @@ func (h *streamHandlers) executeClarify(ctx context.Context, issue domain.Issue,
 	}
 	prompt.WriteString(clarifyRoundBudgetHint(clarifyAssistantRounds(request.History)))
 	prompt.WriteString("\n请基于以上对话继续澄清，只围绕「## 需求」本身，完成后调用 submit_clarification。")
-	cbPath, cbErr := resolveCodeBuddyBin()
-	if cbErr != nil {
-		return nil, "", nil, cbErr
+	cbPath := ""
+	if engine == assistantEngineCodeBuddy {
+		var cbErr error
+		if cbPath, cbErr = resolveCodeBuddyBin(); cbErr != nil {
+			return nil, "", nil, cbErr
+		}
 	}
 	workDir := ""
 	repoInfo := map[string]any{"analyzed": false, "reason": "该 Issue 未绑定代码仓库"}
@@ -554,7 +561,16 @@ func (h *streamHandlers) executeClarify(ctx context.Context, issue domain.Issue,
 		sessionID = strings.TrimSpace(issue.Clarification.SessionID)
 	}
 	resume := sessionID != ""
-	if resume && !canResumeClarifySession(homeDir, sessionID, issue.Clarification.SessionUserID, responsible.ID) {
+	// Other CLIs keep their native sessions under their own root, apart
+	// from the CodeBuddy HOME.
+	cliRoot := clarifyAgentCLIRoot(responsible.ID)
+	resumable := func() bool {
+		if engine == assistantEngineCodeBuddy {
+			return canResumeClarifySession(homeDir, sessionID, issue.Clarification.SessionUserID, responsible.ID)
+		}
+		return canResumeClarifyAgentCLISession(cliRoot, engine, sessionID, issue.Clarification.SessionUserID, responsible.ID)
+	}
+	if resume && !resumable() {
 		emit("thought", map[string]string{"kind": "status", "text": "分析环境已变化，正在结合已有回答重新分析…"})
 		sessionID = ""
 	}
@@ -646,7 +662,6 @@ func (h *streamHandlers) executeClarify(ctx context.Context, issue domain.Issue,
 	}
 	userMsg := prompt.String()
 	clarifyID := fmt.Sprintf("clarify-%d", time.Now().UnixNano())
-	modelID := clarifyAllowedModel(request.Model)
 	credentials := runtime.RunCredentials{
 		CodeBuddy: runtime.CodeBuddyCredential{APIKey: strings.TrimSpace(responsible.CodeBuddyAPIKey), InternetEnvironment: strings.TrimSpace(responsible.CodeBuddyInternetEnvironment)},
 		GitToken:  strings.TrimSpace(h.repo.GitCredential(ctx, responsible.ID)),
@@ -670,25 +685,35 @@ func (h *streamHandlers) executeClarify(ctx context.Context, issue domain.Issue,
 	repoInfo["sessionId"] = sessionID
 	emit("open", map[string]any{"repository": repoInfo, "model": modelID, "sessionId": sessionID})
 	emit("thought", map[string]string{"kind": "status", "text": "正在分析需求…"})
-	turnOpts := clarifyTurnOpts{Native: true, MCPConfig: toolFiles.MCPConfig, Settings: toolFiles.Settings}
+	turnOpts := clarifyTurnOpts{Native: true, MCPConfig: toolFiles.MCPConfig, Settings: toolFiles.Settings, ReadCode: len(analyzedRepos) > 0}
+	turn := func(prompt, sessionID string, resume bool) (string, string, error) {
+		if engine != assistantEngineCodeBuddy {
+			return runClarifyAgentCLITurn(modelCtx, workDir, modelID, prompt, sessionID, cliRoot, resume, responsible, emit, turnOpts)
+		}
+		_, raw, captured, err := h.runClarifyTurn(modelCtx, workDir, cbPath, modelID, prompt, clarifyID, sessionID, homeDir, resume, credentials, emit, turnOpts)
+		return raw, captured, err
+	}
 	jsonRetries := 0
 	var recoveredParsed any
 	var recoveredRaw string
 	for follow := 0; ; follow++ {
-		_, turnRaw, captured, err := h.runClarifyTurn(modelCtx, workDir, cbPath, modelID, turnPrompt, clarifyID, sessionID, homeDir, resume, credentials, emit, turnOpts)
+		turnRaw, captured, err := turn(turnPrompt, sessionID, resume)
 		if captured != "" {
 			sessionID = captured
 			repoInfo["sessionId"] = sessionID
 			h.rememberClarifySession(issue.ID, sessionID, responsible.ID)
 		}
-		if err != nil && resume {
+		// A submitted clarification cancels modelCtx and with it the CLI:
+		// that error is no failed resume, and starting over would record a
+		// fresh, empty session for the next round.
+		if err != nil && resume && modelCtx.Err() == nil {
 			// Never reuse the missing/incompatible session ID when starting over.
 			sessionID = newAssistantSessionID()
 			fallbackPrompt := sessionContext
 			if turnPrompt != userMsg && !strings.Contains(sessionContext, turnPrompt) {
 				fallbackPrompt = sessionContext + "\n" + turnPrompt
 			}
-			_, turnRaw, captured, err = h.runClarifyTurn(modelCtx, workDir, cbPath, modelID, fallbackPrompt, clarifyID, sessionID, homeDir, false, credentials, emit, turnOpts)
+			turnRaw, captured, err = turn(fallbackPrompt, sessionID, false)
 			resume = false
 			if captured != "" {
 				sessionID = captured
@@ -708,6 +733,7 @@ func (h *streamHandlers) executeClarify(ctx context.Context, issue domain.Issue,
 				toolSession.SetTerminalOnly()
 			}
 			turnOpts.SubmitOnly = true
+			turnOpts.ReadCode = false
 			emit("thought", map[string]string{"kind": "status", "text": "正在提交澄清结论…"})
 			turnPrompt = clarifyNativeRetryPrompt()
 			resume = true
@@ -778,6 +804,32 @@ func (h *streamHandlers) runClarifyTurn(ctx context.Context, workDir, cbPath, mo
 	return nil, strings.TrimSpace(output), captured, nil
 }
 
+// runClarifyAgentCLITurn runs a clarification turn on a CLI other than
+// CodeBuddy through the assistant CLI path, in the checkout and on this
+// server. It needs MCP (the platform session server, which proxies the
+// read-only HTTP MCPs and takes submit_clarification) and, with ReadCode,
+// the CLI's read-only file tools; Kiro CLI trusts nothing else. It returns
+// the final text and the platform session ID.
+func runClarifyAgentCLITurn(ctx context.Context, workDir, model, prompt, sessionID, root string, resume bool, user domain.User, emit func(event string, payload any), opts clarifyTurnOpts) (string, string, error) {
+	output, session, err := runAssistantCLI(ctx, assistantCLIRequest{
+		Prompt: prompt, Model: model, SessionID: sessionID, Resume: resume, SessionRoot: root, WorkDir: workDir, UserID: user.ID,
+		Native: true, MCPOnly: true, ReadCode: opts.ReadCode, MCPConfig: opts.MCPConfig,
+	}, user, func(ev assistantStreamEvent) {
+		switch {
+		case ev.Kind == "tool":
+			emit("thought", map[string]string{"kind": "tool", "tool": ev.Tool, "detail": ev.Detail})
+		case (ev.Kind == "thinking" || ev.Kind == "answer") && ev.Full:
+			if text := strings.TrimSpace(ev.Text); text != "" && !clarifyThoughtShouldHide(text) {
+				emit("thought", map[string]string{"kind": "thinking", "text": text})
+			}
+		}
+	})
+	if session == "" {
+		session = sessionID
+	}
+	return strings.TrimSpace(output), session, err
+}
+
 func takeNativeClarification(session *AgentToolSession, turnRaw string) (any, string, bool) {
 	if session == nil {
 		return nil, turnRaw, false
@@ -802,6 +854,9 @@ type clarifyTurnOpts struct {
 	Native              bool
 	MCPConfig, Settings string
 	SubmitOnly          bool
+	// ReadCode lets Kiro CLI read the checkout; false when none was
+	// prepared and on submit-only retries.
+	ReadCode bool
 }
 
 // clarifyStreamEvents decodes a single stream-json line into zero or more

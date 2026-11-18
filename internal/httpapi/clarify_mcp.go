@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"agentflow/internal/domain"
+	"agentflow/internal/runtime"
 	"agentflow/internal/tracker"
 )
 
@@ -27,20 +28,62 @@ func clarifyAllowedModel(id string) string {
 	return assistantAllowedModel(id, assistantKnownCatalog())
 }
 
-// errClarifyNeedsCodeBuddy is returned when a clarification asks for a model of
-// another CLI: clarification runs on CodeBuddy only, so a "codex:…" id must be
-// refused instead of being swapped for the CodeBuddy default.
-var errClarifyNeedsCodeBuddy = errors.New("需求澄清目前只支持 CodeBuddy 模型，请在模型列表中改选 CodeBuddy 模型")
+// errClarifyResponsibleKey: a CodeBuddy clarification runs on the CodeBuddy
+// key of the requirement's assignee (or the project Owner).
+var errClarifyResponsibleKey = errors.New("需求澄清用 CodeBuddy 模型时使用需求责任人（未指派时为项目 Owner）的 CodeBuddy API Key：请该账号在「个人配置」中配置，或改选 Kiro CLI 等其他执行器的模型")
 
-// errClarifyResponsibleKey: clarification runs on the CodeBuddy key of the
-// requirement's assignee (or the project Owner); there is no Kiro CLI path.
-var errClarifyResponsibleKey = errors.New("需求澄清目前只支持 CodeBuddy：需求责任人（未指派时为项目 Owner）未配置 CodeBuddy API Key，请在个人配置中配置")
+// errClarifyKiroCLI: clarification runs on this server, so Kiro CLI needs
+// kiro-cli and its login here.
+var errClarifyKiroCLI = errors.New("需求澄清在平台服务器上运行：Kiro CLI 需要平台上安装 kiro-cli 并完成 kiro-cli login（订阅登录；Compose 部署设置 LOOPFORGE_KIRO_DATA_DIR 挂载宿主机登录），或改选其他模型")
 
-// clarifyModelEngineError reports whether id names a model of a CLI that
-// requirement clarification cannot run.
-func clarifyModelEngineError(id string) error {
+// clarifyModelFor resolves the model a clarification runs on: the panel's
+// choice, or for none CodeBuddy when the responsible user has a key, else
+// Kiro CLI when this server can run it.
+func clarifyModelFor(id string, responsible domain.User) string {
+	id = strings.TrimSpace(id)
+	if id == "" && strings.TrimSpace(responsible.CodeBuddyAPIKey) == "" && kiroCLIInstalled() {
+		return runtime.AgentCLIKiro + ":auto"
+	}
 	if engine, _ := assistantModelEngine(id); engine != assistantEngineCodeBuddy {
-		return errClarifyNeedsCodeBuddy
+		return id
+	}
+	return clarifyAllowedModel(id)
+}
+
+// clarifyPlatformRefusal reports what no responsible user can fix: a bad
+// model ID, or Kiro CLI without kiro-cli and its login on this server.
+func clarifyPlatformRefusal(model string) error {
+	engine, name := assistantModelEngine(model)
+	switch {
+	case engine == assistantEngineCodeBuddy:
+		return nil
+	case name != "" && !assistantValidEngineModel(name):
+		return errors.New("澄清模型无效，请重新选择")
+	case engine == runtime.AgentCLIKiro && !kiroCLIInstalled():
+		return errClarifyKiroCLI
+	}
+	return nil
+}
+
+// clarifyEngineRefusal reports, before any session or checkout, why model
+// cannot clarify for the responsible user. Clarification runs on this
+// server: Kiro CLI needs kiro-cli and its login here, the other CLIs the
+// responsible user's own key.
+func clarifyEngineRefusal(responsible domain.User, model string) error {
+	if err := clarifyPlatformRefusal(model); err != nil {
+		return err
+	}
+	switch engine, _ := assistantModelEngine(model); engine {
+	case assistantEngineCodeBuddy:
+		if strings.TrimSpace(responsible.CodeBuddyAPIKey) == "" {
+			return errClarifyResponsibleKey
+		}
+	case runtime.AgentCLIKiro:
+	default:
+		if key, _ := assistantEngineCredential(responsible, engine); key == "" {
+			label := assistantEngineLabel(engine)
+			return fmt.Errorf("需求澄清用 %s 模型时使用需求责任人（未指派时为项目 Owner）的 %s API Key：请该账号在「个人配置」中配置，或改选其他模型", label, label)
+		}
 	}
 	return nil
 }

@@ -29,6 +29,21 @@ func clarifyCLIHome(userID int64) string {
 	return filepath.Join(clarifySessionBase(), strconv.FormatInt(userID, 10), "home")
 }
 
+// clarifyAgentCLIRoot is the session root (runAssistantCLI) of the
+// responsible user's clarifications on CLIs other than CodeBuddy.
+func clarifyAgentCLIRoot(userID int64) string {
+	return filepath.Join(clarifySessionBase(), strconv.FormatInt(userID, 10), "agent-cli")
+}
+
+// canResumeClarifyAgentCLISession reports whether the clarification session
+// has a native session of engine recorded under root for this user.
+func canResumeClarifyAgentCLISession(root, engine, sessionID string, sessionUserID, userID int64) bool {
+	if sessionUserID != 0 && sessionUserID != userID || strings.TrimSpace(sessionID) == "" {
+		return false
+	}
+	return agentCLISessionValid(readAgentCLISession(root, engine, sessionID))
+}
+
 // Older assessments have no owner metadata. Only resume those when the
 // conversation actually exists inside the current responsible user's HOME.
 func canResumeClarifySession(homeDir, sessionID string, sessionUserID, userID int64) bool {
