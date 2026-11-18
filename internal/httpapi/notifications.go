@@ -157,8 +157,8 @@ func (h *notificationHandlers) save(c *gin.Context, old *domain.NotificationBot)
 		if model == "" {
 			model = domain.DefaultNotificationReportModel
 		}
-		if assistantAllowedModel(model, assistantKnownCatalog()) != model {
-			c.JSON(400, gin.H{"error": "请选择有效的 CodeBuddy 模型"})
+		if !validBotModel(model) {
+			c.JSON(400, gin.H{"error": "请选择有效的 CodeBuddy 或 Kiro CLI 模型"})
 			return
 		}
 		bot.Model = model

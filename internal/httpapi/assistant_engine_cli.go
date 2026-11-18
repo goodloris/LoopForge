@@ -41,7 +41,10 @@ type assistantEngineInvocationOpts struct {
 	// ReviewOnly is a one-shot call without MCP servers or session history,
 	// such as a title summary.
 	ReviewOnly bool
-	User       runtime.ProviderCredential
+	// MCPOnly keeps an agent CLI to the MCP servers (Kiro CLI trusts no
+	// built-in tool), for calls on the control plane that need no file access.
+	MCPOnly bool
+	User    runtime.ProviderCredential
 }
 
 func assistantEngineConfigDir(engine string) string {
