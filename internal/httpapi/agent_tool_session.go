@@ -116,11 +116,11 @@ type AgentToolSession struct {
 	// announcedApprovals are the external writes whose decider was already
 	// recorded in the turn's activity (guarded by mu).
 	announcedApprovals map[string]bool
-	closed            atomic.Bool
-	committed         atomic.Bool
-	ctx               context.Context
-	stopContext       func() bool // protected by mu
-	CancelModel       context.CancelFunc
+	closed             atomic.Bool
+	committed          atomic.Bool
+	ctx                context.Context
+	stopContext        func() bool // protected by mu
+	CancelModel        context.CancelFunc
 }
 
 type agentReplyFile struct {
