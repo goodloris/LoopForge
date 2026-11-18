@@ -184,21 +184,28 @@ func jobDue(job domain.ScheduleJob, now time.Time) bool {
 	if job.LastStatus == "running" {
 		return false
 	}
+	// Count from the last run, or creation for a job that never ran, and never
+	// from before the job was (re-)enabled or rescheduled: a new job waits
+	// for its first occurrence and missed ones are not made up.
+	base := job.LastRunAt
+	if base.IsZero() {
+		base = job.CreatedAt
+	}
+	if job.ScheduleFrom.After(base) {
+		base = job.ScheduleFrom
+	}
+	if base.IsZero() {
+		return false
+	}
 	if cron := strings.TrimSpace(job.Cron); cron != "" {
-		if job.LastRunAt.IsZero() {
-			return true
-		}
-		next, err := cronexpr.Next(cron, job.LastRunAt)
+		next, err := cronexpr.Next(cron, base)
 		return err == nil && !next.After(now)
 	}
 	interval := time.Duration(job.IntervalSec) * time.Second
 	if interval < 30*time.Second {
 		interval = 30 * time.Second
 	}
-	if job.LastRunAt.IsZero() {
-		return true
-	}
-	return now.Sub(job.LastRunAt) >= interval
+	return now.Sub(base) >= interval
 }
 func (s *Service) RunJob(id string) (domain.ScheduleJob, error) {
 	return s.runJob(id, "timer")
@@ -258,6 +265,11 @@ func (s *Service) claimJob(id string, dueAt time.Time) (domain.ScheduleJob, erro
 		// which continues to describe the actual execution shown in the UI.
 		if finished := s.lastFinishedAt[id]; strings.TrimSpace(job.Cron) != "" && finished.After(candidate.LastRunAt) {
 			candidate.LastRunAt = finished
+		}
+		// A job that never ran and predates this process (saved before
+		// ScheduleFrom existed) counts from startup, not from its creation.
+		if candidate.LastRunAt.IsZero() && s.startedAt.After(candidate.ScheduleFrom) {
+			candidate.ScheduleFrom = s.startedAt
 		}
 		if !jobDue(candidate, dueAt) {
 			return job, errNotDue

@@ -768,7 +768,7 @@ func TestCronDropsOccurrencesDuringRun(t *testing.T) {
 				t.Fatalf("next cron must run: err=%v", err)
 			}
 			// Another job's run does not delay a job that never ran.
-			if _, err := svc.claimJob(neverRun.ID, finish); err != nil {
+			if _, err := svc.claimJob(neverRun.ID, time.Now().UTC().Add(time.Hour)); err != nil {
 				t.Fatalf("other job must not wait for this one: err=%v", err)
 			}
 			got, _ := st.ScheduleJob(job.ID)
@@ -815,7 +815,7 @@ func TestTimerRunsAsyncAndSkipsOverlap(t *testing.T) {
 		return "ok", nil
 	})
 	returned := make(chan struct{})
-	go func() { svc.runDueJobs(); close(returned) }()
+	go func() { svc.runDueJobsAt(time.Now().UTC().Add(time.Minute)); close(returned) }()
 	select {
 	case <-returned:
 	case <-time.After(2 * time.Second):

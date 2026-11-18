@@ -358,6 +358,8 @@ AI 定时任务的 `sessionMode` 为空时每次执行新开一个会话，`fixe
 
 `id` 为空时生成；`projectId` 默认 `platform`；`intervalSec<30` 时重置为 `300`。更新若不提供 `lastRunAt` 会保留已有最近运行字段。成功 `200` 返回 job；校验/存储错误 `400`。
 
+新建的任务不会立即执行：Cron 任务等创建后的第一个 Cron 时间点，间隔任务等满一个间隔。停用后重新启用、或修改了 `cron` / `intervalSec` 时，从那一刻重新计时，不补跑之前错过的时间点。这个时刻记在服务端管理的 `scheduleFrom`，请求里的值不生效。升级前保存、从未执行过的任务从服务启动时开始计时。「立即运行」不受影响。
+
 ```bash
 curl -u "$AGENTFLOW_USER:$AGENTFLOW_PASS" -X POST \
   -H 'Content-Type: application/json' \
