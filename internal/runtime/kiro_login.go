@@ -154,9 +154,9 @@ func kiroLoginSnapshot(source string) ([]byte, error) {
 // image without it installs. The release publishes these SHA-256 sums next
 // to each zip.
 const (
-	KiroCLIVersion      = "3.3.0"
-	kiroCLISHA256AMD64  = "018e7d19124ebf5088bc33b12dcafa5c7e8de745ae491df024afebcd19f36b62"
-	kiroCLISHA256ARM64  = "5e85a1fcc107f4cd72cbbf1f8e69463bf9673814014c0056636d8433150b18d4"
+	KiroCLIVersion      = "3.4.0"
+	kiroCLISHA256AMD64  = "95b85a724ecda5340cc5c98ddc979f4d0a6e96712fb29a36b3e7afaf6c70d389"
+	kiroCLISHA256ARM64  = "98401395ca36eda9682445062c090b2c81413640d9f1e7433e741fa3147dde6e"
 	kiroCLIDownloadBase = "https://desktop-release.q.us-east-1.amazonaws.com/"
 )
 
