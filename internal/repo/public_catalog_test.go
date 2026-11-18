@@ -266,3 +266,141 @@ func TestPublicMRGateRequiresTheRunWorkBranchPushed(t *testing.T) {
 		t.Fatal("measured against main the release commit is unpushed work and must block")
 	}
 }
+
+// D4/D15: 独立评审 and 测试验证 rework 开发实现, and the test role's verdict is
+// checked by the exit code of .loopforge/verify, not by the Agent's word.
+func TestPublicCodeSOPsReworkImplementAndGateTestsOnExitCode(t *testing.T) {
+	templates := publicCatalogTemplates(t)
+	for _, id := range []string{GenericBackendDeliveryWorkflowID, GenericFrontendDeliveryWorkflowID, "issue-fix-production"} {
+		template := templates[id]
+		nodes := map[string]domain.WorkflowNode{}
+		for _, node := range template.Workflow.Nodes {
+			nodes[node.ID] = node
+		}
+		for _, nodeID := range []string{"review", "test", "accept"} {
+			if node := nodes[nodeID]; node.RejectTo != "implement" {
+				t.Errorf("%s: %s must rework implement, rejectTo=%q", id, nodeID, node.RejectTo)
+			}
+		}
+		for _, nodeID := range []string{"review", "test"} {
+			if node := nodes[nodeID]; node.MaxReworks != 2 || node.OnFailure != "" {
+				t.Errorf("%s: %s needs maxReworks 2 and the default reject policy, got %d %q", id, nodeID, node.MaxReworks, node.OnFailure)
+			}
+		}
+		if !strings.Contains(template.Workflow.Description, ".loopforge/verify") || !strings.Contains(template.Workflow.Description, "测试结论由 Agent 判定") {
+			t.Errorf("%s: description must say how tests are judged: %q", id, template.Workflow.Description)
+		}
+		roles := map[string]domain.AgentDefinition{}
+		for _, agent := range template.Agents {
+			roles[agent.ID] = agent
+		}
+		test := roles[id+"-test"]
+		if len(test.Verification) != 1 {
+			t.Fatalf("%s: test role needs exactly the verify gate, got %+v", id, test.Verification)
+		}
+		gate := test.Verification[0]
+		if gate.ID != "loopforge-verify" || gate.Mode != "command" || !gate.Required || gate.OnFailure != "reject" || gate.ExecutionScope != domain.ExecutionScopeRun || len(gate.Commands) != 1 || !strings.Contains(gate.Commands[0], ".loopforge/verify") {
+			t.Errorf("%s: verify gate = %+v", id, gate)
+		}
+		if gate.Commands[0] != publicVerifyGate(t) {
+			t.Errorf("%s: verify gate differs from the backend SOP's", id)
+		}
+		for role, want := range map[string]string{
+			"-implement": "仓库目标分支有 .loopforge/verify 时，完成前在仓库目录运行它并让退出码为 0",
+			"-review":    "发现阻断问题必须明确写出 REJECT，并提交 rework，平台会打回开发实现。",
+			"-test":      "在 test-report.md 写明「未配置验证命令（.loopforge/verify），测试结论由 Agent 判定」",
+		} {
+			if !strings.Contains(roles[id+role].Prompt, want) {
+				t.Errorf("%s%s prompt lacks %q", id, role, want)
+			}
+		}
+	}
+}
+
+func publicVerifyGate(t *testing.T) string {
+	t.Helper()
+	for _, agent := range publicCatalogTemplates(t)[GenericBackendDeliveryWorkflowID].Agents {
+		if agent.ID == GenericBackendDeliveryWorkflowID+"-test" && len(agent.Verification) == 1 && len(agent.Verification[0].Commands) == 1 {
+			return agent.Verification[0].Commands[0]
+		}
+	}
+	t.Fatal("verify gate missing")
+	return ""
+}
+
+// The verify gate passes or fails on the exit code of .loopforge/verify as
+// committed on each repository's target branch.
+func TestPublicVerifyGateJudgesByExitCode(t *testing.T) {
+	gate := publicVerifyGate(t)
+	git := func(dir string, args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "init.defaultBranch=main"}, args...)...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	write := func(path, body string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	workspace := t.TempDir()
+	run := func(manifest ...string) (bool, string) {
+		t.Helper()
+		cmd := exec.Command("sh", "-lc", gate)
+		cmd.Dir = workspace
+		cmd.Env = append(os.Environ(), "AGENTFLOW_WORK_BRANCHES="+strings.Join(manifest, "\n"))
+		out, err := cmd.CombinedOutput()
+		return err == nil, string(out)
+	}
+	expect := func(want bool, wantOut string, manifest ...string) {
+		t.Helper()
+		ok, out := run(manifest...)
+		if ok != want || !strings.Contains(out, wantOut) {
+			t.Fatalf("manifest %q: pass=%v want %v, output lacks %q:\n%s", manifest, ok, want, wantOut, out)
+		}
+	}
+	expect(true, "未配置验证命令（.loopforge/verify），测试结论由 Agent 判定")
+	write(filepath.Join(workspace, ".loopforge", "verify"), "echo 'FAILED new project'\nexit 1\n")
+	expect(false, "FAILED new project")
+	if err := os.RemoveAll(filepath.Join(workspace, ".loopforge")); err != nil {
+		t.Fatal(err)
+	}
+
+	root := t.TempDir()
+	newRepo := func(name, verify string) string {
+		t.Helper()
+		remote := filepath.Join(root, name+".git")
+		git(root, "init", "-q", "--bare", remote)
+		seed := filepath.Join(root, name+"-seed")
+		git(root, "clone", "-q", remote, seed)
+		write(filepath.Join(seed, "marker.txt"), name+"\n")
+		if verify != "" {
+			write(filepath.Join(seed, ".loopforge", "verify"), verify)
+		}
+		git(seed, "add", ".")
+		git(seed, "commit", "-qm", "init")
+		git(seed, "push", "-q", "origin", "HEAD:main")
+		git(workspace, "clone", "-q", remote, name)
+		git(filepath.Join(workspace, name), "checkout", "-qb", "work")
+		return name + "\twork\tmain"
+	}
+	plain := newRepo("plain", "")
+	expect(true, "plain：目标分支 main 上没有 .loopforge/verify", plain)
+	expect(true, "未配置验证命令", plain)
+	failing := newRepo("failing", "echo 'FAILED test_page_one_starts_at_zero'\nexit 1\n")
+	expect(false, "FAILED test_page_one_starts_at_zero\nexit=1", failing)
+	// The run's own edit to the file does not count: the target branch decides.
+	write(filepath.Join(workspace, "failing", ".loopforge", "verify"), "exit 0\n")
+	expect(false, "exit=1", failing)
+	// Runs in the repository checkout, honours a shebang, and a verify that
+	// reads stdin does not swallow the remaining repositories.
+	passing := newRepo("passing", "#!/bin/sh\ncat >/dev/null\ntest -f marker.txt && grep -q passing marker.txt\n")
+	expect(true, "exit=0", passing, plain)
+	expect(false, "FAILED test_page_one_starts_at_zero", passing, failing)
+}
