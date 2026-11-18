@@ -222,6 +222,17 @@ After it, 独立评审 and 测试验证 rework 开发实现 (at most 2 times in 
 
 `scripts/install-schema-extensions.sh` (installer and `./start.sh pull`) and `scripts/dev.sh` end with a read-only check, `scripts/manual-migration-hints.sh`, that names 033, 037 or 038 with this command while a built-in template still lacks the `mr` node, still holds the pre-037 测试验证 prompt, or still has the shipped 独立评审 node without a rework target. On PostgreSQL it can only report 038.
 
+### Test command gate
+
+The built-in backend, frontend and bug-fix SOPs gate 测试验证 on `.loopforge/verify`. Commit that file to the repository's target branch: the platform runs the committed version (edits made by the run do not count) from the repository directory, with the interpreter named on a `#!` first line or `sh` otherwise, and a non-zero exit code sends the output back to 开发实现. For example:
+
+```sh
+#!/bin/sh
+python3 -m pytest -q
+```
+
+Leave out tests that already fail on the target branch. Without the file the test verdict stays the Agent's. The SOP designer and a requirement's 执行进展 tab then show 「未配置验证命令（.loopforge/verify），测试结论由 Agent 判定」; GitHub repositories are checked on their main branch, and other repositories show that the platform cannot tell.
+
 ## GitHub credentials
 
 Users can choose **Connect GitHub** in personal credentials or while adding a repository, copy the displayed PIN, and approve it on GitHub. The platform saves the grant to that signed-in user's existing Git credential slot. The repository picker lists repositories owned by the account, shared with it, or accessible through its organizations, supports pagination and search over loaded repositories, and copies the selected repository's real default branch into the form. PAT entry remains available.

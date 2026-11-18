@@ -381,3 +381,25 @@ func (s *Service) refreshGitHubDelivery(store MRDeliveryStore, project string, n
 	d := p.delivery(project)
 	return store.UpdateMRDeliveryState(project, number, d.GongfengState, d.TargetBranch, p.mergedAt(), time.Now().UTC())
 }
+
+// GitHubFileOnBranch reports whether path exists on branch, read with the
+// token the other GitHub reads use (the Owner of the first project binding the
+// repository). GitHub answers 404 both for a missing file and for a repository
+// the token cannot see, so a 404 counts as missing only when the repository
+// itself is visible; otherwise the error is returned and callers treat the
+// answer as unknown.
+func (s *Service) GitHubFileOnBranch(project, branch, path string) (bool, error) {
+	g, err := s.githubClient(project)
+	if err != nil {
+		return false, err
+	}
+	err = g.request(http.MethodGet, "/contents/"+path+"?ref="+url.QueryEscape(branch), nil, nil)
+	var httpErr *githubHTTPError
+	if !errors.As(err, &httpErr) || httpErr.Status != http.StatusNotFound {
+		return err == nil, err
+	}
+	if repoErr := g.request(http.MethodGet, "", nil, nil); repoErr != nil {
+		return false, repoErr
+	}
+	return false, nil
+}

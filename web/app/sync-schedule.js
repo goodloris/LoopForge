@@ -419,9 +419,12 @@ async function openScheduleJobModal(kind='dispatch',job){
     f.inert=true;
     f.querySelector('[type="submit"]').disabled=true;
     try{
-      const jobs=await api('/api/schedule-jobs');
+      // Reload SOPs too: the 默认 SOP options come from state.data.workflows, which is only
+      // loaded with the page and misses SOPs created since (by teammates or the clone API).
+      const [jobs,workflows]=await Promise.all([api('/api/schedule-jobs'),api('/api/workflows')]);
       if(version!==scheduleModalVersion||projectId!==state.projectFilter)return;
       state.data.scheduleJobs=jobs||[];
+      if(Array.isArray(workflows))state.data.workflows=workflows;
       resetScheduleJobForm();
       renderScheduleJobs();
     }catch(err){
@@ -597,7 +600,7 @@ function renderScheduleJobList(list,jobs,kind,canRun){
   const reopenId=openMenu?.dataset.menuFor||'',reopenFocus=!!openMenu?.contains(focused);
   if(kind==='dispatch'){
     const job=jobs[0];
-    list.innerHTML=job?`<div class="schedule-config-runtime"><div><b>${job.enabled?'已启用':'未启用'} · ${escapeHTML(scheduleJobTimingLabel(job))}</b><span>${escapeHTML(scheduleSourceLabel(job))} · ${scheduleIssueStatusValues(job).map(issueStatusLabel).join('、')}</span><small>${knownTime(job.lastRunAt)?`最近：${knownTime(job.lastRunAt).toLocaleString()} · 候选 ${job.lastPulled||0}，启动 ${job.lastDispatched||0}`:'尚未运行'}${scheduleJobStatusText(job)?` · ${escapeHTML(scheduleJobStatusText(job))}`:''}</small></div>${scheduleJobTraceActionsHTML(job)}<button type="button" class="button ghost small" data-run-schedule="${escapeHTML(job.id)}" ${scheduleJobRunning(job)||!canRun?'disabled':''}>${scheduleJobRunning(job)?'运行中…':'立即运行'}</button></div>${scheduleBlockerHTML(job)}`:'';
+    list.innerHTML=job?`<div class="schedule-config-runtime"><div><b>${job.enabled?'已启用':'未启用'} · ${escapeHTML(scheduleJobTimingLabel(job))}</b><span>${escapeHTML(scheduleSourceLabel(job))} · ${scheduleIssueStatusValues(job).map(issueStatusLabel).join('、')}</span><small>${knownTime(job.lastRunAt)?`最近：${knownTime(job.lastRunAt).toLocaleString()} · 候选 ${job.lastPulled||0}，启动 ${job.lastDispatched||0}`:'尚未运行'}${scheduleJobStatusText(job)?` · ${escapeHTML(scheduleJobStatusText(job))}`:''}</small></div><span class="schedule-config-actions">${scheduleJobTraceActionsHTML(job)}<button type="button" class="button ghost small" data-run-schedule="${escapeHTML(job.id)}" ${scheduleJobRunning(job)||!canRun?'disabled':''}>${scheduleJobRunning(job)?'运行中…':'立即运行'}</button></span></div>${scheduleBlockerHTML(job)}`:'';
   }else list.innerHTML=jobs.map(j=>{
     const assistant=!!j.skipDispatch;
     const kind=assistant?'AI':'触发';

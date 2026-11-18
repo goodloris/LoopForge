@@ -176,6 +176,7 @@ function sopCatalogCard(w,metrics,live){
 // --- 流程模板卡片 · ⋯ 菜单 -----------------------------------------------------
 const SOP_MENU_ACTIONS={
   share:{hook:'data-share-workflow',run:id=>toggleShare('workflow',id)},
+  copy:{hook:'data-copy-workflow',run:id=>cloneWorkflow(id)},
   delete:{hook:'data-delete-workflow',run:id=>deleteWorkflow(id)},
   run:{hook:'data-run-generic',run:id=>openRunModal(id)},
   edit:{hook:'data-edit-generic',run:id=>openGenericTemplateEditor(id)}
@@ -184,7 +185,7 @@ function sopCardMenuItems(w){
   if(!w)return [];
   if(catalogGeneric(w))return [{action:'run',label:'直接运行',icon:'play'},...(isPlatformAdmin()?[{action:'edit',label:'编辑模板',icon:'edit'}]:[])];
   if(!catalogOwned(w.projectId))return [];
-  return [{action:'share',label:w.shared?'取消共享':'共享给其他项目',icon:w.shared?'close':'arrow-up'},'-',{action:'delete',label:'删除',icon:'trash',danger:true}];
+  return [{action:'copy',label:'复制',icon:'copy'},{action:'share',label:w.shared?'取消共享':'共享给其他项目',icon:w.shared?'close':'arrow-up'},'-',{action:'delete',label:'删除',icon:'trash',danger:true}];
 }
 function sopCardMenuHTML(w){
   return sopCardMenuItems(w).map(item=>item==='-'?'<span class="sop-popover-sep" role="separator"></span>':`<button type="button" role="menuitem" tabindex="-1" class="issue-popover-item${item.danger?' danger':''}" data-sop-action="${item.action}" ${SOP_MENU_ACTIONS[item.action].hook}="${escapeHTML(w.id)}">${huiIcon(item.icon,'popover-icon')}${escapeHTML(item.label)}</button>`).join('');
@@ -477,7 +478,12 @@ function renderSOPCatalog(){
   const live=liveRuns();
   const all=[...metrics.values()],totalRuns=all.reduce((n,m)=>n+m.totalRuns,0),succeeded=all.reduce((n,m)=>n+m.succeededRuns,0),failed=all.reduce((n,m)=>n+m.failedRuns,0),active=live.length,tokens=all.reduce((n,m)=>n+m.totalTokens,0);
   const scopeLabel=state.sopScope==='generic'?'通用':state.sopScope==='shared'?'共享':'项目';
-  $('#sopOverview').innerHTML=`<div class="overview-metric primary"><span>本项目运行</span><b>${totalRuns}</b><small>${workflows.length} 条${scopeLabel} SOP</small></div><div class="overview-metric success"><span>已闭环</span><b>${succeeded}</b><small>${totalRuns?percent(succeeded*100/totalRuns):'暂无运行'}</small></div><div class="overview-metric live"><span>进行中 / 待审批</span><b>${active}</b><small>实时更新 · 不含中断残留</small></div><div class="overview-metric danger${failed>0?' is-bad':''}"><span>失败运行</span><b>${failed}</b><small>${totalRuns?percent(failed*100/totalRuns):'0%'}</small></div><div class="overview-metric"><span>Token 消耗</span><b>${formatTokens(tokens)}</b><small>当前项目累计</small></div>`;
+  // The headline counts every run of the project; cards cover only the SOPs listed below, so say
+  // how many of the runs those cards account for when the two differ (generic templates run
+  // directly, deleted SOPs, other scopes).
+  const listedRuns=workflows.reduce((n,w)=>n+(metrics.get(w.id)?.totalRuns||0),0);
+  const runsFoot=listedRuns===totalRuns?`${workflows.length} 条${scopeLabel} SOP`:`下方 ${workflows.length} 条${scopeLabel} SOP 共 ${listedRuns} 次`;
+  $('#sopOverview').innerHTML=`<div class="overview-metric primary" title="统计本项目全部 SOP 运行，包括直接运行的通用模板和已删除的 SOP"><span>本项目运行</span><b>${totalRuns}</b><small>${runsFoot}</small></div><div class="overview-metric success"><span>已闭环</span><b>${succeeded}</b><small>${totalRuns?percent(succeeded*100/totalRuns):'暂无运行'}</small></div><div class="overview-metric live"><span>进行中 / 待审批</span><b>${active}</b><small>实时更新 · 不含中断残留</small></div><div class="overview-metric danger${failed>0?' is-bad':''}"><span>失败运行</span><b>${failed}</b><small>${totalRuns?percent(failed*100/totalRuns):'0%'}</small></div><div class="overview-metric"><span>Token 消耗</span><b>${formatTokens(tokens)}</b><small>当前项目累计</small></div>`;
   const filter=$('#sopHealthFilter')?.value||'all',sort=$('#sopSort')?.value||'recent';
   if(filter!=='all')workflows=workflows.filter(w=>metricHealth(metrics.get(w.id), live.filter(r=>r.workflowId===w.id).length).key===filter);
   workflows.sort((a,b)=>{const x=metrics.get(a.id)||{},y=metrics.get(b.id)||{};if(sort==='runs')return (y.totalRuns||0)-(x.totalRuns||0);if(sort==='closure')return (y.closureRate||0)-(x.closureRate||0);if(sort==='failures')return (y.failedRuns||0)-(x.failedRuns||0);return new Date(y.lastRunAt||0)-new Date(x.lastRunAt||0)});

@@ -478,3 +478,6 @@ html[data-theme="dark"] #aiOrchestrator :is([data-cli="codex"],[data-cli="claude
 @media (prefers-reduced-motion:reduce){
   #flowView *,#flowView *::before,#flowView *::after{animation-duration:.01ms!important;transition-duration:.01ms!important}
 }
+/* 测试门禁提示：仓库目标分支缺 .loopforge/verify 时，测试结论由 Agent 判定 */
+#flowView .fd-verify-gate{flex:none;padding:6px 16px;border-bottom:1px solid var(--fd-line);background:color-mix(in srgb,var(--hui-warn) 8%,var(--fd-surface))}
+#flowView .fd-verify-gate .verify-gate-hint{margin:0}
