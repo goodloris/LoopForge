@@ -99,6 +99,10 @@ type AgentCLICommandOptions struct {
 	// eval, title, Bot reply, SOP report): Kiro CLI trusts only the
 	// MCPServers, so headless it cancels every other call. Other CLIs ignore it.
 	MCPOnly bool
+	// ReadCode adds Kiro CLI's read-only file tools (read, grep, glob) to
+	// MCPOnly: requirement clarification reads the checked-out code and
+	// reports through MCP, and needs no shell, write, web or sub-agent tool.
+	ReadCode bool
 	// AgentFile is Kimi Code's chat agent definition (WriteKimiChatAgent).
 	AgentFile string
 	// MCPServers are the configured MCP server IDs; Kiro CLI trusts them by
@@ -252,6 +256,9 @@ func AgentCLICommand(kind string, o AgentCLICommandOptions) CommandSpec {
 		}
 		if o.MCPOnly {
 			var tools []string
+			if o.ReadCode {
+				tools = []string{"read", "grep", "glob"}
+			}
 			for _, id := range o.MCPServers {
 				if kiroServerIDRe.MatchString(id) {
 					tools = append(tools, "@"+id)

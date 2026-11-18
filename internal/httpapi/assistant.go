@@ -1418,7 +1418,12 @@ type assistantCLIRequest struct {
 	ReportOnly                                     bool
 	ReviewOnly                                     bool
 	// MCPOnly: see assistantEngineInvocationOpts.MCPOnly; ReportOnly implies it.
-	MCPOnly             bool
+	MCPOnly bool
+	// ReadCode: see assistantEngineInvocationOpts.ReadCode.
+	ReadCode bool
+	// WorkDir replaces the session root's ws as the CLI's working
+	// directory (requirement clarification runs in the checkout).
+	WorkDir             string
 	Native              bool
 	MCPConfig, Settings string
 	// OnUsage receives the usage of this CLI invocation once its result event
@@ -1495,7 +1500,7 @@ func runAssistantCLI(ctx context.Context, req assistantCLIRequest, user domain.U
 		sessionID = newAssistantSessionID()
 	}
 	var inv assistantCLIInvocation
-	engineOpts := assistantEngineInvocationOpts{Bin: bin, Root: root, Config: config, Prompt: req.Prompt, Model: engineModel, Effort: req.Effort, SessionID: sessionID, Resume: req.Resume, SystemPrompt: req.SystemPrompt, ReviewOnly: req.ReviewOnly, MCPOnly: req.MCPOnly || req.ReportOnly, Workspace: req.Workspace}
+	engineOpts := assistantEngineInvocationOpts{Bin: bin, Root: root, Config: config, Prompt: req.Prompt, Model: engineModel, Effort: req.Effort, SessionID: sessionID, Resume: req.Resume, SystemPrompt: req.SystemPrompt, ReviewOnly: req.ReviewOnly, MCPOnly: req.MCPOnly || req.ReportOnly, ReadCode: req.ReadCode, Workspace: req.Workspace}
 	switch engine {
 	case assistantEngineClaude:
 		if !req.RunnerLogin {
@@ -1527,6 +1532,8 @@ func runAssistantCLI(ctx context.Context, req assistantCLIRequest, user domain.U
 	workspace := filepath.Join(root, "ws")
 	if req.ReportOnly {
 		workspace = reportRoot
+	} else if req.WorkDir != "" {
+		workspace = req.WorkDir
 	}
 	var final string
 	var resultError bool

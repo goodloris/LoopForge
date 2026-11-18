@@ -44,7 +44,10 @@ type assistantEngineInvocationOpts struct {
 	// MCPOnly keeps an agent CLI to the MCP servers (Kiro CLI trusts no
 	// built-in tool), for calls on the control plane that need no file access.
 	MCPOnly bool
-	User    runtime.ProviderCredential
+	// ReadCode lets Kiro CLI also use its read-only file tools on top of
+	// MCPOnly (requirement clarification reads the checkout).
+	ReadCode bool
+	User     runtime.ProviderCredential
 }
 
 func assistantEngineConfigDir(engine string) string {

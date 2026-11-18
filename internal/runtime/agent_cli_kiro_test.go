@@ -27,6 +27,10 @@ func TestAgentCLICommandKiro(t *testing.T) {
 	if !slices.Contains(chat, "--trust-tools=read,grep,glob,disclose_context,invoke_sub_agent,@agentflow_session") || slices.Contains(chat, "--trust-all-tools") {
 		t.Fatalf("chat must trust only read tools and the MCP servers: %q", chat)
 	}
+	clarify := AgentCLICommand(AgentCLIKiro, AgentCLICommandOptions{Prompt: "q", Chat: true, MCPOnly: true, ReadCode: true, MCPServers: []string{"agentflow_session"}}).Argv
+	if !slices.Contains(clarify, "--trust-tools=read,grep,glob,@agentflow_session") {
+		t.Fatalf("clarification must trust only the file read tools and MCP: %q", clarify)
+	}
 }
 
 type kiroHookDoc struct {
