@@ -4238,7 +4238,7 @@ components:
             properties:
               date: {type: string, description: 'Day, ISO week or month in the reporting timezone'}
               completedIssues: {type: integer}
-              mergedMrs: {type: integer}
+              mergedMrs: {type: integer, description: 'MRs merged into the default branch'}
               cycleSamples: {type: integer}
               averageCycleDurationMs: {type: integer, format: int64}
               executionSamples: {type: integer}
@@ -4256,8 +4256,9 @@ components:
         mergedBeforeCompletionMrs: {type: integer, description: 'MRs merged before matching flow completion, excluded from latency averages'}
         mergedBeforeCompletionIssues: {type: integer, description: 'Items merged before their flow finished; excluded from the latency average'}
         completedIssues: {type: integer, description: 'Current done/closed/completed work items whose completion time falls in the requested window; includes Issues'}
-        mergedMrs: {type: integer, description: 'Unique work MRs by actual merged_at, including integration branches, excluding baseline promotion MRs'}
-        mergedMrsMissingTime: {type: integer, description: 'Merged MRs in scope with no merge timestamp, excluded from dated counts'}
+        mergedMrs: {type: integer, description: 'Unique work MRs merged into the repository default branch, by actual merged_at; excludes integration-branch merges, MRs whose target branch is not recorded yet, and baseline promotion MRs'}
+        integratedMrs: {type: integer, description: 'Unique work MRs merged only into the integration (or another non-default) branch in the window; not deliveries'}
+        mergedMrsMissingTime: {type: integer, description: 'Default-branch merged MRs in scope with no merge timestamp, excluded from dated counts'}
         completionTimeMissingIssues: {type: integer, description: 'Currently completed historical items with no usable time, excluded from dated completion counts'}
         estimatedCompletionIssues: {type: integer, description: 'Included historical items whose time is inferred from their latest successful top-level Run'}
         cycleSamples: {type: integer}
