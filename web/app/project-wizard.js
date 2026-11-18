@@ -262,9 +262,9 @@ function projectWizardReposHTML(w){
 function projectWizardPeoplePill(d){const count=projectPeopleIds(d).length;return pwPill(`${count} 位`,count>1?'ok':'',' data-pw-people-pill')}
 function projectWizardMembersHTML(w){
   const d=w.draft,owner=userById(d.ownerId);
-  const rows=(d.members||[]).map((m,i)=>`<div class="member-row pw-member" data-pw-member="${i}"><span class="member-avatar">${userAvatarHTML(userById(m.userId),48)}</span><span class="pw-member-kind">成员</span>${userCombobox(`member-${i}`,m.userId,'请选择项目成员')}<button type="button" class="pw-member-rm" data-pw-member-remove="${i}" title="移除成员" aria-label="移除成员">${pwIcon('x',14)}</button></div>`).join('');
+  const rows=(d.members||[]).map((m,i)=>`<div class="member-row pw-member" data-pw-member="${i}"><span class="member-avatar">${userAvatarHTML(userById(m.userId),48)}</span>${projectMemberRoleSelect(`memberRole-${i}`,m.role)}${userCombobox(`member-${i}`,m.userId,'请选择项目成员')}<button type="button" class="pw-member-rm" data-pw-member-remove="${i}" title="移除成员" aria-label="移除成员">${pwIcon('x',14)}</button></div>`).join('');
   const body=`<div class="member-row pw-member is-owner"><span class="member-avatar owner">${userAvatarHTML(owner,48)}</span><span class="pw-member-kind is-owner">Owner</span>${userCombobox('ownerId',d.ownerId,'请选择项目 Owner')}<span></span></div>${rows}<div><button type="button" class="pw-btn pw-btn-outline pw-btn-sm" data-pw-action="add-member"${w.saving?' disabled':''}>＋ 添加成员</button></div>`;
-  return projectWizardHeadHTML(w,'项目成员','Owner 是项目的默认责任人；成员无需设置角色，可查看和推进项目内所有需求。')
+  return projectWizardHeadHTML(w,'项目成员',`Owner 是项目的默认责任人。${PROJECT_MEMBER_ROLE_HINT}`)
     +`<div class="pw-pane">${pwCard('负责人与成员','保存后成员即可在工作台切换到该项目',projectWizardPeoplePill(d),body)}</div>`;
 }
 function projectWizardTapdHTML(w){
@@ -359,6 +359,7 @@ function syncProjectWizardField(t){
     if(name==='repoUrl'){const hint=$('#projectWizard')?.querySelector('[data-pw-repo-hint]');if(hint)hint.innerHTML=projectWizardRepoHint(t.value)}
     return true;
   }
+  if(/^memberRole-\d+$/.test(name)){const m=d.members[Number(name.slice(11))];if(m)m.role=projectMemberRole(t.value);return true}
   if(name==='ownerId'||/^member-\d+$/.test(name)){
     if(name==='ownerId')d.ownerId=Number(t.value)||0;
     else{const m=d.members[Number(name.slice(7))];if(m)m.userId=Number(t.value)||0}
@@ -424,7 +425,9 @@ document.addEventListener('keydown',e=>{
     return;
   }
   if(e.key==='Escape'){
-    if(host.querySelector('[data-user-combobox].is-open'))return;
+    // Wherever focus is, Escape with a picker open closes only that picker.
+    const picker=host.querySelector('[data-user-combobox].is-open');
+    if(picker){e.preventDefault();e.stopPropagation();closeUserCombobox(picker,true);return}
     e.preventDefault();e.stopPropagation();
     if(!w.saving)closeProjectWizard({force:w.step==='done'});
     return;

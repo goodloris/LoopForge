@@ -107,6 +107,7 @@ async function api(path, options={}) {
   }
 }
 const toastActions=new Map();
+const TOAST_MAX_HOLD_MS=10000;
 function toast(message, type='info', duration=2600){
   const container=$('#toastContainer');
   const legacy=$('#toast');
@@ -139,8 +140,11 @@ function toast(message, type='info', duration=2600){
     setTimeout(()=>{try{item.remove()}catch{}}, 200);
   };
   timer=setTimeout(remove, duration);
+  // Hovering pauses the toast, but a pointer resting where it appeared (Chrome fires
+  // mouseenter on layout changes) must not keep it forever: TOAST_MAX_HOLD_MS caps the pause.
+  setTimeout(remove, duration+TOAST_MAX_HOLD_MS);
   item.onmouseenter=()=>clearTimeout(timer);
-  item.onmouseleave=()=>{timer=setTimeout(remove, 1400)};
+  item.onmouseleave=()=>{clearTimeout(timer);timer=setTimeout(remove, 1400)};
   item.querySelector('.toast-item-close').onclick=remove;
 }
 

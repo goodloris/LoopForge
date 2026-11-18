@@ -1183,6 +1183,8 @@ func (h *catalogHandlers) workflow(c *gin.Context) {
 			return
 		}
 		c.Status(http.StatusNoContent)
+	case "/api/workflows/:id/verify-gate":
+		h.workflowVerifyGate(c, v)
 	case "/api/workflows/:id/revisions":
 		c.JSON(200, h.repo.Revisions("workflow", id))
 	case "/api/workflows/:id/revisions/:rev":

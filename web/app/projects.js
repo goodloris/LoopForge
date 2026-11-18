@@ -25,17 +25,30 @@ function userCombobox(name,selected,emptyLabel='请选择用户',attributes=''){
   const options=(state.data.users||[]).map(u=>`<button type="button" class="user-combobox-option${Number(u.id)===Number(selected)?' selected':''}" data-user-option="${u.id}" data-search="${escapeHTML(`${u.loginName||''} ${u.chineseName||''}`.toLowerCase())}"><span>${escapeHTML(userDisplay(u))}</span>${Number(u.id)===Number(selected)?'<i>✓</i>':''}</button>`).join('');
   return `<div class="user-combobox" data-user-combobox><input type="hidden" name="${escapeHTML(name)}" value="${selected?escapeHTML(String(selected)):''}" ${attributes}><button type="button" class="user-combobox-trigger" data-user-combobox-trigger aria-haspopup="listbox" aria-expanded="false"><span>${escapeHTML(label)}</span><i>⌄</i></button><div class="user-combobox-panel" data-user-combobox-panel hidden><input type="search" data-user-combobox-search placeholder="搜索中文名 / 英文名" autocomplete="off"><div class="user-combobox-options" role="listbox">${options}</div><p class="user-combobox-empty" hidden>没有匹配的用户</p></div></div>`;
 }
+// Roles match the backend: maintainer also manages notification bots and insight sources;
+// viewer can read but not change requirements, SOPs or approve runs.
+const PROJECT_MEMBER_ROLES=[{id:'member',label:'成员',title:'可查看和推进项目内所有需求'},{id:'maintainer',label:'维护者',title:'成员权限，另可管理通知机器人和数据上报源'},{id:'viewer',label:'查看者',title:'只能查看，不能修改需求、SOP，也不能审批'}];
+const PROJECT_MEMBER_ROLE_HINT='成员可查看和推进项目内所有需求；维护者另可管理通知机器人和数据上报源；查看者只能查看，不能修改或审批。';
+function projectMemberRole(role){const r=String(role||'').trim().toLowerCase();return PROJECT_MEMBER_ROLES.some(x=>x.id===r)?r:'member'}
+function projectMemberRoleSelect(name,role,attrs=''){const cur=projectMemberRole(role);return `<select class="member-role" name="${escapeHTML(name)}" aria-label="成员角色" ${attrs}>${PROJECT_MEMBER_ROLES.map(x=>`<option value="${x.id}" title="${escapeHTML(x.title)}"${x.id===cur?' selected':''}>${x.label}</option>`).join('')}</select>`}
+// Escape closes only the picker; focus returns to its trigger instead of falling to <body>,
+// where the next Escape would reach the surrounding dialog.
+function closeUserCombobox(box,refocus=false){
+  const panel=box.querySelector('[data-user-combobox-panel]'),trigger=box.querySelector('[data-user-combobox-trigger]');
+  if(panel)panel.hidden=true;box.classList.remove('is-open');trigger?.setAttribute('aria-expanded','false');
+  if(refocus)trigger?.focus();
+}
 function bindUserSearches(root=document){
   if(!document.body.dataset.userComboboxBound){document.body.dataset.userComboboxBound='true';document.addEventListener('click',()=>document.querySelectorAll('[data-user-combobox].is-open').forEach(box=>{box.classList.remove('is-open');const panel=box.querySelector('[data-user-combobox-panel]'),trigger=box.querySelector('[data-user-combobox-trigger]');if(panel)panel.hidden=true;if(trigger)trigger.setAttribute('aria-expanded','false')}))}
   root.querySelectorAll('[data-user-combobox]').forEach(box=>{
     const value=box.querySelector('input[type="hidden"]'),trigger=box.querySelector('[data-user-combobox-trigger]'),panel=box.querySelector('[data-user-combobox-panel]'),search=box.querySelector('[data-user-combobox-search]'),empty=box.querySelector('.user-combobox-empty');
-    const close=()=>{panel.hidden=true;box.classList.remove('is-open');trigger.setAttribute('aria-expanded','false')};
+    const close=()=>closeUserCombobox(box);
     trigger.onclick=e=>{e.stopPropagation();document.querySelectorAll('[data-user-combobox].is-open').forEach(other=>{if(other!==box){other.classList.remove('is-open');const p=other.querySelector('[data-user-combobox-panel]');if(p)p.hidden=true;other.querySelector('[data-user-combobox-trigger]')?.setAttribute('aria-expanded','false')}});const opening=panel.hidden;panel.hidden=!opening;box.classList.toggle('is-open',opening);trigger.setAttribute('aria-expanded',String(opening));if(opening){search.value='';box.querySelectorAll('[data-user-option]').forEach(o=>o.hidden=false);empty.hidden=true;setTimeout(()=>search.focus(),0)}};
     trigger.addEventListener('click',()=>{if(panel.hidden)return;const rect=trigger.getBoundingClientRect(),below=window.innerHeight-rect.bottom-14,above=rect.top-14,up=below<240&&above>below,height=Math.min(250,Math.max(100,up?above:below));Object.assign(panel.style,{position:'fixed',left:rect.left+'px',right:'auto',width:rect.width+'px',top:up?'auto':(rect.bottom+5)+'px',bottom:up?(window.innerHeight-rect.top+5)+'px':'auto'});box.querySelector('.user-combobox-options').style.maxHeight=Math.max(50,height-55)+'px'});
     panel.onclick=e=>e.stopPropagation();search.onclick=e=>e.stopPropagation();
     search.oninput=()=>{const query=search.value.trim().toLowerCase();let visible=0;box.querySelectorAll('[data-user-option]').forEach(option=>{option.hidden=Boolean(query&&!String(option.dataset.search||'').includes(query));if(!option.hidden)visible++});empty.hidden=visible>0};
     box.querySelectorAll('[data-user-option]').forEach(option=>option.onclick=e=>{e.stopPropagation();value.value=option.dataset.userOption;trigger.querySelector('span').textContent=option.querySelector('span').textContent;box.querySelectorAll('[data-user-option]').forEach(o=>{const selected=o===option;o.classList.toggle('selected',selected);o.setAttribute('aria-selected',String(selected));o.querySelector('i')?.remove();if(selected){const mark=document.createElement('i');mark.textContent='✓';o.append(mark)}});const avatar=box.closest('.member-row')?.querySelector('.member-avatar'),user=userById(value.value);if(avatar)avatar.innerHTML=userAvatarHTML(user,48);value.dispatchEvent(new Event('change',{bubbles:true}));close()});
-    box.addEventListener('keydown',e=>{if(e.key==='Escape')close()});
+    box.addEventListener('keydown',e=>{if(e.key==='Escape'&&box.classList.contains('is-open')){e.preventDefault();e.stopPropagation();closeUserCombobox(box,true)}});
   });
 }
 // Project admin has two levels: #/projects lists cards, #/projects/<id>[/<tab>] edits one project.
@@ -105,7 +118,7 @@ function parseProjectAdminRoute(hash){
 function projectAdminHash(id,tab){return id?`#/projects/${encodeURIComponent(id)}${id!=='new'&&tab&&tab!=='basic'?'/'+tab:''}`:'#/projects'}
 function projectPeopleIds(p){return [...new Set([p?.ownerId,...(p?.members||[]).map(m=>m.userId)].map(Number).filter(Boolean))]}
 function blankProjectDraft(){return {id:'',key:'',name:'',description:'',color:PROJECT_SWATCHES[0],ownerId:Number(state.currentUser?.id)||'',workflowId:'generic-backend-delivery',defaultRepositoryId:'',businessDomainId:'',members:[],runEval:defaultRunEval(),tapdWorkspaceId:'',tapdIterationId:'',tapdClear:false}}
-function projectDraftFrom(project){const d=clone(project)||{};d.members=(d.members||[]).filter(m=>Number(m.userId)!==Number(d.ownerId)).map(m=>({userId:Number(m.userId)||0,role:'member'}));d.tapdClear=false;return d}
+function projectDraftFrom(project){const d=clone(project)||{};d.members=(d.members||[]).filter(m=>Number(m.userId)!==Number(d.ownerId)).map(m=>({userId:Number(m.userId)||0,role:projectMemberRole(m.role)}));d.tapdClear=false;return d}
 function projectDraftSignature(d){
   d=d||{};
   return JSON.stringify({id:String(d.id||''),key:String(d.key||'').trim().toUpperCase(),name:String(d.name||'').trim(),description:String(d.description||''),color:String(d.color||'').toLowerCase(),ownerId:Number(d.ownerId)||0,workflowId:String(d.workflowId||''),defaultRepositoryId:String(d.defaultRepositoryId||''),businessDomainId:String(d.businessDomainId||''),tapdWorkspaceId:String(d.tapdWorkspaceId||'').trim(),tapdIterationId:String(d.tapdIterationId||'').trim(),tapdClear:!!d.tapdClear,members:(d.members||[]).map(m=>Number(m.userId)||0)});
@@ -187,9 +200,9 @@ function projectAdminFormHTML(d,ctx){
       ${paRow('默认代码仓库',repoDesc,`<select name="defaultRepositoryId" class="select" ${repos.length?'':'disabled'}><option value="">暂未绑定</option>${repoOptions}</select>`)}
     </div>`);
   const owner=userById(d.ownerId);
-  const members=(d.members||[]).map((m,i)=>{const u=userById(m.userId);return `<div class="member-row pa-member-row" data-member-row="${i}"><span class="member-avatar">${userAvatarHTML(u,48)}</span><span class="member-kind">成员</span>${userCombobox(`member-${i}`,m.userId,'请选择项目成员','data-m="userId"')}<button type="button" data-remove-member="${i}" title="移除成员" aria-label="移除成员">×</button></div>`}).join('');
+  const members=(d.members||[]).map((m,i)=>{const u=userById(m.userId);return `<div class="member-row pa-member-row" data-member-row="${i}"><span class="member-avatar">${userAvatarHTML(u,48)}</span>${projectMemberRoleSelect(`memberRole-${i}`,m.role)}${userCombobox(`member-${i}`,m.userId,'请选择项目成员','data-m="userId"')}<button type="button" data-remove-member="${i}" title="移除成员" aria-label="移除成员">×</button></div>`}).join('');
   const memberPanel=paSection('负责人','Owner 是项目的默认责任人，接收需要介入的通知。',`<div class="pa-rows"><div class="member-row owner-row pa-member-row"><span class="member-avatar owner">${userAvatarHTML(owner,48)}</span><span class="member-kind owner">Owner</span>${userCombobox('ownerId',d.ownerId,'请选择项目 Owner')}<span></span></div></div>`)
-    +paSection('成员','其他成员无需设置角色，可查看和推进项目内所有需求。',`<div class="pa-rows" id="memberRows">${members||'<div class="pa-rows-empty">还没有其他成员</div>'}</div>`,'<button id="addMember" type="button" class="button ghost small">＋ 添加成员</button>');
+    +paSection('成员',PROJECT_MEMBER_ROLE_HINT,`<div class="pa-rows" id="memberRows">${members||'<div class="pa-rows-empty">还没有其他成员</div>'}</div>`,'<button id="addMember" type="button" class="button ghost small">＋ 添加成员</button>');
   const configured=!!(saved?.tapdWorkspaceId||saved?.tapdIterationId);
   const tapdPanel=(tapdIntegrationAvailable(saved)?paSection('TAPD 需求池','配置后可在需求页从 TAPD 导入需求，澄清结论会回写到 TAPD 单。',`<div class="pa-rows">
       ${paRow('Workspace ID','TAPD 项目 URL 中 /tapd_fe/ 后的数字。',`<input class="pa-input mono" name="tapdWorkspaceId" value="${escapeHTML(d.tapdWorkspaceId||'')}" placeholder="例如 20375341" spellcheck="false">`)}
@@ -271,7 +284,7 @@ function captureProjectAdminForm(){
   if(el.tapdClear)d.tapdClear=!!el.tapdClear.checked;
   if(el.ownerId){
     d.ownerId=Number(el.ownerId.value)||0;
-    d.members=[...form.querySelectorAll('[data-member-row]')].map(row=>({userId:Number(row.querySelector('input[type="hidden"]')?.value)||0,role:'member'}));
+    d.members=[...form.querySelectorAll('[data-member-row]')].map(row=>({userId:Number(row.querySelector('input[type="hidden"]')?.value)||0,role:projectMemberRole(row.querySelector('select.member-role')?.value)}));
   }
 }
 let projectAdminInvalidPending=false;
@@ -367,6 +380,15 @@ function renderProjectAdmin(opt={}){
   const detail=!!state.projectAdminDetailId;
   listView.hidden=detail;detailView.hidden=!detail;
   if(detail)renderProjectDetail(opt);else renderProjectList();
+  ensureProjectAdminIssues();
+}
+// /api/bootstrap carries no requirements, so the 需求 / 推进中 counts here read 0 until the
+// requirements list had been opened. Load them in the background, at most every 30 s.
+let projectAdminIssuesAt=0;
+function ensureProjectAdminIssues(){
+  if(!$('#projectsView')?.classList.contains('active')||Date.now()-projectAdminIssuesAt<30000)return;
+  projectAdminIssuesAt=Date.now();
+  refreshIssues().then(()=>{if(!$('#projectsView')?.classList.contains('active'))return;if(state.projectAdminDetailId)renderProjectAdminHead();else renderProjectList()});
 }
 function resetProjectAdminDetail(){
   state.projectAdminDetailId=null;state.projectAdminTab='basic';state.projectDraft=null;state.projectDraftFor='';state.projectDraftBase=null;state.projectIdentCustom=false;state.projectAdminErrors={};
@@ -507,7 +529,7 @@ function applyProjectDefaultSOP(project,workflowId){
 function buildProjectPayload(base,fields={}){
   base=base||{};
   const ownerId=Number(fields.ownerId??base.ownerId)||0,id=String(fields.id??base.id??'').trim(),rawDefault=String(fields.defaultRepositoryId??base.defaultRepositoryId??'');
-  const value={...base,id,key:String(fields.key??base.key??'').trim().toUpperCase(),name:String(fields.name??base.name??'').trim(),description:fields.description??base.description??'',color:fields.color||base.color||PROJECT_SWATCHES[0],ownerId,workflowId:fields.workflowId??base.workflowId??'',defaultRepositoryId:rawDefault&&(state.data.repositories||[]).some(r=>r.id===rawDefault&&r.projectId===id)?rawDefault:'',members:(fields.members??base.members??[]).map(m=>({userId:Number(m.userId)||0,role:'member'})).filter(m=>m.userId!==ownerId),runEval:base.runEval,tapdWorkspaceId:String(fields.tapdWorkspaceId??base.tapdWorkspaceId??'').trim(),tapdIterationId:String(fields.tapdIterationId??base.tapdIterationId??'').trim()};
+  const value={...base,id,key:String(fields.key??base.key??'').trim().toUpperCase(),name:String(fields.name??base.name??'').trim(),description:fields.description??base.description??'',color:fields.color||base.color||PROJECT_SWATCHES[0],ownerId,workflowId:fields.workflowId??base.workflowId??'',defaultRepositoryId:rawDefault&&(state.data.repositories||[]).some(r=>r.id===rawDefault&&r.projectId===id)?rawDefault:'',members:(fields.members??base.members??[]).map(m=>({userId:Number(m.userId)||0,role:projectMemberRole(m.role)})).filter(m=>m.userId!==ownerId),runEval:base.runEval,tapdWorkspaceId:String(fields.tapdWorkspaceId??base.tapdWorkspaceId??'').trim(),tapdIterationId:String(fields.tapdIterationId??base.tapdIterationId??'').trim()};
   applyProjectDefaultSOP(value,value.workflowId);
   for(const k of ['businessDomainId','tapdClear','repoRows','repoDrafts','gitToken','codeBuddyApiKey','codeBuddyInternetEnvironment'])delete value[k];
   if(fields.tapdClear)value.tapdClear=true;

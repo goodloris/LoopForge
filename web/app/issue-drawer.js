@@ -225,6 +225,7 @@ function renderIssueDetailTab(){
   });
   host.querySelectorAll('[data-clarify-model]').forEach(bindClarifyModelPicker);
   bindWaitingActions(host);
+  host.querySelectorAll('[data-verify-gate]').forEach(el=>mountVerifyGateHint(el,el.dataset.workflow,{issueId:issue.id}));
   if(state.issueDetailTab==='clarify'&&issueClarifying(issue.id))restoreIssueClarifyThinking(issue.id);
   if(clarifyDraft)restoreIssueClarifyDraft(host,clarifyDraft);
 }
@@ -822,7 +823,8 @@ function sopPane(issue,data){
   if(!bound.length&&!orphans.length&&!workflow){
     return `<div class="detail-section"><div class="req-sop-empty"><p>这条需求还没有可跑的流程。</p></div></div>`;
   }
-  return `<div class="detail-section">${overallFacts}<div class="req-sop-list">${cards||''}</div>${orphanHtml}</div>`;
+  const gateWorkflow=run?.workflowId||workflow?.id||'';
+  return `<div class="detail-section">${overallFacts}${gateWorkflow?`<div data-verify-gate data-workflow="${escapeHTML(gateWorkflow)}" hidden></div>`:''}<div class="req-sop-list">${cards||''}</div>${orphanHtml}</div>`;
 }
 function artifactsPane(data){
   const run=data.run;
