@@ -10,10 +10,9 @@ import (
 	"testing"
 
 	"agentflow/internal/domain"
-	"agentflow/internal/repo"
 )
 
-// Issue #228: clarification and run evals run on CodeBuddy only. A model of
+// Issue #228: clarification runs on CodeBuddy only (run evals: TestRunEvalOnKiroModel). A model of
 // another CLI ("codex:…") must be refused up front, not silently swapped for
 // the CodeBuddy default.
 func TestClarifyModelEngineError(t *testing.T) {
@@ -51,24 +50,5 @@ func TestChatClarifyRefusesOtherCLIModel(t *testing.T) {
 	}
 	if called {
 		t.Fatal("clarification started with a Codex model")
-	}
-}
-
-func TestRunEvalRefusesOtherCLIModel(t *testing.T) {
-	f := cvBNewHTTPFixture(t)
-	if _, err := f.s.UpdateUserCredentials(f.user.ID, repo.UserCredentialUpdate{CodeBuddyAPIKey: "eval-key"}); err != nil {
-		t.Fatal(err)
-	}
-	done := domain.Run{ID: "eval-codex-run", Status: "succeeded", WorkflowID: "missing",
-		ExecutionContext: domain.TelemetryContext{ProjectID: "platform"}, Nodes: map[string]*domain.NodeRun{}}
-	if err := f.s.PutRun(done); err != nil {
-		t.Fatal(err)
-	}
-	rec := cvBRequest(t, f, http.MethodPost, "/api/runs/eval-codex-run/eval", map[string]any{"model": "codex:gpt-5.5"}, true)
-	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "只支持 CodeBuddy") {
-		t.Fatalf("status = %d body = %s, want 400 explaining the CodeBuddy limit", rec.Code, rec.Body.String())
-	}
-	if _, busy := f.s.ActiveRunEval(done.ID); busy {
-		t.Fatal("a Codex model must not start a run eval")
 	}
 }
