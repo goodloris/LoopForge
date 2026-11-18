@@ -117,7 +117,9 @@ func (r *AssistantRepo) PendingNativeApprovals(owner int64, session string) []do
 	return out
 }
 
-func (r *AssistantRepo) DecideNativeApproval(owner, actor int64, session, id, decision string) error {
+// DecideNativeApproval records decider's answer. Any member allowed to decide
+// may answer for the speaker; the call itself still runs as the speaker.
+func (r *AssistantRepo) DecideNativeApproval(owner, decider int64, session, id, decision string) error {
 	if decision != "allow" && decision != "deny" {
 		return fmt.Errorf("无效审批结果")
 	}
@@ -128,19 +130,23 @@ func (r *AssistantRepo) DecideNativeApproval(owner, actor int64, session, id, de
 	return r.updateNativeApprovals(owner, session, row.GenerationID, true, func(payload *assistantGenerationPayload) error {
 		for i := range payload.NativeApprovals {
 			item := &payload.NativeApprovals[i]
-			if item.ID != id || item.ActorID != actor {
+			if item.ID != id {
 				continue
 			}
-			if item.Decision != "pending" && item.Decision != decision {
-				return fmt.Errorf("审批已作出不同决定")
+			if item.Decision != "pending" {
+				if item.Decision != decision {
+					return fmt.Errorf("审批已作出不同决定")
+				}
+				return nil
 			}
 			item.Decision = decision
+			item.DecidedBy = decider
 			// Keep only the exact-input digest for transport retries once the
 			// browser no longer needs to display the full tool arguments.
 			item.Input = nil
 			return nil
 		}
-		return fmt.Errorf("审批已失效或不属于当前发起人")
+		return fmt.Errorf("审批已失效")
 	})
 }
 

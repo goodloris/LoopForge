@@ -247,5 +247,8 @@ type AssistantNativeApproval struct {
 	Input        json.RawMessage `json:"input"`
 	InputDigest  string          `json:"-"`
 	Decision     string          `json:"decision"`
-	CreatedAt    time.Time       `json:"createdAt"`
+	// DecidedBy is the member who allowed or denied the call; 0 while it is
+	// pending or when it timed out. The call still runs as ActorID.
+	DecidedBy int64     `json:"decidedBy,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
 }

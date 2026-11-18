@@ -113,6 +113,9 @@ type AgentToolSession struct {
 	// id, when the CLI sends notifications/cancelled for them.
 	toolCalls         map[string]*agentToolCallCancel
 	nativePhaseClosed atomic.Bool
+	// announcedApprovals are the external writes whose decider was already
+	// recorded in the turn's activity (guarded by mu).
+	announcedApprovals map[string]bool
 	closed            atomic.Bool
 	committed         atomic.Bool
 	ctx               context.Context
