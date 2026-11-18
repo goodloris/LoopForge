@@ -4,7 +4,7 @@
 
 `bash scripts/dev.sh` explicitly configures local secrets, starts only this checkout's database service (PostgreSQL by default, see [Database](#database)), builds the platform, provisions the `admin` account, runs `scripts/install-schema-extensions.sh` (the baseline and seed of the selected database), and starts the server on port 8090. Existing catalog definitions are preserved (`ON CONFLICT DO NOTHING` on PostgreSQL, `INSERT IGNORE` on MySQL). Keep `.env`, `.local/` and database volumes outside version control.
 
-For a native installation, use Node.js 22+ on the API host and install the CLIs you choose. CodeBuddy is also used for requirement clarification; scheduled assistant tasks use whichever supported CLI the task selects:
+For a native installation, use Node.js 22+ on the API host and install the CLIs you choose. CodeBuddy is also used for requirement clarification (Kiro CLI can instead run run evals, Bot replies and AI notification summaries when `kiro-cli` is logged in on the API host); scheduled assistant tasks use whichever supported CLI the task selects:
 
 ```bash
 npm install --global @tencent-ai/codebuddy-code
