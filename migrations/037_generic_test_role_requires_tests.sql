@@ -4,13 +4,13 @@
 -- The 测试验证 role of the backend, frontend and defect-fix SOPs must write
 -- 「未通过」 and submit fail when it cannot run the project's tests (for
 -- example the test tools are missing and cannot be installed), instead of
--- passing on manual verification. migrations/034_generic_backend_pip.sql
+-- passing on manual verification. migrations/036_generic_backend_pip.sql
 -- gives the shared sandbox pip so a role can install Python test tools.
 --
 -- New installs get these prompts from the seed. This script changes the
 -- behaviour of existing SOPs, so it is not run on install or ./start.sh pull;
 -- an operator runs it by hand:
---   docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" mysql -u loopforge loopforge' < migrations/035_generic_test_role_requires_tests.sql
+--   docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" mysql -u loopforge loopforge' < migrations/037_generic_test_role_requires_tests.sql
 -- Only an unedited shipped prompt is rewritten. Project SOPs already adopted
 -- from these templates are copies and are not touched.
 SET NAMES utf8mb4;

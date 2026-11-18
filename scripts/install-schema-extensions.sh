@@ -17,7 +17,7 @@ if [[ "$LOOPFORGE_DATABASE" == postgres ]]; then
   seed=(migrations/postgres/seed/*.sql)
 else
   baseline=migrations/001_run_obs_generated_columns.sql
-  seed=(migrations/seed/*.sql migrations/031_generic_backend_openssh.sql migrations/034_generic_backend_pip.sql)
+  seed=(migrations/seed/*.sql migrations/031_generic_backend_openssh.sql migrations/036_generic_backend_pip.sql)
 fi
 if ! bash scripts/install-observability-schema.sh; then
   printf '\n✗ Could not add the generated columns run details need.\n' >&2

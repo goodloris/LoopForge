@@ -48,7 +48,7 @@ CREATE DATABASE loopforge
 - 以后改动已有数据（MySQL 那边的 `0NN_*.sql` 数据修补）时，PG 版本按序号在本目录新增 `002_*.sql`，和 MySQL 脚本放在同一个提交里。新安装直接用 seed 拿到最新内容，所以 seed 也要同步改。
 - `TestPostgresBaselineAndSeed` 在设置 `AGENTFLOW_TEST_PG_DSN` 时运行：在 gorm 建出的 schema 上按上面的顺序执行两遍，检查行数、jsonb 能否接受 payload、生成列取值、索引、体验项目负责人，最后用生产 `Open` 重新打开，确认增量 DDL 能接受这些额外结构。子用例 `payload jsonb` 先把 `run_telemetry`、`run_logs` 的 payload 改成 jsonb 再执行 baseline，确认生成列在 json 和 jsonb 上都能建成。
 
-## MySQL 001–035 在 PG 全新安装下的结论
+## MySQL 001–037 在 PG 全新安装下的结论
 
 判断依据：在 PG 17 上用 gorm 建表后，逐个比对每个脚本创建的表、列和索引名（`information_schema`、`pg_indexes`），并用 grep 确认代码是否还引用相关表。
 
@@ -88,11 +88,13 @@ CREATE DATABASE loopforge
 | 028_git_ssh_credentials | 表 | 不需要，gorm 已建 |
 | 029_assistant_diagnostics | 表 | 不需要，gorm 已建 |
 | 030_generic_docker_shared | `generic-docker` 标记为 shared | 不需要，seed 已带 `"shared":true` |
-| 031_generic_backend_openssh | Dockerfile 加 openssh-client | 不需要，seed 已是 034 之后的内容 |
+| 031_generic_backend_openssh | Dockerfile 加 openssh-client | 不需要，seed 已是 036 之后的内容 |
 | 032_assistant_generation_workspace_lease | 租约列 | 不需要，gorm 已建 |
 | 033_generic_sop_mr_node | 代码 SOP 增加「发起 MR」节点 | 不需要，seed 已含 MR 节点（`TestPublicCodeSOPsOpenMRBeforeDeliver` 校验 MySQL seed，一致性测试保证 PG seed 相同） |
-| 034_generic_backend_pip | Dockerfile 加 python3-pip、python3-venv | 不需要，seed 已含（`TestPublicTestRolesFailWithoutRunningTests` 断言等于 `runtime.IsolatedDockerfile`） |
-| 035_generic_test_role_requires_tests | 测试角色新 prompt | 不需要，seed 已含新 prompt |
+| 034_schedule_job_executions | 上游：定时任务执行记录表 `schedule_job_executions`、小时统计表 `schedule_job_execution_stats` 及索引 | 不需要，gorm 已建（含 4 个 `idx_schedule_job_executions_*` 索引、`idx_schedule_job_execution_stats_project`、复合主键 `(job_id, bucket_hour)`；`payload` 为 jsonb）。无数据迁移 |
+| 035_codebuddy_model_catalog | 上游：`user_configs.codebuddy_models` 列 | 不需要，gorm 已建（`text`）。不改内置目录数据，seed 无需改 |
+| 036_generic_backend_pip | Dockerfile 加 python3-pip、python3-venv | 不需要，seed 已含（`TestPublicTestRolesFailWithoutRunningTests` 断言等于 `runtime.IsolatedDockerfile`） |
+| 037_generic_test_role_requires_tests | 测试角色新 prompt | 不需要，seed 已含新 prompt |
 
 MySQL 脚本里有些列是 `NOT NULL DEFAULT ''` / `DEFAULT 0`（如 005 的 `source_id`、018 的 `thread_id`、011 的 `workspace_editor_id`），gorm 在 PG 上建成可空、无默认值。MySQL 全新安装同样只执行 001 和 seed（见 `scripts/install-schema-extensions.sh`），这些列在 MySQL 新库上也是 gorm 的定义，所以 PG 不需要补。
 
