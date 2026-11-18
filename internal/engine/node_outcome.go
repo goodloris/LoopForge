@@ -55,13 +55,17 @@ func (e *Engine) nodeFailedAt(runID string, node domain.WorkflowNode, attempt, g
 		if !shouldCommitNodeOutcome(*r, nr, generation, attempt, false) {
 			return
 		}
-		nr.Error = err.Error()
+		nr.Error = failureFeedback(err)
+		if detail, ok := commandFailureDetail(err); ok && isScriptNode(node) {
+			// A failed script has no other output; show what the command printed.
+			nr.Output = detail
+		}
 		nr.FinishedAt = time.Now().UTC()
 		reworkBudget := node.RejectTo != "" && r.Nodes[node.RejectTo] != nil && r.Nodes[node.RejectTo].ReworkCount >= max(1, node.MaxReworks)
 		if shouldRetryFailedAttempt(node, nr.Attempt, err) && !gateReworkReject(allowReject, nr) {
 			// The retry gets a clean workspace, so carry the concrete failure into
 			// {{feedback}} instead of making the next attempt rediscover it.
-			nr.Feedback = err.Error()
+			nr.Feedback = failureFeedback(err)
 			nr.Status = "pending"
 			nr.ChildRunID = ""
 			e.event(r, node.ID, "node.retry", "执行失败，准备重试："+err.Error())
@@ -73,7 +77,7 @@ func (e *Engine) nodeFailedAt(runID string, node domain.WorkflowNode, attempt, g
 			// upstream output and continues; anything else stays a human call.
 			nr.Status = "waiting_approval"
 			nr.Activity = "返工预算耗尽，等待人工决策"
-			nr.Error = fmt.Sprintf("上游节点 %s 返工次数已用尽（MaxReworks=%d），无法再次打回，等待人工决策（批准=接受当前结果继续下游）。Agent 理由：%s", node.RejectTo, max(1, node.MaxReworks), err.Error())
+			nr.Error = fmt.Sprintf("上游节点 %s 返工次数已用尽（MaxReworks=%d），无法再次打回，等待人工决策（批准=接受当前结果继续下游）。Agent 理由：%s", node.RejectTo, max(1, node.MaxReworks), failureFeedback(err))
 			e.event(r, node.ID, "gate.waiting", "返工预算耗尽，等待人工决策："+err.Error())
 		} else {
 			nr.Status = "failed"
@@ -82,7 +86,7 @@ func (e *Engine) nodeFailedAt(runID string, node domain.WorkflowNode, attempt, g
 		shouldReject = !configurationFailure && allowReject && nr.Status == "failed" && node.RejectTo != "" && r.Nodes[node.RejectTo] != nil && r.Nodes[node.RejectTo].ReworkCount < max(1, node.MaxReworks)
 	})
 	if shouldReject {
-		_ = e.Reject(runID, domain.RejectRequest{NodeID: node.ID, TargetID: node.RejectTo, Reason: "节点失败自动打回：" + err.Error()})
+		_ = e.Reject(runID, domain.RejectRequest{NodeID: node.ID, TargetID: node.RejectTo, Reason: "节点失败自动打回：" + failureFeedback(err)})
 	}
 }
 

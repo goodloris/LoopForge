@@ -647,6 +647,7 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 				Message:    fmt.Sprintf("%s 脚本执行%s · %d ms · 输出 %d bytes", scriptLanguageLabel(language), status, duration.Milliseconds(), len(rawOutput)),
 				Attributes: map[string]any{"language": language, "status": status, "durationMs": duration.Milliseconds(), "outputBytes": len(rawOutput)},
 			})
+			runErr = withCommandOutput(runErr, command, rawOutput)
 			if strings.TrimSpace(rawOutput) == "" {
 				rawOutput = fmt.Sprintf("# 脚本执行结果\n\n- 语言：%s\n- 状态：%s\n- 耗时：%d ms\n- 标准输出：无\n", scriptLanguageLabel(language), status, duration.Milliseconds())
 			}
@@ -950,14 +951,7 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 					return gateExec(gateCmd, target, executionTargetSink(gateSink, target))
 				})
 				if verifyErr != nil {
-					detail := strings.TrimSpace(verifyOutput)
-					if len(detail) > 2_000 {
-						detail = detail[len(detail)-2_000:]
-					}
-					if detail == "" {
-						detail = "no command output"
-					}
-					err = fmt.Errorf("verification %s command %q: %w (%s)", gate.Name, gateCmd, verifyErr, detail)
+					err = withCommandOutput(fmt.Errorf("verification %s: %w", gate.Name, verifyErr), gateCmd, verifyOutput)
 					failedAction = candidate.onFailure
 					gateRejected = failedAction == "reject"
 				}
@@ -970,10 +964,10 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 			break
 		}
 		if failedAction != "loop" {
-			e.observe(runID, node.ID, domain.TelemetryEvent{Category: "orchestration", Name: "agent.loop", Phase: "finish", Message: "门禁失败策略为 " + failedAction + "，跳过自修正", Attributes: map[string]any{"iteration": iteration, "onFailure": failedAction, "feedback": err.Error()}})
+			e.observe(runID, node.ID, domain.TelemetryEvent{Category: "orchestration", Name: "agent.loop", Phase: "finish", Message: "门禁失败策略为 " + failedAction + "，跳过自修正", Attributes: map[string]any{"iteration": iteration, "onFailure": failedAction, "feedback": failureFeedback(err)}})
 			break
 		}
-		loopFeedback = err.Error()
+		loopFeedback = failureFeedback(err)
 		e.observe(runID, node.ID, domain.TelemetryEvent{Category: "orchestration", Name: "agent.loop", Phase: "progress", Message: fmt.Sprintf("第 %d 轮未通过，进入自修正", iteration), Attributes: map[string]any{"iteration": iteration, "maxIterations": maxIterations, "feedback": loopFeedback}})
 	}
 	e.attachLoopRetro(runID, node.ID, retroWorkspace, lastIteration, err, failedAction)
@@ -1002,7 +996,7 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 				if !shouldCommitNodeOutcome(*r, nr, executionGeneration, executionAttempt, false) {
 					return
 				}
-				nr.Output, nr.Error, nr.Status, nr.Activity, nr.FinishedAt = output, err.Error(), "waiting_approval", "等待人工确认", time.Now().UTC()
+				nr.Output, nr.Error, nr.Status, nr.Activity, nr.FinishedAt = output, failureFeedback(err), "waiting_approval", "等待人工确认", time.Now().UTC()
 				message := "Agent 请求人工确认"
 				if nr.GateResult != nil && strings.TrimSpace(nr.GateResult.ActionRequired) != "" {
 					message += "：" + nr.GateResult.ActionRequired
@@ -1019,7 +1013,7 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 				if !shouldCommitNodeOutcome(*r, nr, executionGeneration, executionAttempt, false) {
 					return
 				}
-				nr.Output, nr.Error, nr.Status, nr.FinishedAt = output, err.Error(), "waiting_approval", time.Now().UTC()
+				nr.Output, nr.Error, nr.Status, nr.FinishedAt = output, failureFeedback(err), "waiting_approval", time.Now().UTC()
 				e.event(r, node.ID, "agent.loop.exhausted", "Agent 自修正次数已耗尽，转人工判断："+err.Error())
 			})
 			return
