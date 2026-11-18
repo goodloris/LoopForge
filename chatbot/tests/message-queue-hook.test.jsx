@@ -125,6 +125,23 @@ describe("sending while a reply runs", () => {
     unmount();
   });
 
+  test("shows the other members' queued messages while the reply runs", async () => {
+    const original = apiMock.getMockImplementation();
+    apiMock.mockImplementation(async (path, options) =>
+      path === "/api/assistant/sessions/s1/queue"
+        ? [{ id: "mine", authorId: 1, text: "我的" }, { id: "q9", authorId: 2, authorName: "chenxi", text: "设计稿已更新" }]
+        : original(path, options));
+    try {
+      const { result, unmount } = await openRunning();
+      await waitFor(() => expect(result.current.queueOthers.map((m) => m.id)).toEqual(["q9"]));
+      await finish("completed");
+      await waitFor(() => expect(result.current.queueOthers).toEqual([]));
+      unmount();
+    } finally {
+      apiMock.mockImplementation(original);
+    }
+  });
+
   test("stopping holds the queue until the user continues", async () => {
     const { result, unmount } = await openRunning();
     await act(async () => {
