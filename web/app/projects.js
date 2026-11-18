@@ -380,6 +380,15 @@ function renderProjectAdmin(opt={}){
   const detail=!!state.projectAdminDetailId;
   listView.hidden=detail;detailView.hidden=!detail;
   if(detail)renderProjectDetail(opt);else renderProjectList();
+  ensureProjectAdminIssues();
+}
+// /api/bootstrap carries no requirements, so the 需求 / 推进中 counts here read 0 until the
+// requirements list had been opened. Load them in the background, at most every 30 s.
+let projectAdminIssuesAt=0;
+function ensureProjectAdminIssues(){
+  if(!$('#projectsView')?.classList.contains('active')||Date.now()-projectAdminIssuesAt<30000)return;
+  projectAdminIssuesAt=Date.now();
+  refreshIssues().then(()=>{if(!$('#projectsView')?.classList.contains('active'))return;if(state.projectAdminDetailId)renderProjectAdminHead();else renderProjectList()});
 }
 function resetProjectAdminDetail(){
   state.projectAdminDetailId=null;state.projectAdminTab='basic';state.projectDraft=null;state.projectDraftFor='';state.projectDraftBase=null;state.projectIdentCustom=false;state.projectAdminErrors={};
