@@ -690,8 +690,13 @@ export function useChat() {
   const replyRunning = generation?.status === "running";
   const ownQueued = (activeId && queues[activeId]?.items) || [];
   const ownQueuedKey = JSON.stringify(ownQueued.map((item) => [item.id, item.text, queuedExtras(item)]));
+  const publishedQueue = useRef("");
   useEffect(() => {
     if (!activeId || !replyRunning || session?.readOnly) return;
+    // Only a queue that has (or had) items on this turn is worth a request.
+    const turn = `${activeId}/${generation?.id}`;
+    if (!ownQueued.length && !publishedQueue.current.startsWith(`${turn}:`)) return;
+    publishedQueue.current = ownQueued.length ? `${turn}:${ownQueuedKey}` : "";
     void write(`${sessionPath(activeId)}/queue`, { items: queuedPreviews(ownQueued) }, "PUT").catch(() => {});
     // ownQueued is read through ownQueuedKey.
   }, [activeId, replyRunning, generation?.id, ownQueuedKey, session?.readOnly]);
