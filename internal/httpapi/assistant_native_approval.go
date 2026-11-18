@@ -29,14 +29,30 @@ func (h *assistantHandlers) nativeApprovals(c *gin.Context) {
 		c.JSON(403, gin.H{"error": err.Error()})
 		return
 	}
+	// Every member sees what the turn waits for. Viewers may not answer: an
+	// approval lets the speaker's credentials write to an outside system.
+	conv, _ := h.repo.AssistantSession(owner, c.Param("id"))
+	canDecide := h.projectWriterAllowed(c, conv.ProjectID, user.ID)
 	if c.Request.Method == "GET" {
 		stored, _ := h.repo.User(user.ID)
-		items := h.repo.PendingNativeApprovals(owner, c.Param("id"))
-		items = slices.DeleteFunc(items, func(item domain.AssistantNativeApproval) bool { return item.ActorID != user.ID })
-		for i := range items {
-			items[i].Input = redactNativeApprovalInput(items[i].Input, stored)
+		type card struct {
+			domain.AssistantNativeApproval
+			ActorName string `json:"actorName,omitempty"`
+			CanDecide bool   `json:"canDecide"`
 		}
-		c.JSON(200, items)
+		items := h.repo.PendingNativeApprovals(owner, c.Param("id"))
+		out := make([]card, 0, len(items))
+		for _, item := range items {
+			actor, _ := h.repo.User(item.ActorID)
+			// The input runs with the speaker's credentials: hide theirs too.
+			item.Input = redactNativeApprovalInput(redactNativeApprovalInput(item.Input, actor), stored)
+			out = append(out, card{AssistantNativeApproval: item, ActorName: actor.LoginName, CanDecide: canDecide})
+		}
+		c.JSON(200, out)
+		return
+	}
+	if !canDecide {
+		c.JSON(403, gin.H{"error": "只读成员可以查看待批准的外部写入，但不能批准或拒绝"})
 		return
 	}
 	var body struct {
@@ -233,12 +249,14 @@ func (h *agentToolGateway) approveNativeTool(ctx context.Context, s *AgentToolSe
 			}
 			switch old.Decision {
 			case "allow":
+				h.announceNativeDecision(s, old)
 				return nativeToolApprovalResult{Allow: true}
 			case "deny":
+				h.announceNativeDecision(s, old)
 				return deny("用户拒绝了本次外部写入，不要换一种方式重试；先问用户怎么处理")
 			}
 			if time.Since(old.CreatedAt) > nativeApprovalWait {
-				_ = h.repo.DecideNativeApproval(s.ChatOwnerID, old.ActorID, s.ChatSessionID, old.ID, "deny")
+				_ = h.repo.DecideNativeApproval(s.ChatOwnerID, 0, s.ChatSessionID, old.ID, "deny")
 				return deny("等待用户批准超时，操作未执行；告诉用户需要批准什么，等用户回复后再试")
 			}
 			return nativeToolApprovalResult{Pending: true}
@@ -288,6 +306,39 @@ func (h *agentToolGateway) approveNativeTool(ctx context.Context, s *AgentToolSe
 		s.Notify("native_approval", map[string]string{"id": item.ID})
 	}
 	return nativeToolApprovalResult{Pending: true}
+}
+
+// announceNativeDecision records in the turn's activity who answered an
+// external write, once per call. The call still runs as the speaker.
+func (h *agentToolGateway) announceNativeDecision(s *AgentToolSession, item domain.AssistantNativeApproval) {
+	if item.DecidedBy <= 0 || s.Notify == nil || h.repo == nil {
+		return
+	}
+	s.mu.Lock()
+	if s.announcedApprovals == nil {
+		s.announcedApprovals = map[string]bool{}
+	}
+	seen := s.announcedApprovals[item.ID]
+	s.announcedApprovals[item.ID] = true
+	s.mu.Unlock()
+	if seen {
+		return
+	}
+	decider, _ := h.repo.User(item.DecidedBy)
+	verb := "批准"
+	if item.Decision == "deny" {
+		verb = "拒绝"
+	}
+	label := item.Summary
+	if label == "" {
+		label = item.Tool
+	}
+	text := decider.LoginName + " " + verb + "了外部写入：" + label
+	if item.DecidedBy != item.ActorID {
+		actor, _ := h.repo.User(item.ActorID)
+		text += "（代 " + actor.LoginName + "，仍使用其凭据执行）"
+	}
+	s.Notify("thought", assistantStreamEvent{Kind: "status", Text: text})
 }
 
 // nativeReviewRefusal tells the agent why assisted mode declined a command.

@@ -164,10 +164,14 @@ exec "$@"
         self.assertIn('INSERT IGNORE', sql)
         self.assertIn('python3-pip python3-venv', sql)
         self.assertIn('033_generic_sop_mr_node.sql', sql)
+        self.assertIn('038_generic_sop_gates.sql', sql)
 
-    def test_postgres_has_no_manual_migration_hints(self):
+    def test_postgres_checks_only_the_038_manual_migration(self):
         self.assert_success(self.install())
-        self.assertNotIn('033_generic_sop_mr_node', (self.root / 'sql.log').read_text())
+        sql = (self.root / 'sql.log').read_text()
+        self.assertNotIn('033_generic_sop_mr_node', sql)
+        self.assertNotIn('037_generic_test_role', sql)
+        self.assertIn("SELECT '038_generic_sop_gates.sql'", sql)
 
     def test_unknown_database_is_refused_before_creating_config(self):
         result = self.install(LOOPFORGE_DATABASE='sqlite')

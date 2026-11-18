@@ -155,7 +155,7 @@ Kiro CLI runs on a subscription login (`kiro-cli login`), never on an API key.
 - **Conversation workspaces:** before each start, the conversation's `KIRO_HOME` is cleared of everything except sessions, logs, login state and what the platform rewrites, so hooks or permission rules a workspace turn planted there do not load in a later turn.
 - **Compose platform:** set `LOOPFORGE_KIRO_DATA_DIR` in `.env` to the host's kiro-cli data directory (`~/.local/share/kiro-cli` on Linux, `~/Library/Application Support/kiro-cli` on macOS). It is mounted read-only at `/kiro-host`; without it Kiro CLI shows as unconfigured.
 
-The image bundles kiro-cli 3.3.0 with its runtime in `KIRO_RUNTIME_DIR=/opt/kiro-runtime`. A custom sandbox image without kiro-cli installs the same pinned release on first use and unpacks the runtime (about 415 MB) into the private HOME.
+The image bundles kiro-cli 3.4.0 with its runtime in `KIRO_RUNTIME_DIR=/opt/kiro-runtime`. A custom sandbox image without kiro-cli installs the same pinned release on first use and unpacks the runtime (about 415 MB) into the private HOME.
 
 ## Workers and runners
 
@@ -211,7 +211,16 @@ docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" mysql -u loopfor
 
 The installer and `./start.sh pull` do not run it. It rewrites only unedited shipped prompts and is safe to repeat. They do run `036_generic_backend_pip.sql`, which adds `python3-pip` and `python3-venv` to the unedited built-in `generic-backend` Dockerfile to match the platform image.
 
-`scripts/install-schema-extensions.sh` (installer and `./start.sh pull`) and `scripts/dev.sh` end with a read-only check, `scripts/manual-migration-hints.sh`, that names 033 or 037 with this command while a built-in template still lacks the `mr` node or still holds the pre-037 测试验证 prompt. On PostgreSQL it reports nothing.
+To gate the tests of the same three SOPs on an exit code and send a failed review or test back to 开发实现, apply `038_generic_sop_gates.sql` after 037. This one also exists for PostgreSQL, because installations seeded before it keep the old templates:
+
+```bash
+docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" mysql -u loopforge loopforge' < migrations/038_generic_sop_gates.sql
+docker compose exec -T postgres psql -X -v ON_ERROR_STOP=1 -U loopforge -d loopforge < migrations/postgres/038_generic_sop_gates.sql
+```
+
+After it, 独立评审 and 测试验证 rework 开发实现 (at most 2 times in total: the limit counts the reworks of 开发实现) instead of failing the run, and 测试验证 runs `.loopforge/verify` from each repository's target branch once the role submits pass: a non-zero exit code sends the command output back to 开发实现. Commit that file to a repository to choose its test command, for example `python3 -m pytest -q`, and leave out tests that already fail on the target branch. Without it the test verdict stays the Agent's, which `test-report.md` states. The installer and `./start.sh pull` do not run 038; it rewrites only unedited shipped nodes, prompts and descriptions and is safe to repeat.
+
+`scripts/install-schema-extensions.sh` (installer and `./start.sh pull`) and `scripts/dev.sh` end with a read-only check, `scripts/manual-migration-hints.sh`, that names 033, 037 or 038 with this command while a built-in template still lacks the `mr` node, still holds the pre-037 测试验证 prompt, or still has the shipped 独立评审 node without a rework target. On PostgreSQL it can only report 038.
 
 ## GitHub credentials
 

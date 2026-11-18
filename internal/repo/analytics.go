@@ -596,7 +596,7 @@ func (r *AnalyticsRepo) analyticsWithRuns(filter domain.AnalyticsFilter, prefetc
 		out.Failures = append(out.Failures, *failure)
 	}
 	sort.Slice(out.Failures, func(i, j int) bool { return out.Failures[i].Count > out.Failures[j].Count })
-	out.MRMerges, out.Summary.MergedMRsMissingTime = r.mrMergeAnalytics(filter, issuesByID)
+	out.MRMerges, out.Summary.MergedMRsMissingTime, out.Summary.IntegratedMRs = r.mrMergeAnalytics(filter, issuesByID)
 	out.Summary.MergedMRs = len(out.MRMerges)
 	for _, mr := range out.MRMerges {
 		analyticsTrendEntry(trends, analyticsTrendBucket(mr.MergedAt, filter.Grain)).MergedMRs++

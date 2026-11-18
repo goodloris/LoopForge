@@ -136,15 +136,17 @@ func TestExternalMCPWriteWaitsForSpeaker(t *testing.T) {
 					!strings.Contains(mine.Body.String(), "[redacted]") || strings.Contains(mine.Body.String(), "example value") {
 					t.Fatalf("speaker did not get a redacted approval: %d %s", mine.Code, mine.Body)
 				}
-				if peer := send(owner, http.MethodGet, ""); peer.Code != 200 || peer.Body.String() != "[]" {
-					t.Fatalf("another member saw the approval: %d %s", peer.Code, peer.Body)
+				// Every member sees the card and may answer it for the speaker;
+				// the call still runs as the speaker.
+				if peer := send(owner, http.MethodGet, ""); peer.Code != 200 || !strings.Contains(peer.Body.String(), "approved title") || strings.Contains(peer.Body.String(), "example value") {
+					t.Fatalf("another member did not see the redacted approval: %d %s", peer.Code, peer.Body)
 				}
 				body, _ := json.Marshal(map[string]string{"decision": tc.action})
-				if peer := send(owner, http.MethodPost, string(body)); peer.Code < 400 {
-					t.Fatalf("another member decided the approval: %d %s", peer.Code, peer.Body)
+				if peer := send(owner, http.MethodPost, string(body)); peer.Code != 200 {
+					t.Fatalf("another member could not decide the approval: %d %s", peer.Code, peer.Body)
 				}
 				if response := send(speaker, http.MethodPost, string(body)); response.Code != 200 {
-					t.Fatalf("speaker decision failed: %d %s", response.Code, response.Body)
+					t.Fatalf("repeating the same decision failed: %d %s", response.Code, response.Body)
 				}
 			case "cancel":
 				cancel()

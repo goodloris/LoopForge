@@ -154,11 +154,15 @@ func TestNativeApprovalIsExactActorAndLiveGeneration(t *testing.T) {
 	if err = st.CreateNativeApproval(41, s.ID, "phase", item); err != nil {
 		t.Fatal(err)
 	}
-	if err = st.DecideNativeApproval(41, 41, s.ID, item.ID, "allow"); err == nil {
-		t.Fatal("different actor approved")
+	// Another member may answer for the speaker; the record names who did.
+	if err = st.DecideNativeApproval(41, 43, s.ID, item.ID, "allow"); err != nil {
+		t.Fatal(err)
 	}
 	if err = st.DecideNativeApproval(41, 42, s.ID, item.ID, "allow"); err != nil {
 		t.Fatal(err)
+	}
+	if got, _ := st.NativeApproval(41, s.ID, item.ID); got.DecidedBy != 43 || got.ActorID != 42 || got.Decision != "allow" {
+		t.Fatalf("decision record = %+v", got)
 	}
 	if err = st.DecideNativeApproval(41, 42, s.ID, item.ID, "deny"); err == nil {
 		t.Fatal("approval changed decision")

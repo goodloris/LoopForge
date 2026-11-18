@@ -9,6 +9,13 @@ const brands = {
 };
 export const engineBrand = (id) => brands[id] || "";
 
+// Display names, mirroring assistantEngineLabel on the server.
+const labels = {
+  codebuddy: "CodeBuddy", codex: "Codex", "claude-code": "Claude Code", opencode: "OpenCode", cursor: "Cursor",
+  agy: "Antigravity", kimi: "Kimi Code", pi: "Pi", dsh: "DeepSeek Harness", zcode: "ZCode", kiro: "Kiro CLI",
+};
+export const engineLabel = (id) => labels[id] || id || "";
+
 export const modelEngine = (model) => model?.engine || defaultEngine;
 
 /** The CLI an ID runs on: the catalog entry, else the "cli:model" prefix. */
@@ -21,6 +28,23 @@ export function engineOfModel(id, models = []) {
 
 export const engineModels = (models, engine) =>
   (models || []).filter((m) => modelEngine(m) === engine);
+
+/**
+ * The CLI a new conversation starts on when this browser has no pick: the
+ * one the user's latest own conversation ran on, else the first CLI the
+ * user has configured, else CodeBuddy. A deployment with only Kiro CLI
+ * therefore never defaults to an unconfigured CodeBuddy.
+ */
+export function defaultExecutor(engines = [], sessions = [], userId = 0, models = []) {
+  const configured = (engines || []).filter((engine) => engine.configured).map((engine) => engine.id);
+  const usable = (id) => id && (!engines?.length || configured.includes(id));
+  const latest = [...(sessions || [])]
+    .filter((session) => !userId || !session.userId || session.userId === userId)
+    .sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")))
+    .map((session) => legacyEngine(session.executor) || (session.model ? engineOfModel(session.model, models) : ""))
+    .find(usable);
+  return latest || configured[0] || defaultEngine;
+}
 
 // Mirrors assistantEngineMissingKey in internal/httpapi/assistant_engines.go;
 // credentialHint turns it into a "去配置" button.

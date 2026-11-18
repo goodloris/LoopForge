@@ -5,6 +5,7 @@ PostgreSQL 是一键安装（`./start.sh`、`scripts/install.sh`、`scripts/dev.
 ```
 postgres/
   001_baseline_extensions.sql   # gorm 建不出来的结构：001 的生成列及索引
+  038_generic_sop_gates.sql     # 已有安装的内置 SOP 数据修补，手动执行（见下表 038）
   seed/
     001_public_catalog.sql      # 公共目录，等价于 ../seed/001_public_catalog.sql
     002_welcome_project.sql     # 体验项目，等价于 ../seed/002_welcome_project.sql
@@ -45,10 +46,10 @@ CREATE DATABASE loopforge
 
 - **seed 必须和 MySQL seed 同步修改。** `internal/repo/pg_migrations_test.go` 的 `TestPostgresSeedMatchesMySQLSeed` 逐行比较两边的表、列和解码后的 JSON，只改一边时测试会失败。这个测试不连数据库，每次 `go test` 都会运行。
 - seed 的字符串按 PG 默认的 `standard_conforming_strings` 书写：反斜杠不转义，JSON 里的 `\n`、`\"` 只写一个反斜杠；MySQL 版写成 `\\n`、`\\"`。单引号两边都写成 `''`。
-- 以后改动已有数据（MySQL 那边的 `0NN_*.sql` 数据修补）时，PG 版本按序号在本目录新增 `002_*.sql`，和 MySQL 脚本放在同一个提交里。新安装直接用 seed 拿到最新内容，所以 seed 也要同步改。
+- 以后改动已有数据（MySQL 那边的 `0NN_*.sql` 数据修补）时，PG 版本在本目录新增同序号的 `0NN_*.sql`（第一个是 `038_generic_sop_gates.sql`），和 MySQL 脚本放在同一个提交里。新安装直接用 seed 拿到最新内容，所以 seed 也要同步改。这类脚本会改变已有 SOP 的行为，安装脚本不执行，由 `scripts/manual-migration-hints.sh` 在安装和 `./start.sh pull` 结束时提示。
 - `TestPostgresBaselineAndSeed` 在设置 `AGENTFLOW_TEST_PG_DSN` 时运行：在 gorm 建出的 schema 上按上面的顺序执行两遍，检查行数、jsonb 能否接受 payload、生成列取值、索引、体验项目负责人，最后用生产 `Open` 重新打开，确认增量 DDL 能接受这些额外结构。子用例 `payload jsonb` 先把 `run_telemetry`、`run_logs` 的 payload 改成 jsonb 再执行 baseline，确认生成列在 json 和 jsonb 上都能建成。
 
-## MySQL 001–037 在 PG 全新安装下的结论
+## MySQL 001–038 在 PG 安装下的结论
 
 判断依据：在 PG 17 上用 gorm 建表后，逐个比对每个脚本创建的表、列和索引名（`information_schema`、`pg_indexes`），并用 grep 确认代码是否还引用相关表。
 
@@ -95,6 +96,7 @@ CREATE DATABASE loopforge
 | 035_codebuddy_model_catalog | 上游：`user_configs.codebuddy_models` 列 | 不需要，gorm 已建（`text`）。不改内置目录数据，seed 无需改 |
 | 036_generic_backend_pip | Dockerfile 加 python3-pip、python3-venv | 不需要，seed 已含（`TestPublicTestRolesFailWithoutRunningTests` 断言等于 `runtime.IsolatedDockerfile`） |
 | 037_generic_test_role_requires_tests | 测试角色新 prompt | 不需要，seed 已含新 prompt |
+| 038_generic_sop_gates | 代码 SOP 的独立评审、测试验证加 `rejectTo=implement`、`maxReworks=2`；测试角色加 `.loopforge/verify` 退出码门禁；开发、评审、测试 prompt 与 SOP 描述 | 全新安装不需要，seed 已含（`TestPublicCodeSOPsReworkImplementAndGateTestsOnExitCode`）。**此前用 PG seed 建的安装需要手动执行** `038_generic_sop_gates.sql`：只改仍是出厂原文的字段，可重复执行；`manual-migration-hints.sh` 在独立评审节点仍是出厂原样时提示 |
 
 MySQL 脚本里有些列是 `NOT NULL DEFAULT ''` / `DEFAULT 0`（如 005 的 `source_id`、018 的 `thread_id`、011 的 `workspace_editor_id`），gorm 在 PG 上建成可空、无默认值。MySQL 全新安装同样只执行 001 和 seed（见 `scripts/install-schema-extensions.sh`），这些列在 MySQL 新库上也是 gorm 的定义，所以 PG 不需要补。
 

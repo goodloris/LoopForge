@@ -7,6 +7,7 @@ import {
   messageInfo,
   messageSentAt,
   messageTimeLabel,
+  turnModeCaption,
 } from "../src/message-info.js";
 
 const row = (info, key) => info.rows.find((r) => r.key === key);
@@ -106,4 +107,14 @@ test("time labels add the date only when it is not today", () => {
   assert.equal(messageTimeLabel(new Date(2026, 9, 31, 23, 59), now), "10-31 23:59");
   assert.equal(messageTimeLabel(new Date(2025, 11, 1, 8, 0), now), "2025-12-01 08:00");
   assert.equal(messageTimeLabel(null, now), "");
+});
+
+test("replies and running turns show the CLI and confirmation mode they ran with", () => {
+  const info = messageInfo({ model: "kiro:claude-sonnet-4.5", approvalMode: "assisted" });
+  assert.equal(row(info, "tool").value, "Kiro CLI");
+  assert.equal(row(info, "approval").value, "帮我批准");
+  const running = { status: "running", actorId: 2, actorName: "wangmin", executor: "kiro", approvalMode: "assisted" };
+  assert.equal(turnModeCaption(running, 3), "wangmin 的这一轮：Kiro CLI · 帮我批准");
+  assert.equal(turnModeCaption(running, 2), "");
+  assert.equal(turnModeCaption({ ...running, status: "completed" }, 3), "");
 });

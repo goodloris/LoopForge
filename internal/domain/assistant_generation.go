@@ -7,17 +7,21 @@ import (
 
 // A generation occupies one private or shared conversation slot, independently of any browser.
 type AssistantGeneration struct {
-	StartedAt        time.Time                  `json:"startedAt,omitempty"`
-	Trigger          string                     `json:"trigger,omitempty"`
-	TriggerID        string                     `json:"triggerId,omitempty"`
-	ID               string                     `json:"id"`
-	SessionID        string                     `json:"sessionId"`
-	ActorID          int64                      `json:"actorId,omitempty"`
-	ActorName        string                     `json:"actorName,omitempty"`
-	UserID           int64                      `json:"-"`
-	ProjectID        string                     `json:"projectId"`
-	Status           string                     `json:"status"`
-	RuntimeMode      string                     `json:"runtimeMode,omitempty"`
+	StartedAt   time.Time `json:"startedAt,omitempty"`
+	Trigger     string    `json:"trigger,omitempty"`
+	TriggerID   string    `json:"triggerId,omitempty"`
+	ID          string    `json:"id"`
+	SessionID   string    `json:"sessionId"`
+	ActorID     int64     `json:"actorId,omitempty"`
+	ActorName   string    `json:"actorName,omitempty"`
+	UserID      int64     `json:"-"`
+	ProjectID   string    `json:"projectId"`
+	Status      string    `json:"status"`
+	RuntimeMode string    `json:"runtimeMode,omitempty"`
+	// ApprovalMode and Executor are what this turn actually runs with, so
+	// members watching it are not shown their own settings instead.
+	ApprovalMode     string                     `json:"approvalMode,omitempty"`
+	Executor         string                     `json:"executor,omitempty"`
 	WorkspaceWarning string                     `json:"workspaceWarning,omitempty"`
 	Error            string                     `json:"error,omitempty"`
 	Failure          *AssistantFailure          `json:"failure,omitempty"`
