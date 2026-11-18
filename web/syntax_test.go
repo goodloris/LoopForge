@@ -940,6 +940,7 @@ global.state = {
 };
 eval(code.slice(code.indexOf('function runContext(r){'), code.indexOf('function taskTriggerInfo(')));
 eval(code.slice(code.indexOf('function runProjectId(r){'), code.indexOf('function preferredWorkflow(')));
+global.isPlatformAdmin = () => false;
 eval(code.slice(code.indexOf('function approvalItems(){'), code.indexOf('async function cancelRunFlow(')));
 assert.deepEqual(approvalItems().map(r => r.id), ['run-gslb']);
 state.projectFilter = 'platform';
@@ -947,7 +948,7 @@ assert.deepEqual(approvalItems().map(r => r.id), ['run-afp']);
 state.data.runs[1].executionContext = {responsibleUserId:7};
 assert.equal(runProjectId(state.data.runs[1]), 'platform');
 assert.ok(code.includes('renderApprovals(true);'));
-assert.ok(code.includes('value:approvalItems().length'));
+assert.ok(code.includes('value:approvalActionableCount(approvalItems())'));
 `
 	out, err := exec.Command(node, "-e", script).CombinedOutput()
 	if err != nil {
@@ -2400,6 +2401,9 @@ const state = {data:{tasks:[{runId:'run-1',issueId:'iss-1'}], issues:[{id:'iss-1
 eval(code.slice(code.indexOf('function huiIcon('), code.indexOf('// stage.key alone is not enough')));
 eval(code.slice(code.indexOf('function waitingNodeId('), code.indexOf('function failedNodeId(')));
 eval(code.slice(code.indexOf('function restoredSOPResumeNode('), code.indexOf('function approvalCalloutHTML(')));
+const isPlatformAdmin = () => false;
+const runProjectId = r => r?.executionContext?.projectId || '';
+eval(code.slice(code.indexOf('function approvalUserId('), code.indexOf('// /api/bootstrap 不带 runs')));
 eval(code.slice(code.indexOf('function approvalStatusBadgeHTML('), code.indexOf('function closeApprovalMoreMenus(')));
 const between = (html, from, to) => html.slice(html.indexOf(from), html.indexOf(to, html.indexOf(from)));
 const node = {id:'gate', name:'confirm-brief', type:'agent'};
