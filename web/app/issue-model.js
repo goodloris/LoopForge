@@ -313,12 +313,13 @@ function issueOutcome(i){
   const health=issueRunHealth(i),stage=issueCurrentStage(i);
   if(issueManuallyClosed(i))return{key:'closed',short:'已关闭',title:'需求已关闭',body:'该需求已在 LoopForge 中手动关闭。如需继续修改或执行，请先重新打开。'};
   if(issueTrackerClosed(i)&&!issueMergedDelivery(i))return{key:'closed',short:'已关闭',title:gongfengIssueClosed(i)?'工蜂已关闭':'外部工作项已关闭',body:'请先在外部系统重新打开工作项，等待状态同步后再执行。'};
-  if(deliveryLocked(i)){const label=deliveryLockedLabel(i);const short=label==='MR 已合入'?'已合入':label==='已合入基线'?'已合入基线':label==='关闭'?'关闭':'已交付';return{key:'closed',short,title:label,body:label==='MR 已合入'?'关联 MR 已合入默认分支。如需继续修改，请用重新触发再开一条 SOP。':label==='已合入基线'?'关联 MR 已合入集成分支，尚未进默认分支。如需继续修改，请用重新触发再开一条 SOP。':label==='关闭'?'需求已关闭。如需继续修改或执行，请用重新触发再开一条 SOP。':'SOP 已全部通过。如需继续修改，请用重新触发再开一条 SOP。'};}
+  if(deliveryLocked(i)){const label=deliveryLockedLabel(i);const short=label==='MR 已合入'?'已合入':label==='已合入集成分支'?'已合入集成分支':label==='关闭'?'关闭':'已交付';return{key:'closed',short,title:label,body:label==='MR 已合入'?'关联 MR 已合入默认分支。如需继续修改，请用重新触发再开一条 SOP。':label==='已合入集成分支'?'关联 MR 已合入集成分支，尚未进默认分支。如需继续修改，请用重新触发再开一条 SOP。':label==='关闭'?'需求已关闭。如需继续修改或执行，请用重新触发再开一条 SOP。':'SOP 已全部通过。如需继续修改，请用重新触发再开一条 SOP。'};}
   if((i.status||'')==='done')return{key:'closed',short:stage.label==='交付闭环'?'已交付':'已完成',title:stage.label==='交付闭环'?'交付闭环':'需求已完成',body:stage.label==='交付闭环'?'SOP 已全部通过。如需继续修改，请先重新打开后再触发新的 SOP。':'需求已完成。'};
   if(clarificationNeedsConfirm(i)){
     return{key:'confirm',short:'待确认',title:'请确认澄清结论并写回原单',body:'结论已追加到平台说明。确认写回原单（追加评论）后，即可开始触发需求执行 SOP。'};
   }
   if(conversationWorkspaceIssue(i)){const c=conversationIssueStage(i);return{key:c.ended?'idle':c.key==='closed'?'closed':'active',short:c.short,title:`对话交付 · ${c.label}`,body:c.hint};}
+  if(sopDeliveryPending(i,latestIssueRun(i))){const c=deliveryMRStage(i,'SOP');return{key:c.ended?'idle':c.key==='closed'?'closed':'active',short:c.short,title:`SOP 交付 · ${c.label}`,body:c.hint};}
   if(latestIssueRun(i)?.status==='cancelled')return{key:'attention',short:'已取消',title:'运行已取消',body:'这次运行已结束且工作区已清理，不能接着原记录重试。可以重新触发整条 SOP。'};
   if(health==='attention')return{key:'attention',short:'失败',title:'运行失败',body:`停在「${stage.label}」。可从失败节点重试，或整条重新触发。`};
   if(stage.key==='waiting')return{key:'waiting',short:'待确认',title:'等待确认',body:`「${stage.label}」需要批准后才会继续。`};
@@ -360,7 +361,7 @@ function deliveryMRList(i){
   const url=String(i?.deliveryMrUrl||'').trim();
   return url?[withRef({url,state:i?.deliveryMrState||''})]:[];
 }
-const deliveryMRStateText={merged:'已合入',integrated:'已合入基线',opened:'待合入',reopened:'待合入',closed:'已关闭'};
+const deliveryMRStateText={merged:'已合入',integrated:'已合入集成分支',opened:'待合入',reopened:'待合入',closed:'已关闭'};
 function deliveryMRButtons(issue,{cls='button ghost small'}={}){
   const list=deliveryMRList(issue);
   return list.map(mr=>{
@@ -378,7 +379,7 @@ function deliveryLockedLabel(i){
   if(!deliveryMRLinked(i))return state==='closed'?'已关闭':'交付闭环';
   switch(state){
     case 'merged':return 'MR 已合入';
-    case 'integrated':return '已合入基线';
+    case 'integrated':return '已合入集成分支';
     case 'closed':return 'MR 已关闭';
     default:return '交付闭环';
   }
@@ -387,7 +388,7 @@ function deliveryLockedLabel(i){
 function issueMergedDelivery(i){
   if(!deliveryLocked(i))return false;
   const label=deliveryLockedLabel(i);
-  return label==='MR 已合入'||label==='已合入基线';
+  return label==='MR 已合入'||label==='已合入集成分支';
 }
 // 对话里直接改代码的需求：只在对话工作区里做，没有派发过 SOP。对话工作区没有节点，
 // 状态按 MR 交付推进；会话删除后工作区记录可能已经不在，所以也认需求上记的来源会话。
@@ -398,24 +399,35 @@ function conversationWorkspaceIssue(i,run=issueExecution(i).run){
   if(runs.some(r=>r.kind!=='workspace'))return false;
   return run?.kind==='workspace'||runs.length>0||!!String(i.conversationSessionId||'').trim();
 }
-function conversationIssueStage(i){
+// MR 交付阶段，对话和 SOP 共用：全部 MR 进了默认分支才算交付；合入集成分支只是中间状态，
+// 集成分支合入默认分支后由 MR 同步把需求标为完成。
+function deliveryMRStage(i,who){
   const states=deliveryMRList(i).map(m=>String(m.state||'').toLowerCase());
-  if(states.length){
-    if(states.every(s=>s==='merged'))return{key:'closed',label:'MR 已合入',short:'已合入',width:100,hint:'对话提交的 MR 已合入默认分支'};
-    if(states.every(s=>s==='merged'||s==='integrated'))return{key:'closed',label:'已合入基线',short:'已合入基线',width:100,hint:'对话提交的 MR 已合入集成分支，尚未进默认分支'};
-    if(states.every(s=>s==='closed'))return{key:'closed',ended:true,label:'MR 已关闭',short:'MR 已关闭',width:100,hint:'MR 没有合入就关闭了，需要继续时在对话里重新提交'};
-    return{key:'active',label:'MR 待合入',short:'待合入',width:60,hint:'对话已提交 MR，合入默认分支后需求自动完成'};
-  }
+  if(!states.length)return null;
+  if(states.every(s=>s==='merged'))return{key:'closed',label:'MR 已合入',short:'已合入',width:100,hint:`${who}提交的 MR 已合入默认分支`};
+  if(states.every(s=>s==='merged'||s==='integrated'))return{key:'active',label:'已合入集成分支',short:'已合入集成分支',width:80,hint:`${who}提交的 MR 已合入集成分支，集成分支合入默认分支后需求自动完成`};
+  if(states.every(s=>s==='closed'))return{key:'closed',ended:true,label:'MR 已关闭',short:'MR 已关闭',width:100,hint:`MR 没有合入就关闭了，需要继续时${who==='对话'?'在对话里重新提交':'重新触发 SOP'}`};
+  return{key:'active',label:'MR 待合入',short:'待合入',width:60,hint:`${who}已提交 MR，合入默认分支后需求自动完成`};
+}
+// SOP 已通过、MR 还没进默认分支（deliveryState=pending）。
+function sopDeliveryPending(i,run){
+  return String(i?.deliveryState||'').toLowerCase()==='pending'&&deliveryMRLinked(i)&&(!run||run.status==='succeeded');
+}
+function conversationIssueStage(i){
+  const mr=deliveryMRStage(i,'对话');
+  if(mr)return mr;
   const status=String(i?.status||'').toLowerCase();
   if(status==='done')return{key:'closed',label:'已完成',short:'已完成',width:100,hint:'需求已完成'};
   if(status==='in_review')return{key:'active',label:'已直推 · 待验收',short:'待验收',width:60,hint:'改动已直接推送到共享分支，没有 MR，验收后可关闭需求'};
   return{key:'active',label:'对话开发中',short:'开发中',width:15,hint:'在对话工作区里直接改代码，提交 MR 后进入待合入'};
 }
-// 对话需求没有 SOP 节点，进度列按交付阶段显示文字；合入或关闭后沿用原来的显示。
+// 对话需求没有 SOP 节点，SOP 需求通过后在等 MR 合入：进度列都按交付阶段显示文字；合入或关闭后沿用原来的显示。
 // MR 没合入就关闭（ended）不算交付完成，进度条置灰而不是绿色。
 function conversationIssueProgress(i,run){
-  if(issueManuallyClosed(i)||issueTrackerClosed(i)||deliveryLocked(i)||!conversationWorkspaceIssue(i,run))return null;
-  const stage=conversationIssueStage(i);
+  if(issueManuallyClosed(i)||issueTrackerClosed(i)||deliveryLocked(i))return null;
+  const sop=sopDeliveryPending(i,run);
+  if(!sop&&!conversationWorkspaceIssue(i,run))return null;
+  const stage=sop?deliveryMRStage(i,'SOP'):conversationIssueStage(i);
   return{text:stage.short,width:stage.width,title:stage.hint,done:stage.key==='closed'&&!stage.ended,ended:!!stage.ended};
 }
 // 打开需求关联的会话；项目成员看到的是只读会话，私人会话仍只对本人可见。
@@ -645,6 +657,7 @@ function issueCurrentStage(i){
   if(issueTrackerClosed(i)&&!issueMergedDelivery(i))return{key:'closed',label:gongfengIssueClosed(i)?'工蜂已关闭':'已关闭',hint:'外部工作项已关闭'};
   if(deliveryLocked(i))return{key:'closed',label:deliveryLockedLabel(i),hint:'重新打开后才可再次触发 SOP'};
   if(conversationWorkspaceIssue(i,run))return conversationIssueStage(i);
+  if(sopDeliveryPending(i,run))return deliveryMRStage(i,'SOP');
   if(!run){
     if(issueClarifying(i.id))return{key:'active',label:'澄清分析中',hint:'关闭网页也不会中断，完成后可回来查看'};
     if(clarificationNeedsConfirm(i)){

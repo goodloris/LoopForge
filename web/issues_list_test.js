@@ -32,7 +32,7 @@ const tones = [
   [{ key: 'closed', label: 'MR 已合入' }, 'success', 'check'],
   [{ key: 'closed', label: '交付闭环' }, 'success', 'check'],
   [{ key: 'closed', label: '已完成' }, 'success', 'check'],
-  [{ key: 'closed', label: '已合入基线' }, 'success', 'check'],
+  [{ key: 'closed', label: '已合入集成分支' }, 'success', 'check'],
   [{ key: 'closed', label: '已关闭' }, 'neutral', 'close'],
   [{ key: 'closed', label: 'MR 已关闭' }, 'neutral', 'close'],
   [{ key: 'closed', label: '工蜂已关闭' }, 'neutral', 'close'],

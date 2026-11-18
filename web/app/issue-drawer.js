@@ -748,7 +748,7 @@ function conversationHeadState(issue){
   if(issueTrackerClosed(issue)&&!issueMergedDelivery(issue))return{tone:'',label:st.label,hint:'外部工作项已关闭'};
   if(deliveryLocked(issue)){
     const merged=issueMergedDelivery(issue);
-    return{tone:merged?'closed':'',label:st.label,hint:st.label==='已合入基线'?'对话提交的 MR 已合入集成分支，尚未进默认分支':merged?'对话提交的 MR 已合入，需求已交付':'需求已结束，需要继续时先重新打开'};
+    return{tone:merged?'closed':'',label:st.label,hint:st.label==='已合入集成分支'?'对话提交的 MR 已合入集成分支，尚未进默认分支':merged?'对话提交的 MR 已合入，需求已交付':'需求已结束，需要继续时先重新打开'};
   }
   const c=conversationIssueStage(issue);
   return{tone:c.ended?'':c.key,label:c.label,hint:c.hint};
