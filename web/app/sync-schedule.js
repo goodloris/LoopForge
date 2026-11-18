@@ -389,9 +389,12 @@ async function openScheduleJobModal(kind='dispatch',job){
     f.inert=true;
     f.querySelector('[type="submit"]').disabled=true;
     try{
-      const jobs=await api('/api/schedule-jobs');
+      // Reload SOPs too: the 默认 SOP options come from state.data.workflows, which is only
+      // loaded with the page and misses SOPs created since (by teammates or the clone API).
+      const [jobs,workflows]=await Promise.all([api('/api/schedule-jobs'),api('/api/workflows')]);
       if(version!==scheduleModalVersion||projectId!==state.projectFilter)return;
       state.data.scheduleJobs=jobs||[];
+      if(Array.isArray(workflows))state.data.workflows=workflows;
       resetScheduleJobForm();
       renderScheduleJobs();
     }catch(err){
