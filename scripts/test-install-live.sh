@@ -10,7 +10,7 @@ cleanup() {
   for fixture in "$task_dir"/*; do
     [[ -f "$fixture/.env" ]] || continue
     docker ps -aq --filter "network=lf-install-${fixture##*/}-$$_default" | xargs -r docker rm -f >/dev/null 2>&1 || true
-    docker compose -f "$root/compose.yaml" --env-file "$fixture/.env" --profile platform down --volumes --remove-orphans >/dev/null 2>&1 || true
+    docker compose -f "$root/compose.yaml" --env-file "$fixture/.env" --profile platform --profile postgres --profile mysql down --volumes --remove-orphans >/dev/null 2>&1 || true
   done
   rm -rf "$task_dir"
 }
@@ -20,16 +20,18 @@ actors=(root nonroot without-compose)
 [[ -z "${LOOPFORGE_INSTALL_SUDO_TEST_IMAGE:-}" ]] || actors+=(sudo)
 for actor in "${actors[@]}"; do
   fixture="$task_dir/$actor"
-  mkdir -p "$fixture/scripts" "$fixture/migrations/seed" "$fixture/user-home"
-  cp scripts/{install.sh,configure.sh,docker-access.sh,ghcr-mirror.sh,install-address.py,install-compose.py,install-observability-schema.sh} "$fixture/scripts/"
-  cp migrations/001_run_obs_generated_columns.sql migrations/031_generic_backend_openssh.sql "$fixture/migrations/"
+  mkdir -p "$fixture/scripts" "$fixture/migrations/seed" "$fixture/migrations/postgres/seed" "$fixture/user-home"
+  cp scripts/{install.sh,configure.sh,database.sh,docker-access.sh,ghcr-mirror.sh,install-address.py,install-compose.py,install-observability-schema.sh,install-schema-extensions.sh,manual-migration-hints.sh} "$fixture/scripts/"
+  cp migrations/001_run_obs_generated_columns.sql migrations/031_generic_backend_openssh.sql migrations/034_generic_backend_pip.sql "$fixture/migrations/"
   cp migrations/seed/*.sql "$fixture/migrations/seed/"
+  cp migrations/postgres/001_baseline_extensions.sql "$fixture/migrations/postgres/"
+  cp migrations/postgres/seed/*.sql "$fixture/migrations/postgres/seed/"
   cp compose.yaml "$fixture/"
-  read -r http_port mysql_port < <(python3 - <<'PY'
+  read -r http_port mysql_port postgres_port < <(python3 - <<'PY'
 import socket
-with socket.socket() as http, socket.socket() as mysql:
-    http.bind(('0.0.0.0',0)); mysql.bind(('127.0.0.1',0))
-    print(http.getsockname()[1],mysql.getsockname()[1])
+with socket.socket() as http, socket.socket() as mysql, socket.socket() as postgres:
+    http.bind(('0.0.0.0',0)); mysql.bind(('127.0.0.1',0)); postgres.bind(('127.0.0.1',0))
+    print(http.getsockname()[1],mysql.getsockname()[1],postgres.getsockname()[1])
 PY
 )
   prefix=()
@@ -49,7 +51,7 @@ PY
   fi
   started=$SECONDS
   for attempt in first repeat; do
-    "${prefix[@]}" env HOME="$fixture/user-home" PATH=/usr/local/bin:/usr/bin:/bin LOOPFORGE_YES=1 COMPOSE_PROJECT_NAME="lf-install-${actor}-$$" LOOPFORGE_IMAGE="$image" LOOPFORGE_DATA_DIR="$fixture/data" LOOPFORGE_BIND=0.0.0.0 LOOPFORGE_PUBLIC_URL="http://192.0.2.10:$http_port" LOOPFORGE_DOCKER_SOCKET="$docker_socket" AGENTFLOW_HTTP_PORT="$http_port" LOOPFORGE_MYSQL_PORT="$mysql_port" bash "$fixture/scripts/install.sh" > "$fixture/$attempt.log" 2>&1 || { cat "$fixture/$attempt.log"; exit 1; }
+    "${prefix[@]}" env HOME="$fixture/user-home" PATH=/usr/local/bin:/usr/bin:/bin LOOPFORGE_YES=1 COMPOSE_PROJECT_NAME="lf-install-${actor}-$$" LOOPFORGE_IMAGE="$image" LOOPFORGE_DATA_DIR="$fixture/data" LOOPFORGE_BIND=0.0.0.0 LOOPFORGE_PUBLIC_URL="http://192.0.2.10:$http_port" LOOPFORGE_DOCKER_SOCKET="$docker_socket" AGENTFLOW_HTTP_PORT="$http_port" LOOPFORGE_MYSQL_PORT="$mysql_port" LOOPFORGE_POSTGRES_PORT="$postgres_port" ${LOOPFORGE_INSTALL_TEST_DATABASE:+LOOPFORGE_DATABASE="$LOOPFORGE_INSTALL_TEST_DATABASE"} bash "$fixture/scripts/install.sh" > "$fixture/$attempt.log" 2>&1 || { cat "$fixture/$attempt.log"; exit 1; }
     grep -q "Access: http://192.0.2.10:$http_port" "$fixture/$attempt.log"
     curl -fsS "http://127.0.0.1:$http_port/api/health" >/dev/null
     if [[ "$attempt" == first ]]; then
