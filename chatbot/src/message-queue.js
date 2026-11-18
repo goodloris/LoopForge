@@ -88,3 +88,17 @@ export function writeQueues(queues, storage = globalThis.localStorage) {
     else storage?.removeItem(QUEUE_STORAGE_KEY);
   } catch {}
 }
+
+// Attachments and references a queued message carries, shown as one count.
+export const queuedExtras = (item) =>
+  (item.attachments?.length || 0) + (item.references?.length || 0);
+
+// What other members see of one's own queue (see PUT …/queue).
+export const queuedPreviews = (items = []) =>
+  items.map((item) => ({ id: item.id, text: item.text, attachments: queuedExtras(item) }));
+
+// The previews of the other members, from GET …/queue.
+export const othersQueuedOf = (rows, userId) =>
+  Array.isArray(rows)
+    ? rows.filter((row) => row && typeof row.text === "string" && row.authorId !== userId)
+    : [];

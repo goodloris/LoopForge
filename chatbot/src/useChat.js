@@ -16,12 +16,15 @@ import { cliFailureSettles } from "./cli-install.jsx";
 import { useExecutionMachines } from "./useExecutionMachines.js";
 import { executionLocked } from "./execution-target.js";
 import { modelEffort } from "./effort.js";
-import { conversationEngine, engineModels } from "./engines.js";
+import { conversationEngine, defaultExecutor, engineModels } from "./engines.js";
 import {
   enqueue,
   holdQueue,
   nextQueued,
+  othersQueuedOf,
+  queuedExtras,
   queuedMessage,
+  queuedPreviews,
   readQueues,
   removeQueued,
   restoreQueued,
@@ -46,13 +49,16 @@ function knownExecutor(id) {
   if (id === "claude") return "claude-code";
   return EXECUTORS.some((item) => item.id === id) ? id : "codebuddy";
 }
-function storedExecutor() {
+// The CLI this browser last picked, "" before the first pick.
+function pickedExecutor() {
   try {
-    return knownExecutor(localStorage.getItem(EXECUTOR_KEY));
+    const id = localStorage.getItem(EXECUTOR_KEY);
+    return id ? knownExecutor(id) : "";
   } catch {
-    return "codebuddy";
+    return "";
   }
 }
+const storedExecutor = () => pickedExecutor() || "codebuddy";
 // The chat model is a personal preference like the executor: new
 // conversations and page reloads keep the last pick. Each CLI remembers its
 // own, because model IDs differ between CLIs.
@@ -161,6 +167,11 @@ export function useChat() {
     bindExecutionMachine,
     session?.executionTarget,
   );
+  // A browser without a pick (another device, a cleared profile) starts new
+  // conversations on what the server knows (see defaultExecutor), resolved
+  // once the catalog and the conversation list have loaded.
+  const fallbackExecutor = useRef("codebuddy");
+  const startingExecutor = () => pickedExecutor() || fallbackExecutor.current;
   const currentId = useRef(activeId),
     sessionRef = useRef(session),
     projectRef = useRef(projectId),
@@ -186,6 +197,7 @@ export function useChat() {
           : prev,
       );
     }
+    return rows || [];
   }, []);
   const changeURL = useCallback((id) => {
     const url = new URL(location.href);
@@ -219,7 +231,7 @@ export function useChat() {
       // A new conversation starts on the person's remembered model, not on
       // whatever model the previously opened conversation used.
       if (!id) {
-        const preferred = storedExecutor();
+        const preferred = startingExecutor();
         setExecutorState(preferred);
         setModel(preferredModel(executorModelList(models, preferred), preferred));
       }
@@ -263,10 +275,12 @@ export function useChat() {
         setSandboxes(sandboxRows || []);
         setModels(catalog.models || []);
         setSponsoredModels(sponsoredModelList(catalog));
-        const startExecutor = storedExecutor();
-        setModel(preferredModel(executorModelList(catalog.models, startExecutor), startExecutor));
-        await refreshSessions();
+        const rows = await refreshSessions();
         if (!current) return;
+        fallbackExecutor.current = defaultExecutor(catalog.engines, rows, auth.user?.id, catalog.models);
+        const startExecutor = startingExecutor();
+        if (!currentId.current) setExecutorState(startExecutor);
+        setModel(preferredModel(executorModelList(catalog.models, startExecutor), startExecutor));
         const recovered = connectionError;
         setError((old) => (old === recovered ? "" : old));
         setReady(true);
@@ -681,6 +695,42 @@ export function useChat() {
     };
   }, [ready, missingKey, refreshUser]);
   useEffect(() => writeQueues(queues), [queues]);
+  // A shared conversation shows every member's queued messages: each browser
+  // publishes previews of its own queue on the running turn and reads the
+  // others'. The messages themselves still go out from their sender.
+  const replyRunning = generation?.status === "running";
+  const ownQueued = (activeId && queues[activeId]?.items) || [];
+  const ownQueuedKey = JSON.stringify(ownQueued.map((item) => [item.id, item.text, queuedExtras(item)]));
+  const publishedQueue = useRef("");
+  useEffect(() => {
+    if (!activeId || !replyRunning || session?.readOnly) return;
+    // Only a queue that has (or had) items on this turn is worth a request.
+    const turn = `${activeId}/${generation?.id}`;
+    if (!ownQueued.length && !publishedQueue.current.startsWith(`${turn}:`)) return;
+    publishedQueue.current = ownQueued.length ? `${turn}:${ownQueuedKey}` : "";
+    void write(`${sessionPath(activeId)}/queue`, { items: queuedPreviews(ownQueued) }, "PUT").catch(() => {});
+    // ownQueued is read through ownQueuedKey.
+  }, [activeId, replyRunning, generation?.id, ownQueuedKey, session?.readOnly]);
+  const [othersQueued, setOthersQueued] = useState([]);
+  useEffect(() => {
+    setOthersQueued([]);
+    if (!activeId || !replyRunning) return;
+    let closed = false;
+    const refresh = async () => {
+      try {
+        const rows = await api(`${sessionPath(activeId)}/queue`);
+        if (!closed) setOthersQueued(othersQueuedOf(rows, user?.id));
+      } catch {
+        // The next poll retries; the reply itself is unaffected.
+      }
+    };
+    void refresh();
+    const timer = setInterval(refresh, 1500);
+    return () => {
+      closed = true;
+      clearInterval(timer);
+    };
+  }, [activeId, replyRunning, generation?.id, user?.id]);
   useEffect(() => {
     const s = steeringRef.current;
     if (!s) return;
@@ -1341,6 +1391,7 @@ export function useChat() {
       (stopRequest?.sessionId === activeId && stopRequest.generationId === generation.id)),
     queue: (activeId && queues[activeId]?.items) || [],
     queueHeld: !!(activeId && queues[activeId]?.held),
+    queueOthers: othersQueued,
     removeQueued: removeQueuedMessage,
     resumeQueue,
     sendNow,

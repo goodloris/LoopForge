@@ -50,14 +50,17 @@ type BusinessDomainUsage struct {
 // BusinessDeliveryMetrics uses completion and merge clocks independently of
 // Run creation. Percentiles are computed from individual completed work items.
 type BusinessDeliveryMetrics struct {
-	CompletionToMergeSamples       int        `json:"completionToMergeSamples"`
-	AverageCompletionToMergeMs     int64      `json:"averageCompletionToMergeMs"`
-	CompletionToMergeMissingIssues int        `json:"completionToMergeMissingIssues"`
-	MergedBeforeCompletionIssues   int        `json:"mergedBeforeCompletionIssues"`
-	CompletionToMergeMissingMRs    int        `json:"completionToMergeMissingMrs"`
-	MergedBeforeCompletionMRs      int        `json:"mergedBeforeCompletionMrs"`
-	CompletedIssues                int        `json:"completedIssues"`
+	CompletionToMergeSamples       int   `json:"completionToMergeSamples"`
+	AverageCompletionToMergeMs     int64 `json:"averageCompletionToMergeMs"`
+	CompletionToMergeMissingIssues int   `json:"completionToMergeMissingIssues"`
+	MergedBeforeCompletionIssues   int   `json:"mergedBeforeCompletionIssues"`
+	CompletionToMergeMissingMRs    int   `json:"completionToMergeMissingMrs"`
+	MergedBeforeCompletionMRs      int   `json:"mergedBeforeCompletionMrs"`
+	CompletedIssues                int   `json:"completedIssues"`
+	// MergedMRs counts MRs merged into the default branch; IntegratedMRs
+	// those merged only into the integrate branch.
 	MergedMRs                      int        `json:"mergedMrs"`
+	IntegratedMRs                  int        `json:"integratedMrs"`
 	MergedMRsMissingTime           int        `json:"mergedMrsMissingTime"`
 	CompletionTimeMissingIssues    int        `json:"completionTimeMissingIssues"`
 	EstimatedCompletionIssues      int        `json:"estimatedCompletionIssues"`

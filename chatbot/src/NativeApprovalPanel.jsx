@@ -3,13 +3,23 @@ import { api, write, sessionPath } from "./api";
 import HarnessIcon from "./HarnessIcon";
 import "./native-approval.css";
 
-// External commands and external MCP writes can wait here for the speaker
-// in "请求批准" mode.
+// External commands and external MCP writes wait here in "请求批准" mode.
+// Every member of the conversation sees them; members other than viewers may
+// answer for the speaker, whose credentials still run the call.
 function commandText(input) {
   const command = input?.command ?? input?.cmd ?? input?.commands;
   if (typeof command === "string") return command;
   if (Array.isArray(command)) return command.map(String).join(" ");
   return JSON.stringify(input, null, 2);
+}
+
+// Who asked, whose credentials run it, and whether this reader may answer.
+export function approvalNote(item, userId) {
+  const own = item.actorId === userId;
+  const who = own ? "你" : item.actorName || "本轮发言人";
+  let text = `${own ? "这一轮由你发起" : `这一轮由 ${who} 发起`}，这项操作会用 ${own ? "你" : `${who} `}的凭据写入外部系统。仅批准这一次。停止回复、调用取消或等待超时后，审批会失效。`;
+  if (item.canDecide === false) text += "你是只读成员，只能查看，不能批准或拒绝。";
+  return text;
 }
 
 export default function NativeApprovalPanel({ chat, onChange }) {
@@ -49,22 +59,22 @@ export default function NativeApprovalPanel({ chat, onChange }) {
       setSaving("");
     }
   }
-  const mine = items.filter((item) => item.actorId === chat.user?.id);
-  const pendingIds = mine.map((item) => item.id).join(",");
+  const pendingIds = items.map((item) => item.id).join(",");
   useEffect(() => {
     onChange?.();
   }, [pendingIds]);
-  if (!mine.length) return null;
+  if (!items.length) return null;
   return (
     <section className="native-approvals" aria-label="待批准的外部写入" aria-live="polite">
-      {mine.map((item) => (
+      {items.map((item) => (
         <div className="native-approval" key={item.id}>
           <div className="native-approval-title">
             <HarnessIcon name="warning" size={15} aria-hidden="true" />
             <strong>批准外部写入{item.summary ? `：${item.summary}` : ""}</strong>
           </div>
           <pre>{commandText(item.input)}</pre>
-          <p>这项操作会写入外部系统。仅批准这一次。停止回复、调用取消或等待超时后，审批会失效。</p>
+          <p>{approvalNote(item, chat.user?.id)}</p>
+          {item.canDecide === false ? null : (
           <div className="native-approval-actions">
             <button type="button" disabled={!!saving} onClick={() => decide(item, "deny")}>
               拒绝
@@ -73,6 +83,7 @@ export default function NativeApprovalPanel({ chat, onChange }) {
               批准本次操作
             </button>
           </div>
+          )}
         </div>
       ))}
       {error ? <p role="alert">{error}</p> : null}

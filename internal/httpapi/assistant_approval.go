@@ -59,6 +59,15 @@ func assistantDraftRisky(d assistantDraft) bool {
 //     才执行；auto 自动执行。自动执行的草稿标记 Auto 由前端渲染
 //     为执行回执而不是审批卡片。
 func (h *assistantHandlers) resolveAssistantDrafts(ctx context.Context, user domain.User, projectID string, drafts []assistantDraft, mode string) []assistantDraft {
+	return h.resolveAssistantDraftsFor(ctx, user, projectID, drafts, mode, false)
+}
+
+// resolveAssistantDraftsFor with humanOnly keeps every draft for a person to
+// confirm, in every approval mode. Drafts submitted from a workspace phase
+// use it: repository code there can reach the phase's tool token or inject
+// prompts, so a platform write it proposes never runs on its own. Assisted
+// mode still reviews the draft; the verdict is shown, it does not apply it.
+func (h *assistantHandlers) resolveAssistantDraftsFor(ctx context.Context, user domain.User, projectID string, drafts []assistantDraft, mode string, humanOnly bool) []assistantDraft {
 	out := make([]assistantDraft, 0, len(drafts))
 	auto := make([]assistantDraft, 0, len(drafts))
 	for _, draft := range drafts {
@@ -81,7 +90,7 @@ func (h *assistantHandlers) resolveAssistantDrafts(ctx context.Context, user dom
 			draft.Review = &review
 			approved = review.allows()
 		}
-		if len(draft.Warnings) == 0 && approved {
+		if len(draft.Warnings) == 0 && approved && !humanOnly {
 			draft.Auto = true
 			auto = append(auto, draft)
 			continue

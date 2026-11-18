@@ -117,3 +117,19 @@
   padding-right: 8px;
   color: var(--muted);
 }
+/* Another member's queued message: read-only, led by its sender. */
+.queued-message-author {
+  flex: none;
+  color: var(--muted);
+  font-weight: 500;
+}
+.queued-message.is-others .queued-message-text {
+  color: var(--muted);
+}
+/* Another member's running turn: the CLI and confirmation mode it uses. */
+.turn-mode-note {
+  margin: 0 0 6px;
+  padding: 0 14px;
+  color: var(--muted);
+  font-size: 12px;
+}

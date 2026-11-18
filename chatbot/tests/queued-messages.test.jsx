@@ -65,4 +65,12 @@ describe("QueuedMessages", () => {
     render(<QueuedMessages items={items} busy readOnly onSendNow={() => {}} />);
     expect(screen.queryAllByRole("button")).toHaveLength(0);
   });
+  test("other members' queued messages show their sender, read-only", () => {
+    const others = [{ id: "x1", authorId: 2, authorName: "chenxi", text: "时间按用户所在时区展示", attachments: 1 }];
+    render(<QueuedMessages others={others} busy onSendNow={() => {}} />);
+    const row = screen.getByText("时间按用户所在时区展示").closest("li");
+    expect(row).toHaveTextContent("chenxi");
+    expect(row).toHaveTextContent("排队中");
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
+  });
 });

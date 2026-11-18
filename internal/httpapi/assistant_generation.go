@@ -151,7 +151,7 @@ func (h *assistantHandlers) startGeneration(c *gin.Context) {
 			req.Messages[i].CreatedAt = sentAt
 		}
 	}
-	g := domain.AssistantGeneration{StartedAt: time.Now().UTC(), ActorID: user.ID, ActorName: user.LoginName, ID: newAssistantSessionID(), SessionID: req.SessionID, UserID: ownerID, ProjectID: req.ProjectID, Status: "running", Events: []domain.AssistantGenerationEvent{}, MessageCount: len(req.Messages)}
+	g := domain.AssistantGeneration{StartedAt: time.Now().UTC(), ActorID: user.ID, ActorName: user.LoginName, ID: newAssistantSessionID(), SessionID: req.SessionID, UserID: ownerID, ProjectID: req.ProjectID, Status: "running", Events: []domain.AssistantGenerationEvent{}, MessageCount: len(req.Messages), ApprovalMode: assistantRequestApprovalMode(req), Executor: req.Executor}
 	// The issue this turn linked from its @-mention is the conversation's
 	// issue now; any other change since old was read is still refused.
 	issueID := old.IssueID
@@ -587,7 +587,8 @@ func (h *assistantHandlers) followSteer(parent context.Context, prev domain.Assi
 		}
 		req.workspaceToken = token
 	}
-	next := domain.AssistantGeneration{StartedAt: time.Now().UTC(), ActorID: steer.ActorID, ActorName: steer.ActorName, ID: newAssistantSessionID(), SessionID: req.SessionID, UserID: prev.UserID, ProjectID: req.ProjectID, Status: "running", Events: []domain.AssistantGenerationEvent{}, MessageCount: len(req.Messages)}
+	executor, _ := assistantModelEngine(req.Model)
+	next := domain.AssistantGeneration{StartedAt: time.Now().UTC(), ActorID: steer.ActorID, ActorName: steer.ActorName, ID: newAssistantSessionID(), SessionID: req.SessionID, UserID: prev.UserID, ProjectID: req.ProjectID, Status: "running", Events: []domain.AssistantGenerationEvent{}, MessageCount: len(req.Messages), ApprovalMode: assistantRequestApprovalMode(req), Executor: executor}
 	if err := h.repo.BeginAssistantGeneration(next, session); err != nil {
 		if req.workspaceToken != "" && h.engine != nil {
 			_ = h.repo.FinishWorkspaceUse(req.RunID, req.workspaceToken, time.Now().UTC(), nil, "")

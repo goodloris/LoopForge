@@ -4,7 +4,9 @@ import {
   enqueue,
   holdQueue,
   nextQueued,
+  othersQueuedOf,
   queuedMessage,
+  queuedPreviews,
   readQueues,
   removeQueued,
   restoreQueued,
@@ -66,5 +68,12 @@ describe("message queue", () => {
     expect(readQueues(storage)).toEqual({});
     storage.setItem(QUEUE_STORAGE_KEY, JSON.stringify({ s1: { items: [{ nope: 1 }] } }));
     expect(readQueues(storage)).toEqual({});
+  });
+  test("publishes previews of one's own queue and keeps only the others'", () => {
+    const own = queuedMessage({ text: "补充", attachments: [{ id: "f1" }], references: [{ type: "issue", id: "i1" }] });
+    expect(queuedPreviews([own])).toEqual([{ id: own.id, text: "补充", attachments: 2 }]);
+    const rows = [{ id: own.id, authorId: 1, text: "补充" }, { id: "q9", authorId: 2, authorName: "chenxi", text: "设计稿" }];
+    expect(othersQueuedOf(rows, 1).map((r) => r.id)).toEqual(["q9"]);
+    expect(othersQueuedOf({ id: "s1" }, 1)).toEqual([]);
   });
 });

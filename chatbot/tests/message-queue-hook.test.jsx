@@ -109,6 +109,10 @@ describe("sending while a reply runs", () => {
     expect(generationPosts()).toHaveLength(0);
     // Queuing must not interrupt the running reply.
     expect(writeMock.mock.calls.some(([path]) => path.includes("/generation/steer") || path.includes("/generation/cancel"))).toBe(false);
+    // The other members see it waiting, through the turn's queue previews.
+    await waitFor(() =>
+      expect(writeMock).toHaveBeenCalledWith("/api/assistant/sessions/s1/queue", { items: [expect.objectContaining({ text: "应该看 CI 而不是 lint", attachments: 0 })] }, "PUT"),
+    );
 
     await finish("failed");
     await waitFor(() => expect(generationPosts()).toHaveLength(1));
@@ -119,6 +123,23 @@ describe("sending while a reply runs", () => {
     expect(body.messages[2].content).toBe("应该看 CI 而不是 lint");
     await waitFor(() => expect(result.current.queue).toHaveLength(0));
     unmount();
+  });
+
+  test("shows the other members' queued messages while the reply runs", async () => {
+    const original = apiMock.getMockImplementation();
+    apiMock.mockImplementation(async (path, options) =>
+      path === "/api/assistant/sessions/s1/queue"
+        ? [{ id: "mine", authorId: 1, text: "我的" }, { id: "q9", authorId: 2, authorName: "chenxi", text: "设计稿已更新" }]
+        : original(path, options));
+    try {
+      const { result, unmount } = await openRunning();
+      await waitFor(() => expect(result.current.queueOthers.map((m) => m.id)).toEqual(["q9"]));
+      await finish("completed");
+      await waitFor(() => expect(result.current.queueOthers).toEqual([]));
+      unmount();
+    } finally {
+      apiMock.mockImplementation(original);
+    }
   });
 
   test("stopping holds the queue until the user continues", async () => {

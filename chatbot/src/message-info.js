@@ -1,4 +1,19 @@
 import { elapsedSeconds, formatElapsed } from "./api.js";
+import { engineLabel, engineOfModel } from "./engines.js";
+
+// Labels of the confirmation modes (see PermissionPicker).
+export const APPROVAL_LABELS = { confirm: "请求批准", assisted: "帮我批准", auto: "完全权限" };
+
+/**
+ * What the running turn of another member actually uses, for everyone else
+ * whose pickers show their own settings: "wangmin 的这一轮：Kiro CLI · 帮我批准".
+ */
+export function turnModeCaption(generation, userId) {
+  if (generation?.status !== "running" || !generation.actorId || generation.actorId === userId) return "";
+  const parts = [engineLabel(generation.executor), APPROVAL_LABELS[generation.approvalMode]].filter(Boolean);
+  if (!parts.length) return "";
+  return `${generation.actorName || "其他成员"} 的这一轮：${parts.join(" · ")}`;
+}
 
 export const NOT_REPORTED = "未上报";
 
@@ -73,8 +88,11 @@ export function messageInfo(message = {}) {
       label: "Agent",
       value: String(message.speakerName || "").trim() || "主 Bot",
     },
-    { key: "tool", label: "编码工具", value: "CodeBuddy" },
+    { key: "tool", label: "编码工具", value: engineLabel(engineOfModel(model)) },
     { key: "model", label: "模型", value: model || NOT_REPORTED },
+    ...(APPROVAL_LABELS[message.approvalMode]
+      ? [{ key: "approval", label: "确认方式", value: APPROVAL_LABELS[message.approvalMode] }]
+      : []),
     {
       key: "elapsed",
       label: "用时",

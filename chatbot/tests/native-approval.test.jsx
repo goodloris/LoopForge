@@ -10,18 +10,27 @@ beforeEach(() => {
   writeMock.mockReset();
   writeMock.mockResolvedValue({});
 });
-test("shows the speaker's external write and sends a single-action decision", async () => {
+test("shows every member's external write and lets a member answer for the speaker", async () => {
   apiMock.mockResolvedValue([
-    { id: "a1", actorId: 1, tool: "Bash", summary: "git push", input: { command: "git push origin fix" } },
-    { id: "a2", actorId: 2, tool: "Bash", summary: "GitHub CLI 写操作", input: { command: "gh pr create" } },
+    { id: "a1", actorId: 1, tool: "Bash", summary: "git push", input: { command: "git push origin fix" }, canDecide: true },
+    { id: "a2", actorId: 2, actorName: "wangmin", tool: "Bash", summary: "GitHub CLI 写操作", input: { command: "gh pr create" }, canDecide: true },
   ]);
   render(<NativeApprovalPanel chat={chat} />);
   expect(await screen.findByText("批准外部写入：git push")).toBeInTheDocument();
   expect(screen.getByText("git push origin fix")).toBeInTheDocument();
-  expect(screen.queryByText(/GitHub CLI/)).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "批准本次操作" }));
-  await waitFor(() => expect(writeMock).toHaveBeenCalledWith("/api/assistant/sessions/chat1/native-approvals/a1", { decision: "allow" }));
-  await waitFor(() => expect(screen.queryByText("批准外部写入：git push")).not.toBeInTheDocument());
+  expect(screen.getByText("批准外部写入：GitHub CLI 写操作")).toBeInTheDocument();
+  expect(screen.getByText(/这一轮由 wangmin 发起，这项操作会用 wangmin 的凭据/)).toBeInTheDocument();
+  fireEvent.click(screen.getAllByRole("button", { name: "批准本次操作" })[1]);
+  await waitFor(() => expect(writeMock).toHaveBeenCalledWith("/api/assistant/sessions/chat1/native-approvals/a2", { decision: "allow" }));
+  await waitFor(() => expect(screen.queryByText("批准外部写入：GitHub CLI 写操作")).not.toBeInTheDocument());
+});
+test("a viewer sees the pending write but cannot answer it", async () => {
+  apiMock.mockResolvedValue([{ id: "a3", actorId: 2, actorName: "wangmin", tool: "Bash", summary: "git push", input: { command: "git push" }, canDecide: false }]);
+  render(<NativeApprovalPanel chat={chat} />);
+  expect(await screen.findByText("批准外部写入：git push")).toBeInTheDocument();
+  expect(screen.getByText(/只读成员，只能查看/)).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "批准本次操作" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "拒绝" })).not.toBeInTheDocument();
 });
 test("clears pending cards as soon as the turn ends", async () => {
   apiMock.mockResolvedValue([{ id: "a1", actorId: 1, tool: "Bash", summary: "git push", input: { command: "git push" } }]);

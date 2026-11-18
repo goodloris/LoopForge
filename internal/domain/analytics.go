@@ -120,8 +120,12 @@ type AnalyticsSummary struct {
 	WeeklyActiveContributors int     `json:"weeklyActiveContributors"`
 	WeeklyThroughputPerUser  float64 `json:"weeklyThroughputPerUser"`
 
-	// MergedMRs counts unique linked work MRs by their actual merge time.
+	// MergedMRs counts unique linked work MRs merged into the repository
+	// default branch, by their actual merge time.
 	MergedMRs int `json:"mergedMrs"`
+	// IntegratedMRs counts work MRs merged only into the integrate branch in
+	// the window; they are not deliveries.
+	IntegratedMRs int `json:"integratedMrs"`
 	// MergedMRsMissingTime cannot be assigned to the requested date window.
 	MergedMRsMissingTime int `json:"mergedMrsMissingTime"`
 }
