@@ -3,6 +3,8 @@ package httpapi
 import (
 	"os"
 	"testing"
+
+	"agentflow/internal/repo"
 )
 
 // Tests isolate assistant state by pointing AGENTFLOW_ASSISTANT_SESSION_DIR at
@@ -12,5 +14,7 @@ import (
 func TestMain(m *testing.M) {
 	os.Unsetenv("AGENTFLOW_CONVERSATION_DIR")
 	kiroCLIInstalled = func() bool { return false }
-	os.Exit(m.Run())
+	code := m.Run()
+	repo.DropTestSchemas()
+	os.Exit(code)
 }

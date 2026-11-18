@@ -42,6 +42,13 @@ func TestReleaseAbandonedWorkspaceUseFreesOnlyTheReapedTurnsLease(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
+	if s.dbClockSQL() != "" {
+		// MySQL and PostgreSQL stamp the take on their own clock, now; move
+		// the stamp to when this turn took the lease.
+		if err = s.DB.Model(&WorkspaceCheckpoint{}).Where("run_id = ?", "abandoned-use").Update("lease_renewed_at", taken).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
 	if !release("abandoned-use", abandoned) {
 		t.Fatal("an unrenewed lease of a reaped turn was kept")
 	}

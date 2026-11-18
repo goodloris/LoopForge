@@ -2,7 +2,6 @@ package repo
 
 import (
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -141,15 +140,7 @@ func TestResponsibleUserReportsMissingOwnerAndAssignee(t *testing.T) {
 }
 
 func TestStore_UserMySQL(t *testing.T) {
-	dsn := strings.TrimSpace(os.Getenv("AGENTFLOW_TEST_MYSQL_DSN"))
-	if dsn == "" {
-		t.Skip("AGENTFLOW_TEST_MYSQL_DSN not set, skipping MySQL integration test")
-	}
-	st, err := Open(dsn)
-	if err != nil {
-		t.Skipf("cannot connect to MySQL: %v", err)
-	}
-	defer st.Close()
+	st := serverTestStore(t)
 
 	testLogin := "test_ci_user_1"
 	st.DB.Exec(`DELETE FROM users WHERE login_name=?`, testLogin)
@@ -198,15 +189,7 @@ func TestStore_UserMySQL(t *testing.T) {
 }
 
 func TestMySQLUserOwnershipRelations(t *testing.T) {
-	dsn := strings.TrimSpace(os.Getenv("AGENTFLOW_TEST_MYSQL_DSN"))
-	if dsn == "" {
-		t.Skip("AGENTFLOW_TEST_MYSQL_DSN not set")
-	}
-	st, err := Open(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
+	st := serverTestStore(t)
 	suffix := time.Now().UnixNano()
 	login := fmt.Sprintf("owner_%d", suffix)
 	projectID := fmt.Sprintf("owned-%d", suffix)

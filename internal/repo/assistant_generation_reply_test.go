@@ -2,7 +2,6 @@ package repo
 
 import (
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
@@ -15,11 +14,7 @@ func TestAssistantGenerationReplyRejectsCancelledAndReplacedWriters(t *testing.T
 			var st *Store
 			var err error
 			if backend == "mysql" {
-				dsn := os.Getenv("AGENTFLOW_TEST_MYSQL_DSN")
-				if dsn == "" {
-					t.Skip("isolated local Docker MySQL required")
-				}
-				st, err = Open(dsn)
+				st = serverTestStore(t)
 			} else {
 				st, err = OpenTest()
 			}

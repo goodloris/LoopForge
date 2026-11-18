@@ -1,7 +1,6 @@
 package repo
 
 import (
-	"os"
 	"strconv"
 	"sync"
 	"testing"
@@ -11,15 +10,7 @@ import (
 )
 
 func TestMySQLConcurrentWorkflowPublish(t *testing.T) {
-	dsn := os.Getenv("AGENTFLOW_TEST_MYSQL_DSN")
-	if dsn == "" {
-		t.Skip("requires disposable MySQL")
-	}
-	s, err := Open(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { s.Close() })
+	s := serverTestStore(t)
 	prefix := "publish-" + strconv.FormatInt(time.Now().UnixNano(), 36)
 	if err := s.PutSandbox(domain.SandboxProfile{ID: prefix, Name: "Local test", Driver: "local"}); err != nil {
 		t.Fatal(err)

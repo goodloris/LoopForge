@@ -4,7 +4,6 @@ import (
 	"agentflow/internal/domain"
 	"fmt"
 	"math"
-	"os"
 	"testing"
 	"time"
 )
@@ -19,15 +18,7 @@ func TestAnalyticsPublicPricesAcrossCurrencies(t *testing.T) {
 }
 
 func TestAnalyticsPublicPricesMySQL(t *testing.T) {
-	dsn := os.Getenv("AGENTFLOW_BUSINESS_DELIVERY_TEST_MYSQL_DSN")
-	if dsn == "" {
-		t.Skip("local isolated MySQL required")
-	}
-	s, err := Open(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { s.Close() })
+	s := serverTestStore(t, "AGENTFLOW_BUSINESS_DELIVERY_TEST_MYSQL_DSN")
 	checkAnalyticsPublicPrices(t, s)
 }
 

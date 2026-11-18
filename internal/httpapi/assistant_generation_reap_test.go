@@ -130,6 +130,13 @@ func TestReapReleasesOnlyTheAbandonedTurnsWorkspaceLease(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		if h.repo.DB.Dialector.Name() != "sqlite" {
+			// MySQL and PostgreSQL stamp the take on their own clock, now;
+			// move the stamp to when this turn took the lease.
+			if err := h.repo.DB.Model(&repo.WorkspaceCheckpoint{}).Where("run_id = ?", runID).Update("lease_renewed_at", at).Error; err != nil {
+				t.Fatal(err)
+			}
+		}
 		return token
 	}
 	free := func(runID string) bool {

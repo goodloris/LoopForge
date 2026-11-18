@@ -45,15 +45,20 @@ func TestReleaseAbandonedWorkspaceUseJudgesByRenewalStampOrLegacyLeaseUntil(t *t
 		return released
 	}
 
-	// Taking the lease stamps it on the caller's clock (SQLite).
+	// Taking the lease stamps it on the caller's clock on SQLite, and on the
+	// database clock (now, on this one host) on MySQL and PostgreSQL.
 	taken := now.Add(-20 * time.Second)
 	take("stamped-take", taken)
 	var row WorkspaceCheckpoint
 	if err := s.DB.Where("run_id = ?", "stamped-take").Take(&row).Error; err != nil {
 		t.Fatal(err)
 	}
-	if row.LeaseRenewedAt == nil || row.LeaseRenewedAt.Sub(taken).Abs() > time.Millisecond {
-		t.Fatalf("taking a lease did not stamp lease_renewed_at with %v: %v", taken, row.LeaseRenewedAt)
+	want, slack := taken, time.Millisecond
+	if s.dbClockSQL() != "" {
+		want, slack = time.Now().UTC(), 5*time.Second
+	}
+	if row.LeaseRenewedAt == nil || row.LeaseRenewedAt.Sub(want).Abs() > slack {
+		t.Fatalf("taking a lease did not stamp lease_renewed_at with %v: %v", want, row.LeaseRenewedAt)
 	}
 
 	// Unstamped lease whose lease_until says it was last renewed a minute ago.

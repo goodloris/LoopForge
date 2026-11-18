@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -13,15 +12,7 @@ import (
 )
 
 func TestMySQLReadsObserveExternalChangesWithoutReload(t *testing.T) {
-	dsn := os.Getenv("AGENTFLOW_TEST_MYSQL_DSN")
-	if dsn == "" {
-		t.Skip("AGENTFLOW_TEST_MYSQL_DSN is not set")
-	}
-	s, err := Open(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
+	s := serverTestStore(t)
 
 	suffix := time.Now().UTC().UnixNano()
 	rule := domain.RuleDefinition{ID: fmt.Sprintf("direct-rule-%d", suffix), Name: "before", Content: "before"}
@@ -121,15 +112,7 @@ func TestMySQLReadsObserveExternalChangesWithoutReload(t *testing.T) {
 }
 
 func TestMySQLMCPFilesRoundTrip(t *testing.T) {
-	dsn := os.Getenv("AGENTFLOW_TEST_MYSQL_DSN")
-	if dsn == "" {
-		t.Skip("AGENTFLOW_TEST_MYSQL_DSN is not set")
-	}
-	s, err := Open(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
+	s := serverTestStore(t)
 
 	id := fmt.Sprintf("mysql-mcp-files-%d", time.Now().UTC().UnixNano())
 	server := domain.MCPServerDefinition{ID: id, Name: "MySQL MCP files", Transport: "stdio", Command: "python3"}
@@ -151,15 +134,7 @@ func TestMySQLMCPFilesRoundTrip(t *testing.T) {
 }
 
 func TestMySQLRunnerTaskCompletionScrubsCredentials(t *testing.T) {
-	dsn := os.Getenv("AGENTFLOW_TEST_MYSQL_DSN")
-	if dsn == "" {
-		t.Skip("AGENTFLOW_TEST_MYSQL_DSN is not set")
-	}
-	s, err := Open(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
+	s := serverTestStore(t)
 
 	suffix := time.Now().UTC().UnixNano()
 	taskID := fmt.Sprintf("credential-task-%d", suffix)
@@ -203,15 +178,7 @@ func TestMySQLRunnerTaskCompletionScrubsCredentials(t *testing.T) {
 }
 
 func TestMySQLGitSSHCredentialLifecycle(t *testing.T) {
-	dsn := os.Getenv("AGENTFLOW_TEST_MYSQL_DSN")
-	if dsn == "" {
-		t.Skip("AGENTFLOW_TEST_MYSQL_DSN is not set")
-	}
-	s, err := Open(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
+	s := serverTestStore(t)
 	login := fmt.Sprintf("git-ssh-%d", time.Now().UnixNano())
 	if err := s.PutUser(domain.User{LoginName: login}); err != nil {
 		t.Fatal(err)

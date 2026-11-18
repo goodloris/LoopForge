@@ -4,7 +4,6 @@ import (
 	"agentflow/internal/domain"
 	"context"
 	"fmt"
-	"os"
 	"sync"
 	"testing"
 	"time"
@@ -120,15 +119,7 @@ func TestBotBindingExpiryAttemptLimitAndLatestLink(t *testing.T) {
 }
 
 func TestBotBindingMySQLConcurrentConfirmation(t *testing.T) {
-	dsn := os.Getenv("AGENTFLOW_BOT_BINDING_TEST_DSN")
-	if dsn == "" {
-		t.Skip("local Docker MySQL integration only")
-	}
-	s, err := Open(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
+	s := serverTestStore(t, "AGENTFLOW_BOT_BINDING_TEST_DSN")
 	now := time.Now().UTC()
 	bot := fmt.Sprintf("binding-test-%d", now.UnixNano())
 	sender := "sender"

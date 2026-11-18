@@ -3,41 +3,20 @@ package repo
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
 	"agentflow/internal/domain"
 )
 
-// MySQL stamps heartbeats with UTC_TIMESTAMP(3), so their age must be measured
-// on the database clock. With this host's time.Now() instead, a database clock
-// behind the API host reaps a turn that just checked in, and one ahead of it
-// never reaps a dead turn. SET timestamp skews the database clock of the one
-// connection the store is pinned to.
+// MySQL and PostgreSQL stamp heartbeats with their own clock, so their age
+// must be measured on the database clock. With this host's time.Now() instead,
+// a database clock behind the API host reaps a turn that just checked in, and
+// one ahead of it never reaps a dead turn. skewDBClock skews the database
+// clock of the one connection the store is pinned to.
 func TestMySQLHeartbeatAgeIsMeasuredOnTheDatabaseClock(t *testing.T) {
-	dsn := os.Getenv("AGENTFLOW_TEST_MYSQL_DSN")
-	if dsn == "" {
-		t.Skip("local isolated MySQL required")
-	}
-	s, err := Open(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	sqlDB, err := s.DB.DB()
-	if err != nil {
-		t.Fatal(err)
-	}
-	sqlDB.SetMaxOpenConns(1)
-	sqlDB.SetMaxIdleConns(1)
-	skew := func(d time.Duration) {
-		t.Helper()
-		if err := s.DB.Exec("SET timestamp = ?", float64(time.Now().Add(d).UnixMicro())/1e6).Error; err != nil {
-			t.Fatal(err)
-		}
-	}
-	defer s.DB.Exec("SET timestamp = DEFAULT")
+	s := serverTestStore(t)
+	skew := skewDBClock(t, s)
 
 	const owner = 41
 	session := fmt.Sprintf("clock-skew-%d", time.Now().UnixNano())
@@ -70,7 +49,7 @@ func TestMySQLHeartbeatAgeIsMeasuredOnTheDatabaseClock(t *testing.T) {
 
 	// Database clock two minutes ahead: silent for a minute on that clock.
 	skew(2 * time.Minute)
-	if err := s.DB.Exec("UPDATE assistant_generations SET updated_at = UTC_TIMESTAMP(3) - INTERVAL 60 SECOND WHERE session_id = ?", session).Error; err != nil {
+	if err := s.DB.Exec("UPDATE assistant_generations SET updated_at = "+s.dbClockBeforeSQL()+" WHERE session_id = ?", time.Minute.Microseconds(), session).Error; err != nil {
 		t.Fatal(err)
 	}
 	if items := s.PendingNativeApprovals(owner, session); len(items) != 0 {
