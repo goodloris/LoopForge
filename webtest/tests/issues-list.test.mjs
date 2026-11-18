@@ -186,3 +186,26 @@ test('rerun-from-node dialog returns the selected node and human context', async
   await app.evaluate(`reopenDeliveredIssueSilent('issue-1')`);
   assert.equal(app.router.calls.find(c => c.path.endsWith('/reopen')).method, 'POST');
 });
+
+test('imported GitHub issues show the GitHub number beside the project key and match it in search', async (t) => {
+  const app = await loadApp();
+  t.after(app.close);
+  const result = structuredClone(await app.evaluate(`(() => {
+    state.data.projects[0].key='SHOP';
+    state.data.issues=[
+      {id:'local',projectId:'project-1',number:1,title:'Local one',source:'local',status:'todo'},
+      {id:'gh',projectId:'project-1',number:5,title:'Imported',source:'github',status:'todo',
+       externalRef:{source:'github',externalId:'987654',externalIid:1}}
+    ];
+    state.projectFilter='project-1';
+    state.sourceFilter='';state.issueStatusFilter='';state.issueAssigneeFilter='';state.issueRunFilter='';
+    state.issueQuery='#1';
+    const byExternal=filteredIssues().map(x=>x.id);
+    return {key:issueKeyLabel(state.data.issues[1]),source:issueSourceLabel(state.data.issues[1]),
+      plain:issueSourceLabel({source:'github'}),byExternal};
+  })()`));
+  assert.equal(result.key, 'SHOP-5');
+  assert.equal(result.source, 'GitHub #1');
+  assert.equal(result.plain, 'GitHub');
+  assert.deepEqual(result.byExternal, ['gh']);
+});

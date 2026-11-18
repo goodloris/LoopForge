@@ -61,6 +61,10 @@ func TestGitHubImportPreservesLocalWorkAndMergeChecksConfirmation(t *testing.T) 
 	if !ok || issue.Source != "github" {
 		t.Fatalf("issue: %+v", issue)
 	}
+	// GitHub #2 gets the project's next number; #2 stays the external ID.
+	if issue.Number != 1 || issue.ExternalRef == nil || issue.ExternalRef.ExternalIID != 2 {
+		t.Fatalf("number=%d externalRef=%+v", issue.Number, issue.ExternalRef)
+	}
 	issue.Description = "Locally clarified requirement"
 	issue.Status = "in_progress"
 	if err := st.PutIssue(issue); err != nil {

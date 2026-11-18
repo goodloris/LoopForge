@@ -528,7 +528,8 @@ func gongfengSyncedIssue(repo domain.Repository, gi gongfengIssue, existing doma
 	if found {
 		applyExistingIssue(&issue, existing)
 	} else {
-		issue.Number = gi.IID
+		// Number stays 0: the store assigns the next project number. The
+		// Gongfeng IID is the external ID (ExternalRef.ExternalIID).
 		issue.CreatedAt = parseTime(gi.CreatedAt)
 	}
 	issue.UpdatedAt = time.Now().UTC()
@@ -600,7 +601,6 @@ func (s *Service) CreateGongfengIssue(store IssueStoreAdapter, issue domain.Issu
 		SyncedAt:      time.Now().UTC(),
 	}
 	if gi.IID > 0 {
-		issue.Number = gi.IID
 		stableID := fmt.Sprintf("gf-%s-%d", repo.ID, gi.IID)
 		oldID := issue.ID
 		issue.ID = stableID

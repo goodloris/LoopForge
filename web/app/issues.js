@@ -108,7 +108,7 @@ function issueMatchesQuery(issue,project,query){
   const titleTokens=raw.split(/[\s\p{P}\p{S}]+/u).map(normalizeIssueTitleSearch).filter(Boolean);
   if(normalizedQuery&&normalizedTitle.includes(normalizedQuery))return true;
   if(titleTokens.length&&titleTokens.every(token=>normalizedTitle.includes(token)))return true;
-  const key=`${project?.key||'ISS'}-${issue?.number||''}`,external=issue?.externalRef?.externalId||issue?.externalRef?.externalIid||'';
+  const ref=issue?.externalRef||{},key=`${project?.key||'ISS'}-${issue?.number||''}`,external=[ref.externalId,ref.externalIid&&`#${ref.externalIid}`].filter(Boolean).join(' ');
   return `${key} ${title} ${issue?.description||''} ${external}`.toLocaleLowerCase().includes(raw);
 }
 
@@ -269,7 +269,7 @@ function issuePriorityMarkup(value){
 // 来源：GitHub、工蜂与 TAPD 由外部同步，其余都算平台新建；取值与来源筛选器保持一致。
 function issueSourceLabel(i){
   const s=metricsIssueSource(i);
-  if(s==='github')return 'GitHub';
+  if(s==='github')return i.externalRef?.externalIid?`GitHub #${i.externalRef.externalIid}`:'GitHub';
   if(s==='gongfeng')return '工蜂';
   if(s==='tapd')return 'TAPD';
   return '平台新建';
