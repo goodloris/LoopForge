@@ -327,3 +327,30 @@ func checkGeneratedColumns(t *testing.T, db *sql.DB) {
 		}
 	}
 }
+
+// Upstream migrations 034 and 035 are DDL only; on PostgreSQL gorm has to
+// build the same tables, indexes and column (see migrations/postgres/README.md).
+func TestPostgresGormBuildsUpstream034And035(t *testing.T) {
+	if strings.TrimSpace(os.Getenv("AGENTFLOW_TEST_PG_DSN")) == "" {
+		t.Skip("AGENTFLOW_TEST_PG_DSN not set")
+	}
+	s, err := OpenTest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	for query, want := range map[string]int{
+		`SELECT count(*) FROM pg_indexes WHERE schemaname = current_schema() AND indexname IN ('idx_schedule_job_executions_job', 'idx_schedule_job_executions_project', 'idx_schedule_job_executions_trace', 'idx_schedule_job_executions_started', 'idx_schedule_job_execution_stats_project')`:                                          5,
+		`SELECT count(*) FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'schedule_job_executions' AND column_name = 'payload' AND data_type = 'jsonb'`:                                                                                                                                             1,
+		`SELECT count(*) FROM information_schema.key_column_usage k JOIN information_schema.table_constraints c USING (constraint_schema, constraint_name) WHERE c.table_schema = current_schema() AND c.table_name = 'schedule_job_execution_stats' AND c.constraint_type = 'PRIMARY KEY' AND k.column_name IN ('job_id', 'bucket_hour')`: 2,
+		`SELECT count(*) FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'user_configs' AND column_name = 'codebuddy_models' AND data_type = 'text'`:                                                                                                                                                1,
+	} {
+		var n int
+		if err := s.DB.Raw(query).Row().Scan(&n); err != nil {
+			t.Fatalf("%v: %s", err, query)
+		}
+		if n != want {
+			t.Errorf("%s = %d, want %d", query, n, want)
+		}
+	}
+}
