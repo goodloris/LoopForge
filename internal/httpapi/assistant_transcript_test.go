@@ -306,3 +306,29 @@ func TestSteerRefreshesTheModelListBeforeFallingBack(t *testing.T) {
 		t.Fatalf("steer model = %+v, want claude-opus-5.5", current.Steer)
 	}
 }
+
+// D10: a workspace turn that first wrote 「先查看相关文件。」 in platform mode
+// ended with a CLI result repeating every later paragraph, joined by single
+// line breaks and with a space the stream had lost. The reply was stored
+// twice over. Taken from the acceptance conversation.
+func TestAssistantVisibleReplyDropsResultRepeatingStreamedParagraphs(t *testing.T) {
+	events := []domain.AssistantActivityEvent{
+		{Kind: "text", Text: "先查看相关文件。"},
+		{Kind: "tool", ID: "open", Tool: "workbench_workspace_open"},
+		{Kind: "text", Text: "Use a venv."},
+		{Kind: "tool", ID: "pytest", Tool: "Bash"},
+		{Kind: "text", Text: "Baseline: 2pre-existing failures. Now make the change."},
+		{Kind: "text", Text: "外部写入（git push）被拦截了。"},
+		{Kind: "text", Text: "文案已改好并提交到本地。\n\n- **测试**：2 failed、35 passed。"},
+	}
+	final := "Use a venv.\nBaseline: 2 pre-existing failures. Now make the change.外部写入（git push）被拦截了。\n文案已改好并提交到本地。\n\n- **测试**：2 failed、35 passed。"
+	got := assistantVisibleReply(final, events)
+	want := "先查看相关文件。\n\nUse a venv.\n\nBaseline: 2pre-existing failures. Now make the change.\n\n外部写入（git push）被拦截了。\n\n文案已改好并提交到本地。\n\n- **测试**：2 failed、35 passed。"
+	if got != want {
+		t.Fatalf("reply stored twice:\n%s", got)
+	}
+	// A result that adds a real summary still keeps it.
+	if got := assistantVisibleReply("文案已改好。\n\n另：PR 已开。", events); !strings.HasSuffix(got, "另：PR 已开。") {
+		t.Fatalf("new tail lost: %q", got)
+	}
+}

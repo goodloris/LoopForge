@@ -81,8 +81,10 @@ func (h *agentToolGateway) waitForMCPWriteApproval(ctx context.Context, session 
 			if !session.nativeToolPhaseActive(wait) {
 				return errMCPApprovalExpired
 			}
+			h.announceNativeDecision(session, current)
 			return nil
 		case "deny":
+			h.announceNativeDecision(session, current)
 			return fmt.Errorf("用户拒绝了本次外部 MCP 写入 %s，操作未执行。不要换一种方式重试。", name)
 		}
 		select {
