@@ -217,11 +217,12 @@ func (s *Service) syncWorkCommitsOnDefaultBranch(store MRDeliveryStore) {
 	}
 	for _, repo := range store.Repositories() {
 		project := strings.TrimSpace(repo.GongfengProjectID)
-		if strings.HasPrefix(project, "github:") {
-			continue
-		}
 		def := strings.TrimSpace(repo.DefaultBranch)
 		if project == "" || def == "" {
+			continue
+		}
+		if strings.HasPrefix(project, "github:") {
+			s.syncGitHubWorkCommitsOnDefaultBranch(store, project, def)
 			continue
 		}
 		rows, err := store.MergedWorkMRs(project)
@@ -304,4 +305,65 @@ func workCommitOnBranch(client *MCPClient, project string, iid int, branch strin
 	}
 	// The ref list was truncated before the default branch could be ruled out.
 	return false, false
+}
+
+// syncGitHubWorkCommitsOnDefaultBranch is the GitHub side of
+// syncWorkCommitsOnDefaultBranch: a pull merged into the integrate branch
+// counts as delivered once its head commit is contained in the default branch
+// (the integrate branch was promoted).
+func (s *Service) syncGitHubWorkCommitsOnDefaultBranch(store MRDeliveryStore, project, def string) {
+	rows, err := store.MergedWorkMRs(project)
+	if err != nil {
+		log.Printf("mr-delivery work commits %s: %v", project, err)
+		return
+	}
+	var g *githubClient
+	for _, row := range rows {
+		if row.MRIID <= 0 || domain.IsBaselinePromoteIssueID(row.IssueID) || domain.IsMainlineBranch(row.TargetBranch, def) {
+			continue
+		}
+		cacheKey := project + "#" + strconv.Itoa(row.MRIID)
+		if _, seen := s.landedOnDefault.Load(cacheKey); seen {
+			continue
+		}
+		if g == nil {
+			if g, err = s.githubClient(project); err != nil {
+				log.Printf("mr-delivery work commits %s: %v", project, err)
+				return
+			}
+		}
+		onDefault, ok := g.pullOnBranch(row.MRIID, def)
+		if !ok {
+			continue
+		}
+		if err := store.ApplyDefaultBranchLanding(row.IssueID, row.MRURL, onDefault); err != nil {
+			log.Printf("mr-delivery landing %s#%d: %v", project, row.MRIID, err)
+			continue
+		}
+		if onDefault {
+			s.landedOnDefault.Store(cacheKey, true)
+		}
+	}
+}
+
+// pullOnBranch reports whether the pull's head commit is contained in branch.
+// ok is false when GitHub could not answer.
+func (g *githubClient) pullOnBranch(number int, branch string) (onBranch, ok bool) {
+	var p githubPull
+	if err := g.request("GET", "/pulls/"+strconv.Itoa(number), nil, &p); err != nil {
+		log.Printf("mr-delivery pull %s#%d: %v", g.path, number, err)
+		return false, false
+	}
+	if strings.TrimSpace(p.Head.SHA) == "" {
+		return false, false
+	}
+	var cmp struct {
+		Status string `json:"status"`
+	}
+	if err := g.request("GET", "/compare/"+branch+"..."+p.Head.SHA, nil, &cmp); err != nil {
+		log.Printf("mr-delivery compare %s %s...%s: %v", g.path, branch, p.Head.SHA, err)
+		return false, false
+	}
+	// head is an ancestor of (or equal to) branch.
+	return cmp.Status == "behind" || cmp.Status == "identical", true
 }
