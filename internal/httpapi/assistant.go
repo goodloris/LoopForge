@@ -745,7 +745,9 @@ func (h *assistantHandlers) chat(c *gin.Context) {
 			if req.RunID == "" {
 				draftCtx = withConversationSession(ctx, req.SessionID)
 			}
-			reply.Drafts = h.resolveAssistantDrafts(draftCtx, user, req.ProjectID, reply.Drafts, approvalMode)
+			// The phase that submitted the drafts is the one the turn ended in.
+			fromWorkspace := toolSession != nil && toolSession.RuntimeMode == domain.AssistantModeWorkspace
+			reply.Drafts = h.resolveAssistantDraftsFor(draftCtx, user, req.ProjectID, reply.Drafts, approvalMode, fromWorkspace)
 			var deadline time.Time
 			if sink != nil && req.RunID == "" {
 				deadline = time.Now().Add(assistantProposalTimeout)
