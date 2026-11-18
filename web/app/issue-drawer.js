@@ -588,7 +588,7 @@ function clarifyPane(issue,project){
   const submittedHTML=analyzing?clarifySubmittedHTML(saved?.reply):'';
   if(c.status!=='in_progress'&&!analyzing){
     const intro=`<div class="clarify-orb">?</div><h3>描述不够清楚？一起问明白</h3><p>可选步骤。分析师只围绕这张单本身，结合本项目代码问清阻塞开工的细节；不澄清也可以直接触发 SOP。</p>`;
-    return `<div class="clarify-workspace clarify-empty">${intro}<div class="clarify-start-row">${clarifyModelPickerHTML(false)}<button class="button primary" data-start-clarify>开始澄清</button></div></div>`;
+    return `<div class="clarify-workspace clarify-empty">${intro}<div class="clarify-start-row">${clarifyModelPickerHTML(false)}<button class="button primary" data-start-clarify>开始澄清</button></div>${clarifyEngineNoteHTML()}</div>`;
   }
   const lastError=(!analyzing&&c.lastError)?`<div class="clarify-error req-clarify-retry"><span>${escapeHTML(c.lastError)}</span><button type="button" class="button primary small" data-retry-clarify-turn>重新分析</button></div>`:'';
   const rounds=(c.history||[]).filter(m=>m.role==='assistant').length;
