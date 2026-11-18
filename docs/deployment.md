@@ -155,7 +155,7 @@ Kiro CLI runs on a subscription login (`kiro-cli login`), never on an API key.
 - **Conversation workspaces:** before each start, the conversation's `KIRO_HOME` is cleared of everything except sessions, logs, login state and what the platform rewrites, so hooks or permission rules a workspace turn planted there do not load in a later turn.
 - **Compose platform:** set `LOOPFORGE_KIRO_DATA_DIR` in `.env` to the host's kiro-cli data directory (`~/.local/share/kiro-cli` on Linux, `~/Library/Application Support/kiro-cli` on macOS). It is mounted read-only at `/kiro-host`; without it Kiro CLI shows as unconfigured.
 
-The image bundles kiro-cli 3.3.0 with its runtime in `KIRO_RUNTIME_DIR=/opt/kiro-runtime`. A custom sandbox image without kiro-cli installs the same pinned release on first use and unpacks the runtime (about 415 MB) into the private HOME.
+The image bundles kiro-cli 3.4.0 with its runtime in `KIRO_RUNTIME_DIR=/opt/kiro-runtime`. A custom sandbox image without kiro-cli installs the same pinned release on first use and unpacks the runtime (about 415 MB) into the private HOME.
 
 ## Workers and runners
 
