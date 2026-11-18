@@ -212,7 +212,6 @@ func (r *DeliveryRepo) markIssueDelivered(issueID string, mrs []domain.DeliveryM
 	if issueDeliverySkipped(issue, mrs, deliveredAt, fromSOP) {
 		return nil
 	}
-	issue.DeliveryState = "merged"
 	if len(mrs) > 0 && (fromSOP || len(issue.DeliveryMRList()) == 0) {
 		list := make([]domain.DeliveryMR, 0, len(mrs))
 		for _, mr := range mrs {
@@ -233,10 +232,21 @@ func (r *DeliveryRepo) markIssueDelivered(issueID string, mrs []domain.DeliveryM
 		}
 	}
 	issue.DeliveryUpdatedAt = deliveredAt.UTC()
+	issue.AutomationState = "ignored"
+	if len(issue.DeliveryMRList()) > 0 && issue.DeliveryMRState != "merged" && !issue.DeliveryLocked() {
+		// The MR is open or only on the integrate branch: the work item waits
+		// for the MR sync to see it on the default branch, like a
+		// conversation delivery. A new SOP delivery replaces a human reopen.
+		issue.DeliveryState = domain.DeliveryStatePending
+		if !issue.Completed() {
+			issue.Status = "in_review"
+		}
+		return r.issues.PutIssue(issue)
+	}
+	issue.DeliveryState = "merged"
 	if issue.Status != "closed" {
 		issue.Status = "done"
 	}
-	issue.AutomationState = "ignored"
 	return r.issues.PutIssue(issue)
 }
 
@@ -354,7 +364,8 @@ func (r *DeliveryRepo) ReconcileUnlinkedDeliveryMRs() error {
 // but were created before delivery locking shipped.
 func (r *DeliveryRepo) ReconcileCompletedDeliveries() error {
 	for _, issue := range r.issues.Issues() {
-		if issue.DeliveryLocked() || strings.EqualFold(issue.DeliveryState, "reopened") {
+		if issue.DeliveryLocked() || strings.EqualFold(issue.DeliveryState, "reopened") || len(issue.DeliveryMRList()) > 0 {
+			// Items with delivery MRs are settled by the MR sync.
 			continue
 		}
 		taskID := strings.TrimSpace(issue.LatestTaskID)
@@ -425,6 +436,10 @@ func (r *DeliveryRepo) PromoteIssueToMainline(issueID, mrURL string, at time.Tim
 		return nil
 	}
 	if strings.EqualFold(issue.DeliveryState, "reopened") {
+		return nil
+	}
+	// A merged MR from an earlier delivery must not settle the current one.
+	if trimmed := strings.TrimSpace(mrURL); trimmed != "" && len(issue.DeliveryMRList()) > 0 && !issue.HasDeliveryMR(trimmed) {
 		return nil
 	}
 	if at.IsZero() {
@@ -1315,7 +1330,7 @@ func (r *DeliveryRepo) applyMRDeliveryStates(items []domain.AnalyticsDelivery, m
 	}
 	for i := range items {
 		// 同一需求可能跑多次、提多个 MR。只有合入仓库默认分支才算「已合入/已交付」。
-		// 合入集成分支记为 integrated（已合入基线）。多个候选按
+		// 合入集成分支记为 integrated（已合入集成分支）。多个候选按
 		// merged > integrated > opened/closed 取最新的一个。
 		preferProject, preferIID := "", 0
 		if issue, ok := issues[items[i].IssueID]; ok {

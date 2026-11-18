@@ -66,10 +66,10 @@ func TestMergedDeliveryBlocksUntilReopened(t *testing.T) {
 		t.Fatalf("expected MR merged label, got %q", merged.DeliveryLockedLabel())
 	}
 	merged.DeliveryMRState = "integrated"
-	if merged.DeliveryLockedLabel() != "已合入基线" {
+	if merged.DeliveryLockedLabel() != "已合入集成分支" {
 		t.Fatalf("expected baseline label, got %q", merged.DeliveryLockedLabel())
 	}
-	if !strings.Contains(merged.ExecutionBlockedReason(), "已合入基线") {
+	if !strings.Contains(merged.ExecutionBlockedReason(), "已合入集成分支") {
 		t.Fatalf("expected baseline block reason, got %q", merged.ExecutionBlockedReason())
 	}
 	merged.DeliveryMRState = "closed"
