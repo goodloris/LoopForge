@@ -33,7 +33,7 @@ class InstallerTests(unittest.TestCase):
         (self.root / 'scripts').mkdir()
         (self.root / 'migrations/seed').mkdir(parents=True)
         (self.root / 'migrations/postgres/seed').mkdir(parents=True)
-        for name in ('install.sh', 'configure.sh', 'database.sh', 'docker-access.sh', 'ghcr-mirror.sh', 'install-address.py', 'install-compose.py', 'install-observability-schema.sh', 'install-schema-extensions.sh', 'manual-migration-hints.sh'):
+        for name in ('install.sh', 'configure.sh', 'database.sh', 'docker-access.sh', 'load-env.sh', 'ghcr-mirror.sh', 'install-address.py', 'install-compose.py', 'install-observability-schema.sh', 'install-schema-extensions.sh', 'manual-migration-hints.sh'):
             shutil.copyfile(ROOT / 'scripts' / name, self.root / 'scripts' / name)
         shutil.copyfile(ROOT / 'start.sh', self.root / 'start.sh')
         for name in ('001_run_obs_generated_columns.sql', '031_generic_backend_openssh.sql', '036_generic_backend_pip.sql'):

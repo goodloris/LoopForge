@@ -87,9 +87,10 @@ services:
       # directory keeps the same absolute path inside the container.
       - ${LOOPFORGE_DATA_DIR}:${LOOPFORGE_DATA_DIR}
       - ${LOOPFORGE_DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
-      # The host's kiro-cli data directory: ~/.local/share/kiro-cli on Linux,
-      # ~/Library/Application Support/kiro-cli on macOS. Unset leaves Kiro
-      # CLI unconfigured.
+      # The host's kiro-cli data directory as an absolute path, not ~, e.g.
+      # LOOPFORGE_KIRO_DATA_DIR=/home/<you>/.local/share/kiro-cli on Linux or
+      # LOOPFORGE_KIRO_DATA_DIR="/Users/<you>/Library/Application Support/kiro-cli"
+      # on macOS. Unset leaves Kiro CLI unconfigured.
       - ${LOOPFORGE_KIRO_DATA_DIR:-${LOOPFORGE_DATA_DIR}/kiro-host}:/kiro-host:ro
     # Only the database whose profile is active is waited for.
     depends_on:

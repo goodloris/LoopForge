@@ -20,6 +20,10 @@ jobs:
         with:
           node-version: '22'
       - run: python3 scripts/test-install.py -v
+      - name: Check that .env loads without being executed
+        run: |
+          bash -n scripts/load-env.sh scripts/test-load-env.sh scripts/install.sh scripts/dev.sh start.sh
+          bash scripts/test-load-env.sh
       - name: Build and test the chatbot frontend embedded by the platform binary
         run: bash scripts/build-chatbot.sh
       - name: Let Chromium use its sandbox as an unprivileged user
