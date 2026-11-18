@@ -111,9 +111,11 @@ func InstallConversationApproval(root, provider string, command CommandSpec) (Co
 
 	case AgentCLIKiro:
 		// Kiro V3 loads global hooks from KIRO_HOME/hooks without trusting the
-		// workspace. Any non-zero exit blocks the call (a missing python3
-		// included); timeout 0 leaves the deadline to the hook itself.
-		data, _ := json.Marshal(map[string]any{"version": "v1", "hooks": []any{map[string]any{"name": "loopforge-approval", "trigger": "PreToolUse", "action": map[string]any{"type": "command", "command": launch + " kiro", "timeout": 0}}}})
+		// workspace. Verified against kiro-cli 3.3.0 and 3.4.0: only exit 2
+		// blocks (a missing or crashed python3 would allow), and the timeout
+		// is a document field; one inside action is ignored, so the hook gets
+		// Kiro's default 60 s and the tool runs once it is killed.
+		data, _ := json.Marshal(map[string]any{"version": "v1", "hooks": []any{map[string]any{"name": "loopforge-approval", "trigger": "PreToolUse", "timeout": conversationApprovalHookWatchdog, "action": map[string]any{"type": "command", "command": launch + " kiro || exit 2"}}}})
 		if err := resetKiroConversationHome(home); err != nil {
 			return command, err
 		}

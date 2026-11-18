@@ -5,12 +5,16 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 func TestAgentCLICommandKiro(t *testing.T) {
@@ -25,10 +29,16 @@ func TestAgentCLICommandKiro(t *testing.T) {
 	}
 }
 
-// AI 对话 is gated by a global PreToolUse hook in KIRO_HOME; it prints
-// nothing on allow (Kiro adds stdout to the context) and exits 2 to block.
-func TestKiroConversationApprovalHook(t *testing.T) {
-	root := t.TempDir()
+type kiroHookDoc struct {
+	Hooks []struct {
+		Trigger string          `json:"trigger"`
+		Action  json.RawMessage `json:"action"`
+	} `json:"hooks"`
+}
+
+func installKiroApprovalHook(t *testing.T) (root, command string, data []byte) {
+	t.Helper()
+	root = t.TempDir()
 	if _, err := InstallConversationApproval(root, AgentCLIKiro, CommandSpec{Argv: []string{"kiro-cli"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -36,19 +46,157 @@ func TestKiroConversationApprovalHook(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var doc kiroHookDoc
+	if err := json.Unmarshal(data, &doc); err != nil || len(doc.Hooks) != 1 || doc.Hooks[0].Trigger != "PreToolUse" {
+		t.Fatalf("hook: %s", data)
+	}
+	var action struct {
+		Command string `json:"command"`
+	}
+	if err := json.Unmarshal(doc.Hooks[0].Action, &action); err != nil {
+		t.Fatal(err)
+	}
+	return root, action.Command, data
+}
+
+// AI 对话 is gated by a global PreToolUse hook in KIRO_HOME. Kiro runs the
+// command through a shell and blocks only on exit 2: every other outcome,
+// a missing or crashed interpreter included, must still become 2.
+func TestKiroConversationApprovalHook(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 unavailable")
+	}
+	var mu sync.Mutex
+	decision := `{"result":{"allow":true}}`
+	pendingUntil := time.Time{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		body := decision
+		if time.Now().Before(pendingUntil) {
+			body = `{"result":{"pending":true}}`
+		}
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(body))
+	}))
+	defer server.Close()
+	root, command, data := installKiroApprovalHook(t)
+	// Kiro reads the timeout from the hook document and ignores one in
+	// action; without it a hook waiting for the user is killed after 60 s
+	// and the tool runs.
 	var doc struct {
 		Hooks []struct {
-			Trigger string `json:"trigger"`
+			Timeout *int `json:"timeout"`
 			Action  struct {
-				Command string `json:"command"`
+				Timeout *int `json:"timeout"`
 			} `json:"action"`
 		} `json:"hooks"`
 	}
-	if err := json.Unmarshal(data, &doc); err != nil || len(doc.Hooks) != 1 || doc.Hooks[0].Trigger != "PreToolUse" || !strings.HasSuffix(doc.Hooks[0].Action.Command, " kiro") {
-		t.Fatalf("hook: %s", data)
+	if err := json.Unmarshal(data, &doc); err != nil || doc.Hooks[0].Timeout == nil || *doc.Hooks[0].Timeout != conversationApprovalHookWatchdog || doc.Hooks[0].Action.Timeout != nil {
+		t.Fatalf("Kiro would kill the approval wait after its 60 s default and run the tool: %s", data)
 	}
-	if !strings.Contains(conversationApprovalPython, `sys.argv[1]=="kiro"`) {
-		t.Fatal("kiro mode must not print a decision on stdout")
+	run := func(path string) (int, string) {
+		cmd := exec.Command("/bin/sh", "-c", command)
+		cmd.Env = []string{"PATH=" + path, "AGENTFLOW_NATIVE_APPROVAL_URL=" + server.URL}
+		cmd.Stdin = strings.NewReader(`{"hook_event_name":"PreToolUse","tool_name":"execute_bash","tool_input":{"command":"git push"}}`)
+		var stdout strings.Builder
+		cmd.Stdout = &stdout
+		err := cmd.Run()
+		var exit *exec.ExitError
+		if errors.As(err, &exit) {
+			return exit.ExitCode(), stdout.String()
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		return 0, stdout.String()
+	}
+	pythonDir := filepath.Dir(python)
+	// Kiro adds hook stdout to the model context, so allow prints nothing.
+	if code, out := run(pythonDir); code != 0 || out != "" {
+		t.Fatalf("approved action exited %d with stdout %q", code, out)
+	}
+	// Waiting for the user blocks, then the decision applies.
+	mu.Lock()
+	pendingUntil, decision = time.Now().Add(2*time.Second), `{"result":{"allow":false,"reason":"no"}}`
+	mu.Unlock()
+	began := time.Now()
+	if code, _ := run(pythonDir); code != 2 || time.Since(began) < 2*time.Second {
+		t.Fatalf("pending then denied action exited %d after %s", code, time.Since(began))
+	}
+	if code, _ := run(t.TempDir()); code != 2 {
+		t.Fatalf("missing interpreter exited %d", code)
+	}
+	if err := os.WriteFile(filepath.Join(root, "native-approval.py"), []byte("import os\nos._exit(1)\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if code, _ := run(pythonDir); code != 2 {
+		t.Fatalf("crashed hook exited %d", code)
+	}
+}
+
+// LOOPFORGE_KIRO_E2E=1 runs the real kiro-cli (logged in, consumes a few
+// credits) against the generated hook while the gateway keeps the approval
+// pending past Kiro's 60 s default hook timeout, then denies: the shell
+// command must not run. A second turn approves and the command must run.
+func TestKiroConversationApprovalHookRealCLI(t *testing.T) {
+	if os.Getenv("LOOPFORGE_KIRO_E2E") != "1" {
+		t.Skip("set LOOPFORGE_KIRO_E2E=1 to run the real kiro-cli probe")
+	}
+	kiro, err := exec.LookPath("kiro-cli")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var calls int
+	var allow bool
+	var pendingUntil time.Time
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		calls++
+		body := `{"result":{"allow":false,"reason":"probe denied"}}`
+		if time.Now().Before(pendingUntil) {
+			body = `{"result":{"pending":true}}`
+		} else if allow {
+			body = `{"result":{"allow":true}}`
+		}
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(body))
+	}))
+	defer server.Close()
+	root, _, _ := installKiroApprovalHook(t)
+	turn := func(probe string) {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, kiro, "chat", "--v3", "--no-interactive", "--trust-all-tools",
+			"Run exactly this shell command once and do not retry: touch "+probe+" . Then reply done.")
+		cmd.Dir = root
+		cmd.Env = append(os.Environ(), "KIRO_HOME="+filepath.Join(root, "home", ".kiro"), "KIRO_NO_AUTO_UPDATE=1", "AGENTFLOW_NATIVE_APPROVAL_URL="+server.URL)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Logf("kiro-cli: %v\n%s", err, output)
+		}
+	}
+	denied := filepath.Join(root, "denied")
+	mu.Lock()
+	pendingUntil = time.Now().Add(75 * time.Second)
+	mu.Unlock()
+	turn(denied)
+	if _, err := os.Stat(denied); err == nil {
+		t.Fatal("kiro-cli ran the command without approval")
+	}
+	mu.Lock()
+	if calls == 0 {
+		mu.Unlock()
+		t.Fatal("hook never asked the gateway")
+	}
+	calls, allow = 0, true
+	mu.Unlock()
+	approved := filepath.Join(root, "approved")
+	turn(approved)
+	if _, err := os.Stat(approved); err != nil {
+		t.Fatal("kiro-cli did not run the approved command")
 	}
 }
 
