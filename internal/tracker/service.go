@@ -369,14 +369,16 @@ func (s *Service) PullAll(store IssueStoreAdapter) error {
 // ErrSyncInProgress reports that another pull holds the sync slot.
 var ErrSyncInProgress = errors.New("sync already in progress")
 
-// PullScheduleJob pulls the sources a trigger job names before it dispatches:
-// "github" / "gongfeng" pull the job project's repositories of that provider,
-// "tapd" pulls the job's TAPD iteration, and an empty source pulls every
-// provider the project has configured (TAPD only when the job names a pool).
+// PullScheduleJob pulls the source a trigger job names before it dispatches:
+// "github" / "gongfeng" pull the job project's repositories of that provider
+// and "tapd" pulls the job's TAPD iteration. An empty source pulls nothing:
+// the job only dispatches issues already imported.
 func (s *Service) PullScheduleJob(store IssueStoreAdapter, job domain.ScheduleJob) (int, []string, error) {
 	source := strings.ToLower(strings.TrimSpace(job.Source))
 	switch source {
-	case "", "github", "gongfeng":
+	case "":
+		return 0, nil, nil
+	case "github", "gongfeng":
 	case "tapd":
 		if strings.TrimSpace(job.TAPDWorkspaceID) == "" || strings.TrimSpace(job.TAPDIterationID) == "" {
 			return 0, nil, fmt.Errorf("schedule job needs TAPD workspace and iteration")
@@ -396,7 +398,7 @@ func (s *Service) PullScheduleJob(store IssueStoreAdapter, job domain.ScheduleJo
 			continue
 		}
 		switch {
-		case repo.Provider == "github" && (source == "" || source == "github"):
+		case repo.Provider == "github" && source == "github":
 			started := time.Now().UTC()
 			n, err := s.pullGitHubIssues(store, repo)
 			status, message := "success", fmt.Sprintf("GitHub: imported %d work items", n)
@@ -406,7 +408,7 @@ func (s *Service) PullScheduleJob(store IssueStoreAdapter, job domain.ScheduleJo
 			}
 			s.addLog(domain.SyncLog{ID: fmt.Sprintf("sync-%d", started.UnixNano()), Direction: "pull", Source: "github", Action: "sync_issues", Status: status, Count: n, Message: message, ProjectID: repo.ProjectID, StartedAt: started, FinishedAt: time.Now().UTC()})
 			count += n
-		case repo.Provider == "gongfeng" && repo.GongfengProjectID != "" && (source == "" || source == "gongfeng"):
+		case repo.Provider == "gongfeng" && repo.GongfengProjectID != "" && source == "gongfeng":
 			client, _, err := s.trackerClientForProject("gongfeng", repo.ProjectID)
 			if err != nil {
 				errs = append(errs, err)
@@ -419,7 +421,7 @@ func (s *Service) PullScheduleJob(store IssueStoreAdapter, job domain.ScheduleJo
 			}
 		}
 	}
-	if source == "tapd" || source == "" && strings.TrimSpace(job.TAPDWorkspaceID) != "" && strings.TrimSpace(job.TAPDIterationID) != "" {
+	if source == "tapd" {
 		n, tapdIDs, err := s.pullScheduledTAPDPool(store, job)
 		count += n
 		ids = tapdIDs

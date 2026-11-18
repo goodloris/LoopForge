@@ -1120,7 +1120,7 @@
                 <option value="gongfeng" data-legacy-tracker hidden disabled>只同步工蜂</option>
                 <option value="tapd" data-legacy-tracker hidden disabled>只同步 TAPD</option>
               </select>
-              <p class="schedule-field-hint">每次执行先把所选来源的 Issue 拉进本项目，再启动其中还没跑过 SOP 的单；一个 Cron 即可完成「拉取 + 派发」。「所有已配置来源」拉取本项目绑定的 GitHub / 工蜂仓库。</p>
+              <p class="schedule-field-hint">选了具体来源时，每次执行先把该来源的 Issue 拉进本项目，再启动其中还没跑过 SOP 的单，一个 Cron 即可完成「拉取 + 派发」。选「所有已配置来源」时不拉取，只启动已导入、还没跑过 SOP 的单；外部同步开启后仍按间隔拉取。</p>
             </div>
             <div data-schedule-kind="dispatch">
               <label>触发哪些状态</label>

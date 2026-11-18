@@ -387,8 +387,9 @@ func (s *Service) executeJob(job domain.ScheduleJob, triggerOrigin string, exec 
 	return finish(job, nil)
 }
 
-// pullSources pulls the job's configured sources into the project before it
-// scans issues, so one trigger job both syncs and dispatches. A concurrent
+// pullSources pulls the source the job names into the project before it
+// scans issues, so one trigger job both syncs and dispatches; a job without a
+// source only dispatches issues already imported. A concurrent
 // pull holds the tracker's sync slot; wait for it rather than skip the pull.
 func (s *Service) pullSources(job domain.ScheduleJob) error {
 	if s.sync == nil {
