@@ -413,6 +413,10 @@ func (h *streamHandlers) executeClarify(ctx context.Context, issue domain.Issue,
 	if responsibleErr != nil {
 		return nil, "", nil, responsibleErr
 	}
+	// Fail before the tool session and repository checkout, not in the CLI.
+	if strings.TrimSpace(responsible.CodeBuddyAPIKey) == "" {
+		return nil, "", nil, errClarifyResponsibleKey
+	}
 	extras := clarifyRequestTexts(request)
 	hydrateClarifyIssueFromText(&issue, extras...)
 	workItemType := "需求"

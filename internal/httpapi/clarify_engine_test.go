@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"agentflow/internal/domain"
+	"agentflow/internal/repo"
 )
 
 // Issue #228: clarification runs on CodeBuddy only (run evals: TestRunEvalOnKiroModel). A model of
@@ -50,5 +51,22 @@ func TestChatClarifyRefusesOtherCLIModel(t *testing.T) {
 	}
 	if called {
 		t.Fatal("clarification started with a Codex model")
+	}
+}
+
+// Clarification has no Kiro CLI path: a responsible user without a CodeBuddy
+// key is refused before any session or checkout, with the reason spelled out.
+func TestClarifyRefusesResponsibleWithoutCodeBuddyKey(t *testing.T) {
+	st, err := repo.OpenTest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	st.PutUser(domain.User{ID: 7, LoginName: "kiro-only"})
+	st.PutProject(domain.Project{ID: "kiro-p", OwnerID: 7})
+	h := &streamHandlers{deps: &deps{repo: st}}
+	_, _, _, err = h.executeClarify(context.Background(), domain.Issue{ProjectID: "kiro-p", Title: "x"}, chatClarifyRequest{Message: "加个徽章"}, nil)
+	if err != errClarifyResponsibleKey || !strings.Contains(err.Error(), "只支持 CodeBuddy") {
+		t.Fatalf("err = %v", err)
 	}
 }

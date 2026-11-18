@@ -32,6 +32,10 @@ func clarifyAllowedModel(id string) string {
 // refused instead of being swapped for the CodeBuddy default.
 var errClarifyNeedsCodeBuddy = errors.New("需求澄清目前只支持 CodeBuddy 模型，请在模型列表中改选 CodeBuddy 模型")
 
+// errClarifyResponsibleKey: clarification runs on the CodeBuddy key of the
+// requirement's assignee (or the project Owner); there is no Kiro CLI path.
+var errClarifyResponsibleKey = errors.New("需求澄清目前只支持 CodeBuddy：需求责任人（未指派时为项目 Owner）未配置 CodeBuddy API Key，请在个人配置中配置")
+
 // clarifyModelEngineError reports whether id names a model of a CLI that
 // requirement clarification cannot run.
 func clarifyModelEngineError(id string) error {
