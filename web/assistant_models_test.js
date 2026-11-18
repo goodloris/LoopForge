@@ -73,14 +73,18 @@ const ctx = {
         { id: 'model-a', name: 'Model A', family: 'claude', credits: 'x1.00' },
         { id: 'model-b', name: 'Model B', family: 'glm', credits: 'x0.06' },
         { id: 'codex:gpt-5.5', name: 'GPT-5.5', family: 'gpt', engine: 'codex' },
+        { id: 'kiro:auto', name: 'Auto', family: 'other', engine: 'kiro' },
       ],
-      engines: [{ id: 'codebuddy', name: 'CodeBuddy' }, { id: 'codex', name: 'Codex' }],
+      engines: [{ id: 'codebuddy', name: 'CodeBuddy' }, { id: 'codex', name: 'Codex' }, { id: 'kiro', name: 'Kiro CLI' }],
     }),
   }),
 };
 ctx.window = ctx;
 // bindClarifyModelPicker uses $$ for the outside-click closer and setClarifyModel.
-ctx.$$ = selector => (selector === '[data-clarify-model]' ? [host] : [input]);
+const note = createElement('p');
+ctx.$$ = selector => (selector === '[data-clarify-model]' ? [host] : selector === '[data-clarify-engine-note]' ? [note] : [input]);
+ctx.escapeHTML = value => String(value);
+ctx.state = { currentUser: { id: 1, codeBuddyApiKeyConfigured: true } };
 vm.createContext(ctx);
 vm.runInContext(moduleSource, ctx);
 
@@ -100,16 +104,16 @@ vm.runInContext(moduleSource, ctx);
 
   await api.load();
   assert.equal(api.catalog().default, 'model-b');
-  assert.equal(api.catalog().models.length, 3, 'catalog adopts /api/assistant/models');
-  // Issue #228: clarification runs on CodeBuddy only, so CodeBuddy-only
-  // pickers hide other CLIs and a saved "codex:…" id falls back.
+  assert.equal(api.catalog().models.length, 4, 'catalog adopts /api/assistant/models');
+  // CodeBuddy-only pickers (SOP preview) hide other CLIs and a saved
+  // "codex:…" id falls back.
   assert.deepEqual(api.codeBuddyModels().map(m => m.id), ['model-a', 'model-b']);
   assert.equal(api.codeBuddyModel('codex:gpt-5.5'), 'default');
   assert.equal(api.codeBuddyModel(''), 'default');
   assert.equal(api.codeBuddyModel('model-a'), 'model-a');
 
   // Pull the real picker helpers out of the bundle and bind them to the stub host.
-  for (const name of ['selectedClarifyModel', 'setClarifyModel', 'bindClarifyModelPicker']) {
+  for (const name of ['selectedClarifyModel', 'clarifyViewerHasCodeBuddyKey', 'setClarifyModel', 'clarifyEngineNoteHTML', 'refreshClarifyEngineNote', 'bindClarifyModelPicker']) {
     const start = bundle.search(new RegExp('^function ' + name + '\\(', 'm'));
     assert.ok(start >= 0, `${name} is missing from the app bundle`);
     const rest = bundle.slice(start);
@@ -121,8 +125,8 @@ vm.runInContext(moduleSource, ctx);
 
   toggle.onclick({ stopPropagation() {} });
   assert.equal(menu.hidden, false, 'clicking 选择模型 must open the menu');
-  assert.equal(menu.children.length, 2, 'menu lists only CodeBuddy models');
-  assert.ok(!menu.children.some(opt => opt.dataset.id.startsWith('codex:')), 'clarify menu hides Codex models');
+  // Clarification runs on any CLI, Kiro CLI included.
+  assert.deepEqual(menu.children.map(opt => opt.dataset.id), ['model-a', 'model-b', 'codex:gpt-5.5', 'kiro:auto'], 'clarify menu lists every CLI');
   assert.ok(menu.children[0].className.includes('is-active'), 'stored model is marked active');
 
   menu.children[1].onclick();
@@ -131,8 +135,18 @@ vm.runInContext(moduleSource, ctx);
   assert.equal(menu.hidden, true);
   assert.equal(label.textContent, 'Model B');
 
-  // A Codex id saved before this fix must not reach chat-clarify.
-  store.set('agentflow.clarifyModel', 'codex:gpt-5.5');
+  assert.ok(note.outerHTML.includes('CodeBuddy API Key') && !note.outerHTML.includes('is-warn'), 'note names the CodeBuddy key');
+
+  // A listed model of another CLI is kept; one the viewer lost falls back.
+  store.set('agentflow.clarifyModel', 'kiro:auto');
+  assert.equal(ctx.selectedClarifyModel(), 'kiro:auto');
+  ctx.setClarifyModel('kiro:auto');
+  assert.ok(note.outerHTML.includes('kiro-cli login') && note.outerHTML.includes('不需要 API Key'), 'note explains the Kiro CLI login');
+  store.set('agentflow.clarifyModel', 'codex:gone');
   assert.equal(ctx.selectedClarifyModel(), 'default');
+  // Without a choice, a viewer without a CodeBuddy key starts on Kiro CLI.
+  store.delete('agentflow.clarifyModel');
+  ctx.state.currentUser.codeBuddyApiKeyConfigured = false;
+  assert.equal(ctx.selectedClarifyModel(), 'kiro:auto');
   console.log('assistant models ok');
 })().catch(err => { console.error(err); process.exit(1); });

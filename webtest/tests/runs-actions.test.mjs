@@ -270,7 +270,7 @@ test('run activation waits for workspace restoration, deduplicates intent, and f
   assert.equal(app.document.querySelector('[data-retry-node]').disabled, false);
 });
 
-test('run eval and Bot pickers offer Kiro CLI models; clarification names its CodeBuddy need', async (t) => {
+test('run eval and Bot pickers offer Kiro CLI models; clarification names the credentials of the chosen CLI', async (t) => {
   const app = await loadApp();
   t.after(app.close);
   app.router.get('/api/assistant/models', {
@@ -293,7 +293,13 @@ test('run eval and Bot pickers offer Kiro CLI models; clarification names its Co
     return [...menu.querySelectorAll('[data-id]')].map(b=>b.dataset.id);
   })()`));
   assert.deepEqual(botListed, ['glm-5.1', 'kiro:auto'], 'Bot replies and SOP reports run on CodeBuddy or Kiro CLI');
-  assert.match(app.evaluate(`clarifyEngineNoteHTML()`), /只支持 CodeBuddy/, 'clarification says up front that it needs CodeBuddy');
+  // Without a CodeBuddy key and without a saved choice, clarification starts
+  // on Kiro CLI and says it uses the server's kiro-cli login.
+  app.evaluate(`localStorage.removeItem('agentflow.clarifyModel')`);
+  assert.equal(app.evaluate(`selectedClarifyModel()`), 'kiro:auto');
+  assert.match(app.evaluate(`clarifyEngineNoteHTML()`), /kiro-cli login/, 'clarification names the Kiro CLI login');
+  app.evaluate(`localStorage.setItem('agentflow.clarifyModel','glm-5.1')`);
+  assert.match(app.evaluate(`clarifyEngineNoteHTML()`), /is-warn[\s\S]*改选 Kiro CLI/, 'a CodeBuddy model without a key says what to do');
   app.evaluate(`setRunEvalModel('glm-5.1')`);
   assert.equal(app.evaluate(`runEvalHasKey()`), false, 'CodeBuddy still needs the personal key');
   app.evaluate(`setRunEvalModel('kiro:auto');state.activeRun={id:'run-k',status:'succeeded',workflowId:'flow-1',nodes:{}};state.selectedRun='run-k'`);

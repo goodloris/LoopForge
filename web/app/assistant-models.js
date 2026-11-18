@@ -1,7 +1,7 @@
 // Shared AI model catalog for the classic SPA. The SOP preview, role, Bot,
 // scheduler, run-eval and requirement-clarification pickers all read
 // window.AgentFlowAssistantModels, so this file must load before them.
-// Pickers for entries that only run on CodeBuddy use renderCodeBuddyList.
+// Pickers for entries that only run on CodeBuddy use codeBuddyModels.
 // Only the picker chrome lives here; per-feature selections stay in the
 // callers (localStorage keys, hidden inputs, form fields).
 (() => {
@@ -123,14 +123,10 @@
   function renderList(menu, selectedId, onPick) {
     renderOptions(menu, catalog.models || [], selectedId, onPick);
   }
-  // Requirement clarification and the SOP preview build run on CodeBuddy
-  // only, so their pickers list CodeBuddy models and
-  // never offer a "codex:…" id the server would have to refuse.
+  // The SOP preview build runs on CodeBuddy only, so its picker lists
+  // CodeBuddy models and never offers a "codex:…" id the server would refuse.
   function codeBuddyModels() {
     return (catalog.models || []).filter(m => (m.engine || 'codebuddy') === 'codebuddy');
-  }
-  function renderCodeBuddyList(menu, selectedId, onPick) {
-    renderOptions(menu, codeBuddyModels(), selectedId, onPick);
   }
   // Bot replies and SOP completion reports run on CodeBuddy or Kiro CLI.
   function renderBotList(menu, selectedId, onPick) {
@@ -170,7 +166,6 @@
     paint,
     paintItem,
     renderBotList,
-    renderCodeBuddyList,
     renderList,
     renderOptions
   };
