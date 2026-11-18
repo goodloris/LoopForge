@@ -163,7 +163,11 @@ func (e *Engine) mergeWorkBranchIntoIntegrate(id string, r domain.Run, rc domain
 		ref, err := e.MergeIntoBranch(rc.GongfengProjectID, work, integrate, title, integrateMRDescription(r, work, integrate))
 		if err != nil {
 			e.updateRun(id, func(c *domain.Run) {
-				e.event(c, "", "mr.auto_merge_failed", fmt.Sprintf("已推送仓库 %s 的工作分支 %s，基线 MR（%s → %s）自动合并失败（不会直推基线）: %v", rc.Name, work, work, integrate, err))
+				msg := fmt.Sprintf("已推送仓库 %s 的工作分支 %s，基线 MR（%s → %s）自动合并失败（不会直推基线）: %v", rc.Name, work, work, integrate, err)
+				e.event(c, "", "mr.auto_merge_failed", msg)
+				// Also on the trace: every node succeeded, so no node shows this.
+				appendControlTelemetry(c, "", "mr.auto_merge_failed", msg)
+				c.Telemetry[len(c.Telemetry)-1].Level = "error"
 			})
 			return fmt.Errorf("merge integrate MR %s → %s: %w", work, integrate, err)
 		}
