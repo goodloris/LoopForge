@@ -381,11 +381,14 @@ func (r *AnalyticsRepo) populateBusinessDeliveryMetrics(out *domain.BusinessDoma
 	}
 	// Only a merge into the default branch delivers; integrate-branch merges
 	// are counted apart and never feed completion-to-merge latency.
-	classify := r.mergedMRClassifier()
+	// A promoted integrate-branch merge counts as merged at its promote time.
+	landing := r.mergedMRLanding()
 	mainline := mrs[:0]
 	for _, mr := range mrs {
-		switch classify(mr) {
+		state, at := landing(mr)
+		switch state {
 		case "merged":
+			mr.MergedAt = at
 			mainline = append(mainline, mr)
 		case "integrated":
 			item := items[mr.IssueID]

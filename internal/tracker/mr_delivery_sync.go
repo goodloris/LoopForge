@@ -222,7 +222,7 @@ func (s *Service) syncWorkCommitsOnDefaultBranch(store MRDeliveryStore) {
 			continue
 		}
 		if strings.HasPrefix(project, "github:") {
-			s.syncGitHubWorkCommitsOnDefaultBranch(store, project, def)
+			s.syncGitHubWorkCommitsOnDefaultBranch(store, project, def, domain.NormalizeIntegrateBranch(repo.IntegrateBranch))
 			continue
 		}
 		rows, err := store.MergedWorkMRs(project)
@@ -311,13 +311,14 @@ func workCommitOnBranch(client *MCPClient, project string, iid int, branch strin
 // syncWorkCommitsOnDefaultBranch: a pull merged into the integrate branch
 // counts as delivered once its head commit is contained in the default branch
 // (the integrate branch was promoted).
-func (s *Service) syncGitHubWorkCommitsOnDefaultBranch(store MRDeliveryStore, project, def string) {
+func (s *Service) syncGitHubWorkCommitsOnDefaultBranch(store MRDeliveryStore, project, def, integ string) {
 	rows, err := store.MergedWorkMRs(project)
 	if err != nil {
 		log.Printf("mr-delivery work commits %s: %v", project, err)
 		return
 	}
 	var g *githubClient
+	promotesListed := false
 	for _, row := range rows {
 		if row.MRIID <= 0 || domain.IsBaselinePromoteIssueID(row.IssueID) || domain.IsMainlineBranch(row.TargetBranch, def) {
 			continue
@@ -332,6 +333,11 @@ func (s *Service) syncGitHubWorkCommitsOnDefaultBranch(store MRDeliveryStore, pr
 				return
 			}
 		}
+		if !promotesListed {
+			// Promote PRs date the landing (see ApplyDefaultBranchLanding).
+			promotesListed = true
+			s.recordGitHubPromotePulls(store, g, project, integ, def)
+		}
 		onDefault, ok := g.pullOnBranch(row.MRIID, def)
 		if !ok {
 			continue
@@ -342,6 +348,32 @@ func (s *Service) syncGitHubWorkCommitsOnDefaultBranch(store MRDeliveryStore, pr
 		}
 		if onDefault {
 			s.landedOnDefault.Store(cacheKey, true)
+		}
+	}
+}
+
+// recordGitHubPromotePulls stores merged integrate → default pulls as
+// baseline promote rows, like discoverPromoteMRs does for Gongfeng.
+func (s *Service) recordGitHubPromotePulls(store MRDeliveryStore, g *githubClient, project, integ, def string) {
+	if integ == "" || domain.SameGitBranch(integ, def) {
+		return
+	}
+	pulls, err := g.listPulls(integ, def)
+	if err != nil {
+		log.Printf("mr-delivery discover promote %s: %v", project, err)
+		return
+	}
+	now := time.Now().UTC()
+	for _, p := range pulls {
+		if !p.merged() || p.Head.Ref != integ || p.Base.Ref != def {
+			continue
+		}
+		if err := store.EnsureMRDeliveryState(project, p.Number, domain.GongfengMRURL(project, p.Number), domain.BaselinePromoteIssueID); err != nil {
+			log.Printf("mr-delivery ensure promote %s#%d: %v", project, p.Number, err)
+			continue
+		}
+		if err := store.UpdateMRDeliveryState(project, p.Number, "merged", def, p.mergedAt(), now); err != nil {
+			log.Printf("mr-delivery update promote %s#%d: %v", project, p.Number, err)
 		}
 	}
 }

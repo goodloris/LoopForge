@@ -489,9 +489,13 @@ type mrDeliveryStateRow struct {
 	TargetBranch string     `gorm:"column:target_branch;size:255"`
 	IssueID      string     `gorm:"column:issue_id;index:idx_mr_delivery_issue;size:64"`
 	MergedAt     *time.Time `gorm:"column:merged_at;index:idx_mr_delivery_merged_at"`
-	CheckedAt    *time.Time `gorm:"column:checked_at"`
-	Created      *time.Time `gorm:"column:created_at"`
-	Updated      *time.Time `gorm:"column:updated_at"`
+	// LandedAt is when a work MR merged into the integrate branch reached the
+	// default branch: the merged_at of the promote MR that carried it. NULL
+	// while it is not on the default branch or no promote MR explains it.
+	LandedAt  *time.Time `gorm:"column:landed_at"`
+	CheckedAt *time.Time `gorm:"column:checked_at"`
+	Created   *time.Time `gorm:"column:created_at"`
+	Updated   *time.Time `gorm:"column:updated_at"`
 }
 
 func (mrDeliveryStateRow) TableName() string { return "mr_delivery_states" }
