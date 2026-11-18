@@ -18,10 +18,7 @@ const payloadMentionsChunk = 64
 // what nothing mentions must keep everything then.
 func payloadMentions(db *gorm.DB, table string, ids []string) (map[string]bool, error) {
 	found := map[string]bool{}
-	has := "instr(CAST(payload AS TEXT), ?) > 0"
-	if db.Dialector.Name() == "mysql" {
-		has = "INSTR(CAST(payload AS CHAR), ?) > 0"
-	}
+	has := wherePayloadHasFunc(db) + sqlColumnText(db, "payload") + ", ?) > 0"
 	for start := 0; start < len(ids); start += payloadMentionsChunk {
 		chunk := ids[start:min(start+payloadMentionsChunk, len(ids))]
 		cols := make([]string, len(chunk))

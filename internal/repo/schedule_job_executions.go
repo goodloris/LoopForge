@@ -224,12 +224,9 @@ func (r *CatalogRepo) ScheduleJobExecutionPage(q ScheduleJobExecutionPageQuery) 
 	// The payload text narrows the candidates in SQL; the fields decide. A
 	// job keeps at most MaxScheduleJobExecutionsPerJob rows, so the candidates
 	// stay bounded.
-	cast := "LOWER(CAST(payload AS TEXT))"
-	if r.DB.Dialector.Name() == "mysql" {
-		cast = "LOWER(CAST(payload AS CHAR))"
-	}
+	has := wherePayloadHasFunc(r.DB) + "LOWER(" + sqlColumnText(r.DB, "payload") + "), ?) > 0"
 	var rows []scheduleJobExecutionRow
-	if err := db.Where("INSTR("+cast+", ?) > 0", search).Order("started_at DESC").Order("id DESC").Find(&rows).Error; err != nil {
+	if err := db.Where(has, search).Order("started_at DESC").Order("id DESC").Find(&rows).Error; err != nil {
 		return out, 0
 	}
 	for _, e := range decode(rows) {
