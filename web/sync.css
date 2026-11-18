@@ -300,11 +300,14 @@
 
 /* 项目触发配置直接编辑。 */
 #scheduleModal #scheduleJobList[hidden] { display:none; }
-#scheduleModal .schedule-config-runtime { display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 0;color:var(--hui-secondary); }
-#scheduleModal .schedule-config-runtime>div { display:flex;flex-direction:column;gap:5px;min-width:0; }
-#scheduleModal .schedule-config-runtime b { color:var(--hui-text);font-size:13px;font-weight:500; }
-#scheduleModal .schedule-config-runtime :is(span,small) { font-size:12px;line-height:1.5;overflow-wrap:anywhere; }
-#scheduleModal .schedule-config-runtime button { flex:none; }
+/* The trigger summary renders in the editor and on the 定时任务 › SOP 触发 card. */
+:is(#scheduleModal,#aiScheduleTriggerPanel) .schedule-config-runtime { display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 0;color:var(--hui-secondary); }
+:is(#scheduleModal,#aiScheduleTriggerPanel) .schedule-config-runtime>div { display:flex;flex-direction:column;gap:5px;min-width:0; }
+:is(#scheduleModal,#aiScheduleTriggerPanel) .schedule-config-runtime b { color:var(--hui-text);font-size:13px;font-weight:500; }
+:is(#scheduleModal,#aiScheduleTriggerPanel) .schedule-config-runtime>div :is(span,small) { font-size:12px;line-height:1.5;overflow-wrap:anywhere; }
+:is(#scheduleModal,#aiScheduleTriggerPanel) .schedule-config-actions { display:flex;align-items:center;gap:6px;flex:none; }
+#aiScheduleTriggerPanel .schedule-config-runtime { padding:14px 16px;border-top:1px solid var(--hui-border-soft); }
+#aiSchedulesView #aiScheduleTriggerHint { padding:12px 16px;margin:0;color:var(--hui-secondary);font-size:12px;line-height:1.6; }
 
 #scheduleModal .schedule-head small { font-size:12px;line-height:1.5; }
 
