@@ -666,6 +666,10 @@ func (r *CatalogRepo) PutScheduleJob(v domain.ScheduleJob) error {
 		if strings.TrimSpace(v.Cron) == "" && v.IntervalSec < 30 {
 			v.IntervalSec = 30
 		}
+		v.ScheduleFrom = old.ScheduleFrom
+		if old.ID != "" && ((v.Enabled && !old.Enabled) || strings.TrimSpace(v.Cron) != strings.TrimSpace(old.Cron) || v.IntervalSec != old.IntervalSec) {
+			v.ScheduleFrom = now
+		}
 		v.NotificationSnapshot = domain.CloneNotificationBindings(old.NotificationSnapshot)
 		if v.LastStatus == "running" && (old.LastStatus != "running" || old.LastRunAt.UnixMilli() != v.LastRunAt.UnixMilli()) {
 			v.NotificationSnapshot = domain.CloneNotificationBindings(v.Notifications)
@@ -700,6 +704,9 @@ func (r *CatalogRepo) SetScheduleJobEnabled(id string, enabled bool) (domain.Sch
 		}
 		if err := json.Unmarshal(row.Payload, &out); err != nil {
 			return err
+		}
+		if enabled && !out.Enabled {
+			out.ScheduleFrom = time.Now().UTC()
 		}
 		out.Enabled = enabled
 		out.UpdatedAt = time.Now().UTC()
