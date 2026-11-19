@@ -31,6 +31,37 @@ func TestAgentCLICommandKiro(t *testing.T) {
 	if !slices.Contains(clarify, "--trust-tools=read,grep,glob,@agentflow_session") {
 		t.Fatalf("clarification must trust only the file read tools and MCP: %q", clarify)
 	}
+	// A conversation workspace turn is a full coding agent, but headless Kiro
+	// only connects an MCP server it can name in --trust-tools: the bare
+	// --trust-all-tools leaves the platform session server unloaded (D3). So
+	// workspace trust uses @builtin (every built-in tool, no maintained list)
+	// and names every MCP server, and never falls back to --trust-all-tools.
+	workspace := AgentCLICommand(AgentCLIKiro, AgentCLICommandOptions{Prompt: "q", Chat: true, Workspace: true, MCPServers: []string{"agentflow_session", "bad id"}}).Argv
+	if slices.Contains(workspace, "--trust-all-tools") {
+		t.Fatalf("workspace must not use --trust-all-tools (MCP server stays unloaded): %q", workspace)
+	}
+	wtrust := kiroTrustArg(t, workspace)
+	wtools := strings.Split(strings.TrimPrefix(wtrust, "--trust-tools="), ",")
+	for _, want := range []string{"@builtin", "@agentflow_session"} {
+		if !slices.Contains(wtools, want) {
+			t.Fatalf("workspace trust missing %q: %q", want, wtrust)
+		}
+	}
+	if strings.Contains(wtrust, "bad id") {
+		t.Fatalf("invalid MCP server id leaked into workspace trust: %q", wtrust)
+	}
+}
+
+// kiroTrustArg returns the --trust-tools value from a recorded kiro-cli argv.
+func kiroTrustArg(t *testing.T, argv []string) string {
+	t.Helper()
+	for _, arg := range argv {
+		if strings.HasPrefix(arg, "--trust-tools=") {
+			return arg
+		}
+	}
+	t.Fatalf("no --trust-tools in %q", argv)
+	return ""
 }
 
 type kiroHookDoc struct {
