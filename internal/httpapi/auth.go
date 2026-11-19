@@ -248,7 +248,12 @@ func (h *authHandlers) authCurrent(c *gin.Context) {
 			} else {
 				if user.LoginName != "" {
 					h.syncAuthUserRecord(user, "cookie")
-					user.AvatarURL = auth.AvatarURL(user.LoginName, 100)
+					// Keep an absolute avatar URL carried by the signed
+					// session (a Feishu avatar); only the local photo path
+					// is recomputed from the login name.
+					if !isAbsoluteHTTPURL(user.AvatarURL) {
+						user.AvatarURL = auth.AvatarURL(user.LoginName, 100)
+					}
 				}
 				if token, signErr := h.getAuthClient().SignUser(user); signErr == nil && token != "" {
 					h.setAuthCookie(c.Writer, c.Request, token)

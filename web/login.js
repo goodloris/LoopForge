@@ -31,6 +31,15 @@ fetch('/api/auth/setup').then(r => r.ok ? r.json() : {}).then(state => {
   signup = !!state.signupEnabled;
   if (state.needsSetup) mode = 'setup';
   else if (location.hash === '#register' && signup) mode = 'register';
+  if (state.feishuEnabled) {
+    const block = $('feishuBlock'), link = $('feishuLogin');
+    $('feishuDivider').textContent = t('或', 'or');
+    link.textContent = t('飞书登录', 'Sign in with Feishu');
+    // Carry an explicit return target when the login page was opened with one.
+    const ret = new URLSearchParams(location.search).get('return_url');
+    link.href = '/api/auth/feishu/start' + (ret ? ('?return_url=' + encodeURIComponent(ret)) : '');
+    block.hidden = false;
+  }
   render();
 }).catch(() => {});
 
