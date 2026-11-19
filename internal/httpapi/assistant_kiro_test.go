@@ -38,9 +38,10 @@ func TestAssistantKiroChatInvocation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A conversation workspace trusts the full built-in tool set, but headless
-	// Kiro only connects an MCP server it can name, so the session server is
-	// trusted explicitly and never via bare --trust-all-tools (D3).
+	// A conversation workspace trusts the full built-in tool set via @builtin
+	// (no maintained list), but headless Kiro only connects an MCP server it
+	// can name, so the session server is trusted explicitly and never via bare
+	// --trust-all-tools (D3).
 	if slices.Contains(inv.command.Argv, "--trust-all-tools") {
 		t.Fatalf("workspace must name the MCP server, not use --trust-all-tools: %q", inv.command.Argv)
 	}
@@ -50,7 +51,7 @@ func TestAssistantKiroChatInvocation(t *testing.T) {
 			wtrust = arg
 		}
 	}
-	for _, want := range []string{"@agentflow_session", "write", "shell"} {
+	for _, want := range []string{"@builtin", "@agentflow_session"} {
 		if !slices.Contains(strings.Split(strings.TrimPrefix(wtrust, "--trust-tools="), ","), want) {
 			t.Fatalf("workspace trust missing %q: %q", want, inv.command.Argv)
 		}

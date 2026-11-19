@@ -277,11 +277,14 @@ func AgentCLICommand(kind string, o AgentCLICommandOptions) CommandSpec {
 			// still pass this policy and the hook.
 			trust = mcpTrust([]string{"read", "grep", "glob", "disclose_context", "invoke_sub_agent"})
 		case o.Workspace:
-			// 工作区模式：像 SOP 节点一样信任全部内置工具，但必须同时点名 MCP
-			// 服务，否则平台会话网关在沙箱里不会被连接（见上面的注释）。平台写入
-			// 仍以草稿形式等待人工确认，这由网关目录与草稿流程保证，与此处的信任
-			// 范围无关。
-			trust = mcpTrust([]string{"read", "write", "shell", "grep", "glob", "delegate", "disclose_context", "invoke_sub_agent", "introspect", "knowledge", "thinking", "todo", "report", "aws"})
+			// 工作区模式是完整的编码 agent：@builtin 信任全部内置工具（含
+			// web_fetch/web_search，以及 Kiro 以后新增的工具，无需维护清单），
+			// 同时点名每个 MCP 服务。必须经由 --trust-tools 点名 MCP：headless
+			// kiro-cli 只会连接能在 --trust-tools 里点到的 MCP 服务，裸
+			// --trust-all-tools 会让平台会话网关在沙箱里不被加载（见上面的注释），
+			// 而 @builtin + @server 与平台/澄清模式加载 MCP 的形式一致。平台写入
+			// 仍以草稿等待人工确认（网关目录与草稿流程保证），与此处的信任范围无关。
+			trust = mcpTrust([]string{"@builtin"})
 		}
 		argv = []string{binary, "chat", "--v3", "--no-interactive", "--output-format", "stream-json", trust}
 		if model != "" {
