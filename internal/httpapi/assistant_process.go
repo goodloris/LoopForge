@@ -98,6 +98,15 @@ func (h *assistantHandlers) conversationExecutor(s *AgentToolSession, root strin
 				return "", fmt.Errorf("对话工作区只支持 Docker 或 native 沙箱")
 			}
 			if s.ExecutionRunnerID == "" {
+				// lease() reclaims a foreign bind under the workspace lease when
+				// the bound host is gone (the platform container was rebuilt
+				// with a new hostname). The run captured above predates that
+				// takeover, so resolve the workspace from the committed bind;
+				// otherwise the first message after a rebuild failed as a
+				// foreign bind here while only the second succeeded.
+				if fresh, ok := h.repo.RunState(runID); ok {
+					run = fresh
+				}
 				var reason string
 				workspace, reason = h.engine.LocalRunWorkspace(run)
 				if workspace == "" {
