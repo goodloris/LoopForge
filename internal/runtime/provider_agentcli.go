@@ -242,31 +242,46 @@ func AgentCLICommand(kind string, o AgentCLICommandOptions) CommandSpec {
 		// cancels every call it does not trust, so AI 对话 trusts only the
 		// read tools and the MCP servers; the PreToolUse hook
 		// (InstallConversationApproval) still sees each call.
-		// A conversation workspace trusts every tool like an SOP node.
+		// Headless kiro-cli only connects an MCP server it can name in
+		// --trust-tools; the bare --trust-all-tools leaves a configured
+		// mcp.json server unloaded (verified against kiro-cli 3.4.0: a
+		// workspace turn then reports agentflow__*/workbench_tool_schema/
+		// submit_assistant_reply unavailable and makes no gateway request), so
+		// every chat mode names the session MCP server even when it trusts the
+		// full built-in tool set a workspace turn needs. An SOP node keeps
+		// --trust-all-tools (its role MCP servers are not the platform session).
 		trust := "--trust-all-tools"
-		if readOnly {
-			// disclose_context loads a skill, invoke_sub_agent dispatches a
-			// role; a sub-agent's own calls still pass this policy and the hook.
-			tools := []string{"read", "grep", "glob", "disclose_context", "invoke_sub_agent"}
+		mcpTrust := func(base []string) string {
+			tools := append([]string{}, base...)
 			for _, id := range o.MCPServers {
 				if kiroServerIDRe.MatchString(id) {
 					tools = append(tools, "@"+id)
 				}
 			}
-			trust = "--trust-tools=" + strings.Join(tools, ",")
+			return "--trust-tools=" + strings.Join(tools, ",")
 		}
-		if o.MCPOnly {
-			var tools []string
+		switch {
+		case o.MCPOnly:
+			// A call that needs no built-in tool (approval review, run eval,
+			// title, Bot reply, SOP report), optionally with read-only file
+			// tools for requirement clarification.
+			var base []string
 			if len(o.ReadRoots) > 0 {
 				options.ReadRoots = o.ReadRoots
-				tools = []string{"read", "grep", "glob"}
+				base = []string{"read", "grep", "glob"}
 			}
-			for _, id := range o.MCPServers {
-				if kiroServerIDRe.MatchString(id) {
-					tools = append(tools, "@"+id)
-				}
-			}
-			trust = "--trust-tools=" + strings.Join(tools, ",")
+			trust = mcpTrust(base)
+		case readOnly:
+			// 平台模式 AI 对话：只读文件工具 + MCP 服务。disclose_context loads a
+			// skill, invoke_sub_agent dispatches a role; a sub-agent's own calls
+			// still pass this policy and the hook.
+			trust = mcpTrust([]string{"read", "grep", "glob", "disclose_context", "invoke_sub_agent"})
+		case o.Workspace:
+			// 工作区模式：像 SOP 节点一样信任全部内置工具，但必须同时点名 MCP
+			// 服务，否则平台会话网关在沙箱里不会被连接（见上面的注释）。平台写入
+			// 仍以草稿形式等待人工确认，这由网关目录与草稿流程保证，与此处的信任
+			// 范围无关。
+			trust = mcpTrust([]string{"read", "write", "shell", "grep", "glob", "delegate", "disclose_context", "invoke_sub_agent", "introspect", "knowledge", "thinking", "todo", "report", "aws"})
 		}
 		argv = []string{binary, "chat", "--v3", "--no-interactive", "--output-format", "stream-json", trust}
 		if model != "" {

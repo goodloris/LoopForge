@@ -35,8 +35,25 @@ func TestAssistantKiroChatInvocation(t *testing.T) {
 	}
 	opts.Workspace = true
 	inv, err = prepareAssistantAgentCLIInvocation(runtime.AgentCLIKiro, opts)
-	if err != nil || !slices.Contains(inv.command.Argv, "--trust-all-tools") {
-		t.Fatalf("a conversation workspace trusts every tool: %q %v", inv.command.Argv, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A conversation workspace trusts the full built-in tool set, but headless
+	// Kiro only connects an MCP server it can name, so the session server is
+	// trusted explicitly and never via bare --trust-all-tools (D3).
+	if slices.Contains(inv.command.Argv, "--trust-all-tools") {
+		t.Fatalf("workspace must name the MCP server, not use --trust-all-tools: %q", inv.command.Argv)
+	}
+	wtrust := ""
+	for _, arg := range inv.command.Argv {
+		if strings.HasPrefix(arg, "--trust-tools=") {
+			wtrust = arg
+		}
+	}
+	for _, want := range []string{"@agentflow_session", "write", "shell"} {
+		if !slices.Contains(strings.Split(strings.TrimPrefix(wtrust, "--trust-tools="), ","), want) {
+			t.Fatalf("workspace trust missing %q: %q", want, inv.command.Argv)
+		}
 	}
 }
 
