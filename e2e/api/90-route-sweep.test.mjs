@@ -40,7 +40,7 @@ test('auth edges: code exchange needs a code, unconfigured OAuth and photo answe
     const res = await status(method, '/api/auth/exchange', method === 'POST' ? {} : undefined, [400]);
     assert.match(res.data.error, /code/);
   }
-  for (const path of ['/api/auth/gongfeng/start', '/api/auth/gongfeng/callback']) {
+  for (const path of ['/api/auth/gongfeng/start', '/api/auth/gongfeng/callback', '/api/auth/feishu/start', '/api/auth/feishu/callback']) {
     const res = await fetch(cfg.base + path, { redirect: 'manual', headers: { Authorization: `Bearer ${cfg.token}` } });
     await res.body?.cancel();
     assert.ok([302, 303, 400, 503].includes(res.status), `${path} -> ${res.status}`);

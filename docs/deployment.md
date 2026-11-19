@@ -156,6 +156,48 @@ unset account_password
 
 Use `-admin` only when granting platform administration. Running the command again rotates that account's password. Password hashes use bcrypt. Browser sessions use signed HttpOnly, SameSite cookies and expire after seven days. No named person receives an implicit administrator role; additional administrators can be managed through the existing platform administration UI.
 
+## Feishu (飞书) login
+
+LoopForge can offer "飞书登录" on the login page next to password sign-in, for the China edition at `open.feishu.cn`. Password accounts keep working unchanged; a Feishu member who signs in for the first time is auto-provisioned a new account, recognised on later sign-ins only by their Feishu identity.
+
+Create a **custom app** (自建应用) in the [Feishu Open Platform](https://open.feishu.cn/app), and under **安全设置 → 重定向 URL** add the callback `https://<your-host>/api/auth/feishu/callback`. The app needs only the login capability (网页应用/「获取用户身份」); no contact (通讯录) scope is required, because LoopForge reads only `open_id`, `union_id`, `name`, `avatar_url` and `tenant_key` from `authen/v1/user_info` and never calls the directory API. Copy the app's **App ID** and **App Secret**.
+
+Set these in `.env` (parsed literally by `scripts/load-env.sh`, so do not rely on shell expansion or `~`); `compose.yaml` forwards them to the platform container:
+
+```bash
+# in .env
+LOOPFORGE_FEISHU_APP_ID=cli_xxxxxxxxxxxxxxxx
+LOOPFORGE_FEISHU_APP_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+# Comma-separated tenant_key allowlist. REQUIRED to admit anyone: an empty or
+# unset list denies every Feishu sign-in (see below).
+LOOPFORGE_FEISHU_ALLOWED_TENANTS=tenantkeyaaaaaaa
+# Optional. When unset, the callback URL is derived from the request's scheme
+# and host as https://<host>/api/auth/feishu/callback. Set it explicitly when
+# the public URL differs from what the platform sees (e.g. behind a proxy that
+# does not forward X-Forwarded-Proto), and make it match the URL registered in
+# the Feishu console.
+LOOPFORGE_FEISHU_REDIRECT_URI=https://<your-host>/api/auth/feishu/callback
+```
+
+The button appears only when both `LOOPFORGE_FEISHU_APP_ID` and `LOOPFORGE_FEISHU_APP_SECRET` are set. Feishu validates the redirect URI against the app's registered list, so a derived value cannot redirect the browser off-site.
+
+Behaviour:
+
+- **Tenant allowlist, deny by default.** `LOOPFORGE_FEISHU_ALLOWED_TENANTS` is a comma-separated list of `tenant_key`s. An empty or unset list rejects every sign-in, because auto-provisioning without a tenant limit would let any Feishu user register. A denied member sees their `tenant_key` on the error page and it is logged (`[feishu] sign-in denied: tenant_key ...`), so an administrator can add it to the allowlist.
+- **Identity binding.** A member is matched only by (`union_id`, `tenant_key`), falling back to (`open_id`, `tenant_key`) when the app has no union id. A Feishu sign-in never matches an existing account by login name, Chinese name or email, so it cannot take over a password account such as `admin`. Auto-provisioned accounts get a generated login name (`feishu-…`), the member's Chinese name and their Feishu avatar.
+- **Self-service signup.** Provisioning obeys `AGENTFLOW_ALLOW_SIGNUP`: when it is `false`, only already-bound Feishu members can sign in and new members are refused. The very first account on a fresh install becomes the administrator, the same rule password registration uses. New non-admin accounts join the welcome project.
+- **State and sessions.** `/api/auth/feishu/start` draws a random 32-byte state, remembers it server-side for 10 minutes and also sets it in an HttpOnly `SameSite=Lax` cookie; `/api/auth/feishu/callback` requires the query state and the cookie to match and consumes the state once, so a missing, mismatched, expired or replayed state is rejected. A successful sign-in issues the same signed session cookie as password login. (The legacy enterprise-SSO `/api/auth/exchange` does not check an OAuth state; that is unchanged and out of scope here.)
+
+### Verifying with a real Feishu app
+
+Credentials are needed to test end to end. Once you have them:
+
+1. In the Feishu console, add `https://<your-host>/api/auth/feishu/callback` under 安全设置 → 重定向 URL and enable the login capability; publish/enable the app for your tenant.
+2. Put `LOOPFORGE_FEISHU_APP_ID`, `LOOPFORGE_FEISHU_APP_SECRET` and your `LOOPFORGE_FEISHU_ALLOWED_TENANTS` (your real `tenant_key`) in `.env`, then `./start.sh restart`.
+3. Open the login page: the 飞书登录 button should appear. Click it, approve in Feishu, and confirm you land signed in. A first login auto-creates the account; signing out and back in reuses it.
+4. To find your `tenant_key`, attempt a sign-in once with an empty allowlist and read it from the error page or the platform log, then add it to `LOOPFORGE_FEISHU_ALLOWED_TENANTS` and restart.
+5. Check that password login and existing accounts are unaffected, and that a member from a tenant not on the allowlist is refused.
+
 ## Kiro CLI
 
 Kiro CLI runs on a subscription login (`kiro-cli login`), never on an API key.
