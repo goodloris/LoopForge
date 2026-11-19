@@ -311,6 +311,34 @@ func (r *RunsRepo) RestoreCheckpointWorkspaceBinding(runID, token, host, root st
 		return tx.Model(&runRow{}).Where("id = ?", runID).Updates(values).Error
 	})
 }
+
+// ReassignWorkspaceHostUnderLease moves only the (host, root) bind of a run
+// whose workspace lease the caller already holds. Unlike
+// RestoreCheckpointWorkspaceBinding it leaves workspace_cleaned_at and the
+// revision untouched, so a saved workspace stays saved until its files are
+// actually restored. It is used when the previously bound host is gone (the
+// platform container was rebuilt and its hostname changed, or a legacy row
+// still names a retired host) and this instance is taking the checkout over
+// locally. The lease fences out any other holder, so a live owner is never
+// stolen from.
+func (r *RunsRepo) ReassignWorkspaceHostUnderLease(runID, token, host, root string, now time.Time) error {
+	return r.DB.Transaction(func(tx *gorm.DB) error {
+		if _, err := r.takeRunForUpdate(tx, runID); err != nil {
+			return err
+		}
+		var count int64
+		if err := tx.Model(&WorkspaceCheckpoint{}).Where("run_id = ? AND lease_token = ? AND lease_until > ?", runID, token, now).Count(&count).Error; err != nil {
+			return err
+		}
+		if count != 1 {
+			return ErrWorkspaceInUse
+		}
+		return tx.Model(&runRow{}).Where("id = ?", runID).Updates(map[string]any{
+			"workspace_host": host, "workspace_root": root,
+		}).Error
+	})
+}
+
 func (r *RunsRepo) CheckpointWorkspaceRunIDs() []string {
 	var ids []string
 	r.DB.Model(&WorkspaceCheckpoint{}).Pluck("run_id", &ids)

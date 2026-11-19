@@ -10,5 +10,10 @@ services:
       args:
         LOOPFORGE_BUILD_JOBS: ${LOOPFORGE_BUILD_JOBS:-}
         LOOPFORGE_COMMIT: ${LOOPFORGE_COMMIT:-}
+        # Go module proxy and npm registry for the source build. Defaults keep
+        # the public proxy/registry; set GOPROXY / NPM_CONFIG_REGISTRY in .env
+        # (e.g. GOPROXY=https://goproxy.cn,direct) where they are unreachable.
+        GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
+        NPM_CONFIG_REGISTRY: ${NPM_CONFIG_REGISTRY:-https://registry.npmjs.org/}
     environment:
       AGENTFLOW_ISOLATED_IMAGE: loopforge-platform:local
