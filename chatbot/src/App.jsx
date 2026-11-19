@@ -60,6 +60,7 @@ import IssueContext from "./IssueContext";
 import { mentionAt, insertMention } from "./mentions.js";
 import { elementTitle } from "./element-context.js";
 import HarnessIcon from "./HarnessIcon";
+import BagelMark from "./BagelMark";
 import QueuedMessages from "./QueuedMessages";
 import { turnModeCaption } from "./message-info.js";
 import "./message-queue.css";
@@ -1175,8 +1176,8 @@ export default function App() {
           inert={!sidebar}
           aria-hidden={!sidebar || undefined}
         >
-          <span className="brand-icon">
-            <HarnessIcon name="workflow" size={20} />
+          <span className="brand-icon brand-icon-bagel">
+            <BagelMark size={25} />
           </span>
           <strong>Bagel</strong>
         </button>

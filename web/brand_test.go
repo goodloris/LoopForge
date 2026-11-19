@@ -61,3 +61,22 @@ func TestUserFacingFrontendSaysBagel(t *testing.T) {
 		}
 	}
 }
+
+// The chat sidebar rail brands with the Bagel ring, not the old workflow glyph.
+func TestChatRailUsesBagelMark(t *testing.T) {
+	app, err := os.ReadFile("../chatbot/src/App.jsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(app), "<BagelMark") {
+		t.Error("chatbot App rail should render <BagelMark /> as the brand logo")
+	}
+	mark, err := os.ReadFile("../chatbot/src/BagelMark.jsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The crust arc shared with web/bagel-mark.svg: the ring, not a placeholder.
+	if !strings.Contains(string(mark), "A18 18 0 1 1") {
+		t.Error("BagelMark should draw the Bagel ring (crust arc from bagel-mark.svg)")
+	}
+}
