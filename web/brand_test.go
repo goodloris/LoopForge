@@ -9,12 +9,16 @@ import (
 	"testing"
 )
 
-// The product is LoopForge. "AgentFlow" survives only in internal identifiers
-// (AgentFlowHarnessIcons, agentflow-* message types, cookies), never as a word
-// a user can read in the console or chat UI.
-var visibleOldBrand = regexp.MustCompile(`AgentFlow([^A-Za-z0-9_]|$)`)
+// The product is Bagel. "LoopForge" survives only in internal identifiers
+// (LoopForgeGitSSH globals, loopforge.* storage keys, LOOPFORGE_* env, the
+// ghcr image and .loopforge/verify) and in links to the upstream repository
+// (github.com/.../LoopForge), never as a word a user can read in the console
+// or chat UI. The leading [^/…] drops repo-path URLs; the trailing [^…] drops
+// longer identifiers such as LoopForgeGitSSHHost; case keeps lowercase
+// loopforge and all-caps LOOPFORGE out.
+var visibleOldBrand = regexp.MustCompile(`(^|[^/A-Za-z0-9_])LoopForge([^A-Za-z0-9_]|$)`)
 
-func TestUserFacingFrontendSaysLoopForge(t *testing.T) {
+func TestUserFacingFrontendSaysBagel(t *testing.T) {
 	roots := []string{"app", "extensions", "../chatbot/src", "../chatbot/public"}
 	files := []string{"../chatbot/index.html", "mcp-setup.txt"}
 	for _, pattern := range []string{"*.js", "*.html"} {
