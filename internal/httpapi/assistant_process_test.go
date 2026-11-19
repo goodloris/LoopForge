@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"agentflow/internal/domain"
+	"agentflow/internal/engine"
 	"agentflow/internal/runtime"
 )
 
@@ -389,5 +390,75 @@ func TestConversationProcessRetriesBusyRunner(t *testing.T) {
 		case <-deadline:
 			t.Fatal("busy runner never recovered")
 		}
+	}
+}
+
+// D33 follow-up: the platform container is rebuilt from source and gets a new
+// hostname, so an old shared chat workspace still names the retired host. The
+// turn reclaims that foreign bind under its workspace lease (lease() ->
+// EnsureConversationWorkspace), but the native CLI start resolved the workspace
+// from the run it snapshotted *before* the reclaim, so the first message after
+// a rebuild failed with 工作区绑定在其他 LoopForge 实例 and only the second
+// succeeded. The start path must resolve the workspace from the committed bind.
+func TestConversationWorkspaceFirstTurnAfterHostRebuild(t *testing.T) {
+	h, user := workbenchFixture(t)
+	root := t.TempDir()
+	en := engine.New(h.repo, runtime.NewManager(root))
+	h.deps.engine = en
+
+	id := "ws-rebuilt"
+	sandbox := &domain.RunnerSandboxSpec{Profile: domain.SandboxProfile{ID: "native", Name: "Native", Driver: domain.SandboxDriverNative}}
+	run := domain.Run{
+		ID:               id,
+		Kind:             domain.RunKindWorkspace,
+		Status:           "waiting",
+		ExecutionContext: domain.TelemetryContext{ProjectID: "workbench", ExecutionMode: "cloud"},
+		WorkflowSnapshot: domain.WorkflowDefinition{SandboxProfileID: "native", SandboxSnapshot: sandbox},
+		Nodes:            map[string]*domain.NodeRun{},
+	}
+	if err := h.repo.PutRun(run); err != nil {
+		t.Fatal(err)
+	}
+	// A checkpoint saved before the rebuild, bound to the retired hostname. No
+	// live instance advertises it (engine_instances is empty), so it is
+	// reclaimable here from the database-stored archive.
+	seedSavedSOPCheckpoint(t, h.repo, id, map[string]string{"README.md": "uncommitted\n"})
+	if err := h.repo.DB.Table("runs").Where("id = ?", id).Updates(map[string]any{"workspace_host": "475fdb7087fb", "workspace_root": root}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if stale, _ := h.repo.RunState(id); !en.WorkspaceRemoteHost(stale) {
+		t.Fatal("precondition: retired host must look foreign")
+	}
+
+	s := &AgentToolSession{
+		Mode:           AgentToolAssistant,
+		ProjectID:      "workbench",
+		UserID:         user.ID,
+		User:           user,
+		ChatSessionID:  id,
+		ChatOwnerID:    user.ID,
+		RuntimeMode:    domain.AssistantModeWorkspace,
+		workspaceRunID: id,
+		workspaceTurn:  newAssistantWorkspaceTurn(en, nil),
+	}
+	t.Cleanup(func() { _ = s.workspaceTurn.close(context.Background()) })
+
+	execute := h.conversationExecutor(s, t.TempDir())
+	// An empty command fails at process start ("missing conversation command"),
+	// which is reached only after the workspace-availability gate the first turn
+	// used to fail. The reclaimed workspace must no longer read as foreign here.
+	_, err := execute(context.Background(), "", runtime.CommandSpec{}, runtime.RunCredentials{}, nil)
+	if err == nil {
+		t.Fatal("empty command unexpectedly started a process")
+	}
+	if strings.Contains(err.Error(), "工作区绑定在其他 LoopForge 实例") {
+		t.Fatalf("first turn after rebuild refused the reclaimed workspace: %v", err)
+	}
+	// The reclaim did move the bind here and restored the saved files.
+	if moved, _ := h.repo.RunState(id); en.WorkspaceRemoteHost(moved) {
+		t.Fatal("turn did not take the retired bind over")
+	}
+	if body, err := os.ReadFile(filepath.Join(en.RunWorkspace(id), "README.md")); err != nil || string(body) != "uncommitted\n" {
+		t.Fatalf("reclaim did not restore the saved workspace: %q %v", body, err)
 	}
 }
