@@ -569,6 +569,19 @@ func (p *ConversationProcessPool) start(ctx context.Context, root, workspace str
 		if err := replaceConversationGateway(root, req.Gateway, url); err != nil {
 			return ConversationProcessResult{}, err
 		}
+		// kiro-cli under an enterprise profile (mcpSandboxing/sandboxNetworkMode
+		// locked) only connects an HTTP MCP server on a loopback address: a
+		// Docker sandbox reaches the session relay at a non-loopback host IP,
+		// which kiro silently counts but never dials (verified against 3.4.0 and
+		// 3.5.0). Expose the relay as a stdio bridge instead; a stdio child is
+		// not network-sandboxed and reaches the relay, the same way the SOP
+		// gate server does. Only the Docker sandbox needs it; platform mode's
+		// relay is already loopback.
+		if command.Provider == AgentCLIKiro && spec != nil && spec.Profile.Driver == domain.SandboxDriverDocker {
+			if err := rewriteKiroSessionMCPBridge(root); err != nil {
+				return ConversationProcessResult{}, err
+			}
+		}
 	}
 	// Some CLIs continue after a hook interpreter cannot be spawned. Both
 	// the platform guard and the native approval hook must fail closed.
