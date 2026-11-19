@@ -72,6 +72,9 @@ func projectRepositoryHints(all []domain.Repository, projectID string) string {
 		if branch := strings.TrimSpace(r.DefaultBranch); branch != "" {
 			fmt.Fprintf(&b, "（主分支 %s）", branch)
 		}
+		if r.Provider == "gitlab" {
+			b.WriteString("（GitLab：推送工作分支即可，平台会自动开/更新 MR；不要用 gh pr create 或 glab 开 MR）")
+		}
 	}
 	return b.String()
 }

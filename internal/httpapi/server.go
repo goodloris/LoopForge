@@ -296,6 +296,9 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 	api.runs.assistant = asst
 	api.runners.assistant = asst
 	api.schedule.assistant = asst
+	// SOP delivery opens its GitLab MR through the platform (the sandbox has no
+	// GitLab CLI); reuse the conversation workspace find-or-create.
+	e.EnsureDeliveryMR = asst.ensureGitLabDeliveryMR
 	api.notifications.service.GenerateReport = asst.generateSOPReport
 	if api.notifications.service.Interactions != nil {
 		api.notifications.service.Interactions.Generate = asst.generateBotReply

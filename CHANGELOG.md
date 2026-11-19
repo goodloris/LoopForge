@@ -11,7 +11,7 @@ Platform releases use `vX.Y.Z` tags. This fork (goodloris/LoopForge) publishes `
   - 凭据：每个用户在「个人设置 → GitLab」填写具备 `api` 权限的个人访问令牌（开 MR、合并需要写接口权限）；与 GitHub 令牌分开保存、加密存储、响应中脱敏，HTTPS 以 `oauth2:<token>` 使用。暂不支持 GitLab OAuth 登录。
   - 合并请求：SOP 交付与对话交付都通过 GitLab API 以责任人（或对话发起人）的令牌开/合 MR，合并使用 merge commit，并对 `405/406/409/422` 的可合并性竞态重试；合并状态、`merged_at`、目标分支与集成分支晋升计入与 GitHub 相同的交付与成本报表。
   - 暂不含：从 GitLab 拉取 Issue。
-  - 无需数据迁移：每用户的 `user_configs.gitlab_token` 列由启动时的 AutoMigrate 添加（`migrations/039_user_gitlab_token.sql` 供手动管理 DDL 的运维参考）。
+  - 无需数据迁移：每用户的 `user_configs.gitlab_token` 列由启动时的 AutoMigrate 添加（`migrations/040_user_gitlab_token.sql` 供手动管理 DDL 的运维参考）。
 
 ## 0.6.0 — Kiro CLI across conversation workspaces, and the v0.5.0 acceptance fixes
 

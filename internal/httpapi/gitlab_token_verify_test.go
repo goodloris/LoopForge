@@ -111,6 +111,63 @@ func TestCatalogAddGitLabRepositoryAndRejectForeignHost(t *testing.T) {
 	}
 }
 
+func TestEnsureGitLabDeliveryMROpensMR(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("PRIVATE-TOKEN") != "resp-pat" {
+			t.Fatalf("wrong token: %q", r.Header.Get("PRIVATE-TOKEN"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == "GET" && r.URL.EscapedPath() == "/api/v4/projects/group%2Fsub%2Fproj/merge_requests":
+			if r.URL.Query().Get("source_branch") != "feature/x" {
+				t.Fatalf("source_branch = %q", r.URL.Query().Get("source_branch"))
+			}
+			_, _ = w.Write([]byte(`[]`))
+		case r.Method == "POST" && r.URL.EscapedPath() == "/api/v4/projects/group%2Fsub%2Fproj/merge_requests":
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body["target_branch"] != "main" || body["source_branch"] != "feature/x" {
+				t.Fatalf("create body = %+v", body)
+			}
+			_, _ = w.Write([]byte(`{"iid":9,"state":"opened","source_branch":"feature/x","target_branch":"main"}`))
+		default:
+			t.Fatalf("unexpected %s %s", r.Method, r.URL.EscapedPath())
+		}
+	}))
+	defer srv.Close()
+	domain.SetGitLabInstance(srv.URL)
+	t.Cleanup(func() { domain.SetGitLabInstance("") })
+
+	st, err := repo.OpenTest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(st.Close)
+	if err := st.PutUser(domain.User{ID: 7, LoginName: "resp", GitLabToken: "resp-pat"}); err != nil {
+		t.Fatal(err)
+	}
+	h := &assistantHandlers{deps: &deps{repo: st}}
+	mr, ok, err := h.ensureGitLabDeliveryMR("gitlab:group/sub/proj", "feature/x", "main", 7)
+	if err != nil || !ok {
+		t.Fatalf("ensure: ok=%v err=%v", ok, err)
+	}
+	if mr.IID != 9 || mr.Project != "gitlab:group/sub/proj" || mr.TargetBranch != "main" {
+		t.Fatalf("mr = %+v", mr)
+	}
+
+	// A responsible user without a GitLab token is reported, not silently opened.
+	if err := st.PutUser(domain.User{ID: 8, LoginName: "no-token"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := h.ensureGitLabDeliveryMR("gitlab:group/sub/proj", "feature/x", "main", 8); ok || err == nil {
+		t.Fatalf("missing token must error: ok=%v err=%v", ok, err)
+	}
+	// A GitHub project is a no-op (its agent opens the PR).
+	if _, ok, err := h.ensureGitLabDeliveryMR("github:owner/repo", "feature/x", "main", 7); ok || err != nil {
+		t.Fatalf("github must be a no-op: ok=%v err=%v", ok, err)
+	}
+}
+
 func TestCatalogRejectsGitLabRepoWhenDisabled(t *testing.T) {
 	domain.SetGitLabInstance("")
 	st, err := repo.OpenTest()

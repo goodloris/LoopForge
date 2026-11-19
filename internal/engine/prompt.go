@@ -147,7 +147,26 @@ func existingMRBlurb(st *repo.Store, run domain.Run) string {
 	return hint
 }
 
+const gitlabPlatformMRBlurb = "本轮是 GitLab 仓库：对当前工作分支 git push 到 origin 即可，平台会自动创建或更新本轮 MR（目标为基线分支），无需你开 MR。不要运行 gh pr create、glab 或用 curl 调 GitLab API 开 MR。"
+
 func hostedMRBlurb(st *repo.Store, run domain.Run) string {
+	// GitLab SOP deliveries are opened by the platform (the sandbox has no
+	// GitLab CLI). Tell the agent to push only, and never run gh/glab, so it
+	// does not fail or misfire against another host.
+	gitlab, otherHosted := 0, 0
+	for _, repository := range run.RepositoryContexts() {
+		if repository.Provider == domain.RepositoryProviderSSH {
+			continue
+		}
+		if domain.IsGitLabProject(repository.GongfengProjectID) {
+			gitlab++
+		} else {
+			otherHosted++
+		}
+	}
+	if gitlab > 0 && otherHosted == 0 {
+		return gitlabPlatformMRBlurb
+	}
 	var continued []string
 	for _, repository := range run.RepositoryContexts() {
 		if repository.Provider != domain.RepositoryProviderSSH && repository.RequireExistingWorkBranch {

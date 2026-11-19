@@ -153,7 +153,7 @@ When it is set, a **GitLab** option appears in the add-repository wizard and a *
 - **Merge requests.** SOP delivery and conversation delivery open and merge MRs through the GitLab API with the responsible user's (or the conversation speaker's) token; merge uses a merge commit and retries transient `405/406/409/422` mergeability races. Merge state, `merged_at`, the target branch and integrate-branch promotion feed the same delivery and cost reports as GitHub.
 - **Issue import** from GitLab is not part of this release.
 
-No code or data migration is required: the per-user `user_configs.gitlab_token` column is added by startup AutoMigrate (`migrations/039_user_gitlab_token.sql` documents it for operators who manage DDL by hand).
+No code or data migration is required: the per-user `user_configs.gitlab_token` column is added by startup AutoMigrate (`migrations/040_user_gitlab_token.sql` documents it for operators who manage DDL by hand).
 
 ## Accounts
 
