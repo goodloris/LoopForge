@@ -20,6 +20,7 @@ import (
 // issue trackers (Gongfeng issues + TAPD stories).
 type Service struct {
 	githubAPIBase         string // Tests inject an HTTP server; production uses api.github.com.
+	gitlabAPIBase         string // Tests inject an HTTP server; production uses domain.GitLabAPIBase().
 	cfg                   *syncConfigHolder
 	gongfeng              *MCPClient
 	tapd                  *MCPClient
@@ -91,6 +92,10 @@ func NewService() *Service {
 
 // SetGitHubAPIBase points GitHub calls at another API root (tests).
 func (s *Service) SetGitHubAPIBase(base string) { s.githubAPIBase = base }
+
+// SetGitLabAPIBase points GitLab calls at another API root (tests). Production
+// resolves the configured instance through domain.GitLabAPIBase().
+func (s *Service) SetGitLabAPIBase(base string) { s.gitlabAPIBase = base }
 
 // Configure updates the sync config and recreates MCP clients.
 // Prefer catalog HTTP MCP Headers (the same assets Agent steps use). Fall back

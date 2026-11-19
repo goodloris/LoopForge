@@ -4,6 +4,15 @@ Platform releases use `vX.Y.Z` tags. This fork (goodloris/LoopForge) publishes `
 
 ## Unreleased
 
+### GitLab 单实例支持
+
+- 新增一个自托管 GitLab 实例的一等支持（通过 `LOOPFORGE_GITLAB_URL` 启用，留空则关闭）：HTTPS 克隆/推送、平台 API 代开合并请求（MR）、合并、交付状态与交付统计，和 GitHub 走同一套链路。配置后添加仓库向导与个人设置里出现 GitLab 选项；API 基址为该 URL + `/api/v4`。现有「工蜂」（gongfeng，v3/MCP）链路不受影响。
+  - 仓库：粘贴该实例上的任意链接（`https://host/group/sub/project`、`/-/` 子页面、`.git`、`git@host:group/project.git`，支持子组）即可识别为 `gitlab:<path>`；主机不等于该实例的链接会被拒绝，令牌不会发往别处。
+  - 凭据：每个用户在「个人设置 → GitLab」填写具备 `api` 权限的个人访问令牌（开 MR、合并需要写接口权限）；与 GitHub 令牌分开保存、加密存储、响应中脱敏，HTTPS 以 `oauth2:<token>` 使用。暂不支持 GitLab OAuth 登录。
+  - 合并请求：SOP 交付与对话交付都通过 GitLab API 以责任人（或对话发起人）的令牌开/合 MR，合并使用 merge commit，并对 `405/406/409/422` 的可合并性竞态重试；合并状态、`merged_at`、目标分支与集成分支晋升计入与 GitHub 相同的交付与成本报表。
+  - 暂不含：从 GitLab 拉取 Issue。
+  - 无需数据迁移：每用户的 `user_configs.gitlab_token` 列由启动时的 AutoMigrate 添加（`migrations/039_user_gitlab_token.sql` 供手动管理 DDL 的运维参考）。
+
 ## 0.6.0 — Kiro CLI across conversation workspaces, and the v0.5.0 acceptance fixes
 
 **Upgrading an existing installation**: run `git checkout v0.6.0 && ./start.sh pull`. An existing installation runs `migrations/038_generic_sop_gates.sql` (MySQL) or `migrations/postgres/038_generic_sop_gates.sql` (PostgreSQL) by hand; the installer and `./start.sh pull` print the command while it is pending (`scripts/manual-migration-hints.sh`). There is no other data migration: the new `mr_delivery_states.landed_at` column is added by startup AutoMigrate. On macOS set `LOOPFORGE_KIRO_DATA_DIR` to an absolute path, quoted when it contains spaces: `LOOPFORGE_KIRO_DATA_DIR="/Users/<you>/Library/Application Support/kiro-cli"`. A source build in mainland China can set `GOPROXY` and `NPM_CONFIG_REGISTRY` to local mirrors. **Behaviour changes to expect**: a new or re-enabled schedule job runs at its next scheduled time, not on the next tick, and an interval job one interval later; a failed run releases its admission slot; and an SOP trigger with no source set in 「同步哪些来源」 dispatches without pulling. **Known limitations**: requirements that were already duplicated are not renumbered; Bot replies and AI notification summaries have not been tested on the WeCom (企业微信) channel; Kiro in a Docker sandbox reaches platform tools through the stdio bridge, which waits up to 10 minutes for a single tool call; and #33's `@builtin` trust is retained.

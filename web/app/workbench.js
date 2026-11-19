@@ -62,6 +62,12 @@ const CREDENTIAL_KINDS=[
     guide:[['打开 GitHub「Settings → Developer settings → Personal access tokens」','https://github.com/settings/tokens','前往 GitHub 申请个人访问令牌'],['新建令牌，为目标仓库授予 <code>Contents</code> 和 <code>Pull requests</code> 的读写权限'],['复制令牌粘贴到下方，保存前会自动校验权限']],
     placeholder:'请输入个人访问令牌（PAT）',hint:'保存前会先校验令牌有效性与权限',
     impact:'依赖私有仓库的 SOP 将无法克隆或推送仓库。'},
+  {key:'gitLabToken',group:'platform',name:'GitLab',short:'GitLab 授权',icon:'lock',optional:true,gitlab:true,
+    use:'克隆 GitLab 私有仓库、创建合并请求（MR）并合并',
+    description:'用于克隆 GitLab 私有仓库、创建并合并合并请求（MR）。需要具备 api 权限的个人访问令牌。',
+    guide:[['打开 GitLab「用户设置 → 访问令牌（Access Tokens）」','','前往 GitLab 申请个人访问令牌'],['新建令牌，勾选 <code>api</code> 权限'],['复制令牌粘贴到下方，保存前会自动校验权限']],
+    placeholder:'请输入 GitLab 个人访问令牌（需 api 权限）',hint:'保存前会先校验令牌有效性与权限',
+    impact:'依赖 GitLab 私有仓库的 SOP 将无法克隆、推送或合并。'},
   {key:'gitSshKey',group:'platform',name:'Git SSH',short:'Git SSH 密钥',icon:'key',
     use:'按 SSH 主机管理个人密钥，仓库自动匹配'},
   {key:'codeBuddyApiKey',group:'model',name:'CodeBuddy',short:'CodeBuddy API Key',logo:'codebuddy',
@@ -422,6 +428,9 @@ function validateCredentialCatalog(catalog,models){
 const CREDENTIAL_RECOMMENDED=['gitToken','codeBuddyApiKey'];
 const CREDENTIAL_PAT_WARNING='请填写 GitHub <b>个人访问令牌（PAT）</b>，为目标仓库授予 <b>Contents</b> 和 <b>Pull requests</b> 的读写权限；少勾权限会导致克隆 / 推送仓库失败。';
 function credentialKind(key){return CREDENTIAL_KINDS.find(kind=>kind.key===key)||null}
+// Optional credentials (GitLab) only appear when their provider is enabled.
+function credentialKindActive(kind){return !kind.optional||!!state?.data?.gitlabEnabled}
+function activeCredentialKinds(){return CREDENTIAL_KINDS.filter(credentialKindActive)}
 function credentialConfigured(kind,user){return !!credentialValue(user,kind.agentCli?kind.key+'.apiKeyConfigured':kind.key+'Configured')}
 function credentialUser(){return userById(state.currentUser?.id)||{}}
 function credentialUI(){return state.credentialUI||(state.credentialUI={open:null,filter:'all',closed:{}})}
@@ -621,17 +630,17 @@ function credentialRowHTML(kind,user){
   return `<div class="credential-row${on?' is-configured':''}${open?' is-open':''}" data-credential-row="${kind.key}">${credentialRowMainHTML(kind,user)}<div class="credential-editor"><div><div class="credential-editor-inner">${editor}</div></div></div></div>`;
 }
 function credentialGroupHTML(group,user){
-  const kinds=CREDENTIAL_KINDS.filter(kind=>kind.group===group.id),done=kinds.filter(kind=>credentialConfigured(kind,user)).length,closed=!!credentialUI().closed[group.id];
+  const kinds=activeCredentialKinds().filter(kind=>kind.group===group.id),done=kinds.filter(kind=>credentialConfigured(kind,user)).length,closed=!!credentialUI().closed[group.id];
   return `<section class="credential-group" data-credential-group="${group.id}"><button type="button" class="credential-group-head credential-ink" aria-expanded="${!closed}">${credentialGlyph(group.icon,16)}<strong>${escapeHTML(group.name)}</strong><span class="credential-group-sub">${escapeHTML(group.sub)}</span><span class="credential-group-meta">${done} / ${kinds.length}</span><span class="credential-group-chevron">${credentialGlyph('chevron-down',15)}</span></button><div class="credential-fold${closed?' is-closed':''}"><div><div class="credential-rows">${kinds.map(kind=>credentialRowHTML(kind,user)).join('')}<p class="credential-empty" hidden></p></div></div></div></section>`;
 }
 function credentialProgressHTML(user){
-  const done=CREDENTIAL_KINDS.filter(kind=>credentialConfigured(kind,user)).length,next=credentialNextKind(user);
-  return `<div class="credential-segs" aria-hidden="true">${CREDENTIAL_KINDS.map((_,index)=>`<i${index<done?' class="is-on"':''}></i>`).join('')}</div><span class="credential-count"><b>${done}</b> / ${CREDENTIAL_KINDS.length} 已配置</span>`
+  const done=activeCredentialKinds().filter(kind=>credentialConfigured(kind,user)).length,next=credentialNextKind(user);
+  return `<div class="credential-segs" aria-hidden="true">${activeCredentialKinds().map((_,index)=>`<i${index<done?' class="is-on"':''}></i>`).join('')}</div><span class="credential-count"><b>${done}</b> / ${activeCredentialKinds().length} 已配置</span>`
     +(next?`<span class="credential-next">下一步<button type="button" class="credential-btn link credential-ink" data-credential-setup="${next.key}">配置 ${escapeHTML(next.short)}<span class="credential-nudge">${credentialGlyph('arrow-right',13)}</span></button></span>`:`<span class="credential-ready">${credentialGlyph('check',15)}推荐凭证已全部就绪</span>`);
 }
 function credentialFilterHTML(user){
-  const done=CREDENTIAL_KINDS.filter(kind=>credentialConfigured(kind,user)).length,filter=credentialUI().filter;
-  return [['all','全部',CREDENTIAL_KINDS.length],['configured','已配置',done],['missing','未配置',CREDENTIAL_KINDS.length-done]].map(([id,label,count])=>`<button type="button" role="tab" data-credential-filter="${id}" class="${filter===id?'active':''}" aria-selected="${filter===id}">${label}<span>${count}</span></button>`).join('');
+  const done=activeCredentialKinds().filter(kind=>credentialConfigured(kind,user)).length,filter=credentialUI().filter;
+  return [['all','全部',activeCredentialKinds().length],['configured','已配置',done],['missing','未配置',activeCredentialKinds().length-done]].map(([id,label,count])=>`<button type="button" role="tab" data-credential-filter="${id}" class="${filter===id?'active':''}" aria-selected="${filter===id}">${label}<span>${count}</span></button>`).join('');
 }
 function credentialPanelHTML(user){
   return `<header class="credential-section-head"><div><h2>个人凭证</h2><p>SOP 使用需求责任人（未指定时为项目 Owner）的个人凭证，保存后对下一次任务生效。</p></div><button type="button" class="credential-btn primary credential-ink" id="credentialAddButton" data-credential-add><span class="credential-turn">${credentialGlyph('plus',15)}</span><span>添加凭证</span></button></header>
@@ -761,6 +770,14 @@ async function verifyAndSaveGitToken(token){
   state.gitTokenVerify={userId:user.id,result,checkedAt:Date.now()};
   return {saved:true,result,user:saved};
 }
+// GitLab 令牌同样先校验（需 api 权限）再保存，校验失败不写入。
+async function verifyAndSaveGitLabToken(token){
+  const user=state.currentUser;
+  const result=await api(`/api/users/${user.id}/gitlab-token/verify`,{method:'POST',body:JSON.stringify({token}),silent:true});
+  if(!result?.valid)return {saved:false,result};
+  const saved=await saveCredential('gitLabToken',{secret:token});
+  return {saved:true,result,user:saved};
+}
 async function refreshGitTokenStatus(options={}){
   const user=state.currentUser;if(!user||user.isGuest)return null;
   // The previous answer stays alongside busy so the detail keeps its scopes while re-checking.
@@ -792,7 +809,7 @@ async function submitCredentialEditor(row,button){
   if(extraError){toast(extraError,'err');extra.focus();return}
   const catalog=form.querySelector('[data-credential-catalog]'),models=credentialCatalogPayload(catalog);
   if(!validateCredentialCatalog(catalog,models))return;
-  setCredentialButtonBusy(button,key==='gitToken'?'校验中':'保存中');
+  setCredentialButtonBusy(button,key==='gitToken'||key==='gitLabToken'?'校验中':'保存中');
   try{
     if(key==='gitToken'){
       const outcome=await verifyAndSaveGitToken(secret);
@@ -804,6 +821,16 @@ async function submitCredentialEditor(row,button){
         return;
       }
       credentialSaved(key,'Git Token 校验通过，已保存');
+      return;
+    }
+    if(key==='gitLabToken'){
+      const outcome=await verifyAndSaveGitLabToken(secret);
+      if(!outcome.saved){
+        setCredentialButtonBusy(button,'');
+        setCredentialHint(form,'secret',`${gitTokenFailure(outcome.result)||'GitLab 令牌校验未通过'}（未保存）`,'err');
+        return;
+      }
+      credentialSaved(key,'GitLab 令牌校验通过，已保存');
       return;
     }
     await saveCredential(key,{secret,...(extra?{extra:extra.value}:{}),...(protocol?{protocol:protocol.value}:{}),...(models?{models}:{})});

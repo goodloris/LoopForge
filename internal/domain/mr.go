@@ -39,27 +39,34 @@ func ParseGongfengMR(text string) (project string, iid int, url string, ok bool)
 
 // ParseGongfengMRs extracts unique Gongfeng merge request URLs in appearance order.
 func ParseGongfengMRs(text string) []GongfengMRRef {
+	gitlabRefs := parseGitLabMRs(text)
 	for _, match := range githubPRURL.FindAllStringSubmatch(text, -1) {
 		text = strings.ReplaceAll(text, match[0], "https://git.example.com/github:"+match[1]+"/merge_requests/"+match[2])
 	}
 	matches := gongfengMRURL.FindAllStringSubmatch(text, -1)
-	if len(matches) == 0 {
+	if len(matches) == 0 && len(gitlabRefs) == 0 {
 		return nil
 	}
-	out := make([]GongfengMRRef, 0, len(matches))
+	out := make([]GongfengMRRef, 0, len(matches)+len(gitlabRefs))
 	seen := map[string]struct{}{}
+	add := func(ref GongfengMRRef) {
+		if ref.Project == "" || ref.IID <= 0 {
+			return
+		}
+		key := gongfengMRKey(ref.Project, ref.IID)
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		out = append(out, ref)
+	}
+	for _, ref := range gitlabRefs {
+		add(ref)
+	}
 	for _, match := range matches {
 		project := strings.TrimSuffix(strings.TrimSuffix(match[1], "/"), "/-")
 		iid, _ := strconv.Atoi(match[2])
-		if project == "" || iid <= 0 {
-			continue
-		}
-		key := gongfengMRKey(project, iid)
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
-		out = append(out, GongfengMRRef{Project: project, IID: iid, URL: GongfengMRURL(project, iid)})
+		add(GongfengMRRef{Project: project, IID: iid, URL: GongfengMRURL(project, iid)})
 	}
 	return out
 }

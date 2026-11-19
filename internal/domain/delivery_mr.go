@@ -48,6 +48,9 @@ func GongfengMRURL(project string, iid int) string {
 	if strings.HasPrefix(project, "github:") {
 		return fmt.Sprintf("https://github.com/%s/pull/%d", strings.TrimPrefix(project, "github:"), iid)
 	}
+	if strings.HasPrefix(project, "gitlab:") {
+		return GitLabMRURL(project, iid)
+	}
 	return fmt.Sprintf("https://git.example.com/%s/-/merge_requests/%d", project, iid)
 }
 

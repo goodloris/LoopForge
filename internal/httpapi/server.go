@@ -280,6 +280,9 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 	// 工蜂 Git Token 校验：只允许当前登录用户校验自己的令牌。
 	g.GET("/api/users/:id/git-token/verify", api.users.verifyGitToken)
 	g.POST("/api/users/:id/git-token/verify", api.users.verifyGitToken)
+	// GitLab 个人访问令牌校验：同样仅限当前登录用户校验自己的令牌。
+	g.GET("/api/users/:id/gitlab-token/verify", api.users.verifyGitLabToken)
+	g.POST("/api/users/:id/gitlab-token/verify", api.users.verifyGitLabToken)
 	g.GET("/api/users/:id/git-ssh-keys", api.users.gitSSHKeys)
 	g.PUT("/api/users/:id/git-ssh-keys", api.users.gitSSHKeys)
 	g.DELETE("/api/users/:id/git-ssh-keys/:keyID", api.users.gitSSHKeys)
@@ -784,6 +787,11 @@ func (s *Server) bootstrap(c *gin.Context) {
 		// (sponsoredModel is the default).
 		"sponsoredModel":  sponsoredModel,
 		"sponsoredModels": sharedModels,
+		// GitLab single-instance provider: the frontend only shows the gitlab
+		// repo/token options when an instance is configured, and the paste
+		// parser needs its host to recognize repository links.
+		"gitlabEnabled": domain.GitLabEnabled(),
+		"gitlabHost":    domain.GitLabHost(),
 	})
 }
 

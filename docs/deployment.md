@@ -137,6 +137,24 @@ Repositories automatically use the current user's key for their SSH host and por
 
 SSH handles clone, fetch and push. A conversation delivery returns the branch and commit SHA. You can optionally add a repository web URL to open the host and create a PR/MR manually. Issue import and PR/MR automation need a hosting API credential. To automate those actions, add a hosting-specific MCP in **Settings → Assets → MCP**, give it its own scoped token, and attach it to the relevant agent or workflow. [CNB does not support Git SSH](https://docs.cnb.cool/en/guide/git-access.html); it uses HTTPS with a CNB access token, which is outside this integration.
 
+### GitLab (one self-hosted instance)
+
+For a single self-managed GitLab instance you can enable first-class GitLab support — HTTPS clone/push plus automatic merge-request creation, merge and delivery tracking — without configuring Git SSH or an MCP. Set `LOOPFORGE_GITLAB_URL` to the instance's scheme + host and restart:
+
+```bash
+# .env (loaded line by line by scripts/load-env.sh)
+LOOPFORGE_GITLAB_URL=https://gitlab.example.net
+```
+
+When it is set, a **GitLab** option appears in the add-repository wizard and a **GitLab** credential in personal settings; when it is empty, GitLab stays off and nothing changes. The API base is `LOOPFORGE_GITLAB_URL` + `/api/v4`.
+
+- **Repositories.** Paste any link on that instance — `https://gitlab.example.net/group/sub/project`, a `/-/` sub-page, `.git`, or `git@gitlab.example.net:group/project.git`. Sub-groups are supported. A link whose host is not the configured instance is rejected, so a token is never sent elsewhere.
+- **Credentials.** Each user adds their own GitLab **personal access token** with the **`api`** scope under **Personal settings → GitLab** (clone/push and opening/merging MRs all need write API access; `read_repository`/`write_repository` alone are not enough). The token is stored encrypted like the GitHub token, masked in every API response, and used over HTTPS as `oauth2:<token>`. OAuth sign-in to GitLab is not included (it needs an instance admin to register an application).
+- **Merge requests.** SOP delivery and conversation delivery open and merge MRs through the GitLab API with the responsible user's (or the conversation speaker's) token; merge uses a merge commit and retries transient `405/406/409/422` mergeability races. Merge state, `merged_at`, the target branch and integrate-branch promotion feed the same delivery and cost reports as GitHub.
+- **Issue import** from GitLab is not part of this release.
+
+No code or data migration is required: the per-user `user_configs.gitlab_token` column is added by startup AutoMigrate (`migrations/039_user_gitlab_token.sql` documents it for operators who manage DDL by hand).
+
 ## Accounts
 
 The first account created in the browser becomes the platform administrator. After that, anyone who can reach the login page may sign up as a regular user while `AGENTFLOW_ALLOW_SIGNUP` is `true` (the default). Registered users can create requirements and run SOPs on your workers, so set `AGENTFLOW_ALLOW_SIGNUP=false` for any installation reachable from untrusted networks and create accounts explicitly instead.

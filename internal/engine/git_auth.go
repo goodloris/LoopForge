@@ -111,6 +111,29 @@ func resolveGitToken(s *repo.Store, userID int64) string {
 	return ""
 }
 
+// resolveRunGitToken picks the credential matching the run's repositories: the
+// user's GitLab token (as an oauth2 https credential) when the run targets a
+// GitLab repository, otherwise the default GitHub/Gongfeng credential. A run's
+// repositories are single-provider in practice, so the first non-SSH GitLab
+// repository decides.
+func resolveRunGitToken(s *repo.Store, userID int64, repositories []domain.RepositoryContext) string {
+	if s == nil || userID <= 0 {
+		return ""
+	}
+	for _, rc := range repositories {
+		if rc.Provider == domain.RepositoryProviderSSH {
+			continue
+		}
+		if domain.IsGitLabProject(rc.GongfengProjectID) {
+			if tok := s.GitLabCredential(userID); tok != "" {
+				return tok
+			}
+			return ""
+		}
+	}
+	return resolveGitToken(s, userID)
+}
+
 var (
 	gitCommandFailure = regexp.MustCompile(`(?i)repository checkout|git (clone|fetch|pull|push|ls-remote)`)
 	gitAuthFailure    = regexp.MustCompile(`(?i)could not read Username|Authentication failed|HTTP Basic: Access denied|requested URL returned error: 40[13]|Invalid username or password`)

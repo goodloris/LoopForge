@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"agentflow/internal/config"
+	"agentflow/internal/domain"
 	"agentflow/internal/engine"
 	"agentflow/internal/httpapi"
 	"agentflow/internal/managedcli"
@@ -179,6 +180,7 @@ func main() {
 		log.Fatal(err)
 	}
 	config.SetCurrent(endpoints)
+	domain.SetGitLabInstance(config.GitLabURL())
 	e.ConfigurePlatformMCP(endpoints.PlatformBase, endpoints.PlatformMCPToken)
 	if endpoints.PlatformBase == "" {
 		log.Printf("platform MCP / knowledge proxy: no sandbox-reachable platform URL; cloud runs skip them (set AGENTFLOW_PLATFORM_MCP_URL)")

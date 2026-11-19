@@ -227,7 +227,7 @@ func (e *Engine) resolveRunCredentials(run domain.Run) runtime.RunCredentials {
 	userID := run.ExecutionContext.ResponsibleUserID
 	credentials := runtime.RunCredentials{
 		CodeBuddy: resolveCodeBuddyCredential(e.repo, userID),
-		GitToken:  resolveGitToken(e.repo, userID),
+		GitToken:  resolveRunGitToken(e.repo, userID, run.RepositoryContexts()),
 	}
 	credentials.GitSSHKeys = e.repo.GitSSHKeysForRemotes(userID, sshRepositoryURLs(run.RepositoryContexts()))
 	identity := resolveGitIdentity(e.repo, userID)

@@ -10,11 +10,15 @@ import (
 )
 
 // Checkout is a git checkout found in a workspace: its remote URLs and the
-// commits its local branches point at.
+// commits its local branches point at. Branches holds the short names of
+// those local branches (unique, sorted), so a caller can open a merge request
+// for a pushed branch (GitLab) rather than only match a pull request by head
+// commit (GitHub).
 type Checkout struct {
-	Dir     string   `json:"dir"`
-	Remotes []string `json:"remotes"`
-	Heads   []string `json:"heads"`
+	Dir      string   `json:"dir"`
+	Remotes  []string `json:"remotes"`
+	Heads    []string `json:"heads"`
+	Branches []string `json:"branches,omitempty"`
 }
 
 const (
@@ -63,8 +67,9 @@ func Checkouts(ctx context.Context, root string) []Checkout {
 		if err != nil {
 			continue
 		}
+		branches, _ := checkoutGit(ctx, dir, "for-each-ref", "--format=%(refname:short)", "refs/heads")
 		rel, _ := filepath.Rel(root, dir)
-		checkout := Checkout{Dir: filepath.ToSlash(rel), Heads: uniqueLines(heads)}
+		checkout := Checkout{Dir: filepath.ToSlash(rel), Heads: uniqueLines(heads), Branches: uniqueLines(branches)}
 		for _, line := range strings.Split(remotes, "\n") {
 			if _, url, ok := strings.Cut(strings.TrimSpace(line), " "); ok && strings.TrimSpace(url) != "" {
 				checkout.Remotes = append(checkout.Remotes, strings.TrimSpace(url))

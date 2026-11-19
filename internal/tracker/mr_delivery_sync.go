@@ -124,6 +124,14 @@ func (s *Service) syncMRDeliveryStates(store MRDeliveryStore) {
 			}
 			continue
 		}
+		if strings.HasPrefix(row.MRProject, "gitlab:") {
+			if err := s.refreshGitLabDelivery(store, row.MRProject, row.MRIID); err != nil {
+				log.Printf("GitLab delivery refresh: %v", err)
+			} else {
+				updated++
+			}
+			continue
+		}
 		client, _, clientErr := s.gongfengClientForRemoteProject(row.MRProject)
 		if clientErr != nil {
 			log.Printf("mr-delivery auth %s: %v", row.MRProject, clientErr)
@@ -154,7 +162,7 @@ func (s *Service) discoverPromoteMRs(store MRDeliveryStore) {
 	now := time.Now().UTC()
 	for _, repo := range store.Repositories() {
 		project := strings.TrimSpace(repo.GongfengProjectID)
-		if strings.HasPrefix(project, "github:") {
+		if strings.HasPrefix(project, "github:") || strings.HasPrefix(project, "gitlab:") {
 			continue
 		}
 		def := strings.TrimSpace(repo.DefaultBranch)
@@ -223,6 +231,10 @@ func (s *Service) syncWorkCommitsOnDefaultBranch(store MRDeliveryStore) {
 		}
 		if strings.HasPrefix(project, "github:") {
 			s.syncGitHubWorkCommitsOnDefaultBranch(store, project, def, domain.NormalizeIntegrateBranch(repo.IntegrateBranch))
+			continue
+		}
+		if strings.HasPrefix(project, "gitlab:") {
+			s.syncGitLabWorkCommitsOnDefaultBranch(store, project, def, domain.NormalizeIntegrateBranch(repo.IntegrateBranch))
 			continue
 		}
 		rows, err := store.MergedWorkMRs(project)
