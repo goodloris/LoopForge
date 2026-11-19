@@ -79,6 +79,16 @@ MIRROR=ghcr.nju.edu.cn ./start.sh pull
 
 `./start.sh dev` (or `LOOPFORGE_BUILD_FROM_SOURCE=1 bash scripts/install.sh`) builds this checkout as `loopforge-platform:local` from `compose.dev.yaml`. It saves `COMPOSE_FILE=compose.yaml:compose.dev.yaml` in `.env`, so later runs and plain `docker compose` commands keep using the source build until `./start.sh release`. Source builds reuse npm, Go module and Go compiler caches.
 
+Where the default Go proxy (`proxy.golang.org`) or npm registry is slow or blocked, add a mirror to `.env`; `compose.dev.yaml` passes it to the source build as `ARG GOPROXY` and `ARG NPM_CONFIG_REGISTRY`, and the defaults keep the public proxy/registry, so the published image is unaffected:
+
+```bash
+# in .env
+GOPROXY=https://goproxy.cn,direct
+NPM_CONFIG_REGISTRY=https://registry.npmmirror.com
+```
+
+`GOPROXY` covers `go mod download` and the Go builds; `NPM_CONFIG_REGISTRY` covers the chatbot bundle and the CLIs installed into the image at build time (it is not persisted into the image, so runtime CLI installs in sandboxes keep the default). The native build path (`bash scripts/dev.sh`) reads `GOPROXY` from `.env` through the same loader and feeds it to the host `go`. A plain `docker build` honours the same `--build-arg GOPROXY=… --build-arg NPM_CONFIG_REGISTRY=…`.
+
 Pushing a `vX.Y.Z` tag on `main` runs the `release` workflow once the `platform` workflow has passed on that commit. The tagged `compose.yaml` must already pin `loopforge:X.Y.Z`. It publishes `ghcr.io/<owner>/loopforge` as `X.Y.Z`, `X.Y`, `latest` and `sha-<commit>`, smoke-tests the pushed digest with `./start.sh`, and creates the GitHub Release. Forks publish under their own owner; set the GHCR package visibility/access for your team before distributing the image. Images are pulled only when missing by default; use an immutable tag/digest, or set `LOOPFORGE_PULL_POLICY=always` when updating a mutable tag. Existing `.env` values take precedence; change the saved image or URL there when updating an installation. Compose waits for the API's health check with a bounded timeout before installing schema extensions and seeds.
 
 Open the platform and create the first account in the browser; it receives platform administration. Until that account exists the login page only offers this setup step.

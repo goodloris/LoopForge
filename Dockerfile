@@ -5,6 +5,12 @@
 # amd64 builder), which keeps multi-platform releases fast.
 FROM --platform=$BUILDPLATFORM node:22-bookworm-slim AS chatbot
 WORKDIR /src
+# npm registry for the chatbot build. Default is the public registry, so the
+# published image is unchanged; set a mirror (for example
+# NPM_CONFIG_REGISTRY=https://registry.npmmirror.com) where it is slow or
+# blocked. compose.dev.yaml passes it from .env for `./start.sh dev`.
+ARG NPM_CONFIG_REGISTRY=https://registry.npmjs.org/
+ENV NPM_CONFIG_REGISTRY=${NPM_CONFIG_REGISTRY}
 COPY chatbot/package.json chatbot/package-lock.json chatbot/
 RUN --mount=type=cache,target=/root/.npm npm --prefix chatbot ci --include=dev --no-audit --no-fund
 COPY chatbot/ chatbot/
@@ -14,6 +20,12 @@ FROM --platform=$BUILDPLATFORM golang:1.26.11-bookworm AS build
 ARG TARGETOS
 ARG TARGETARCH
 WORKDIR /src
+# Module proxy for `go mod download` and the builds below. Default is Go's own
+# proxy, so the published image is unchanged; set a mirror (for example
+# GOPROXY=https://goproxy.cn,direct) where proxy.golang.org is unreachable.
+# compose.dev.yaml passes it from .env for `./start.sh dev`.
+ARG GOPROXY=https://proxy.golang.org,direct
+ENV GOPROXY=${GOPROXY}
 # Empty lets build-binaries.sh size parallelism from the builder's CPUs and memory.
 ARG LOOPFORGE_BUILD_JOBS=
 ENV LOOPFORGE_BUILD_JOBS=${LOOPFORGE_BUILD_JOBS}
@@ -28,9 +40,13 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
 COPY --from=chatbot /src/web/native-chat/ web/native-chat/
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build GOOS=${TARGETOS} GOARCH=${TARGETARCH} bash scripts/build-binaries.sh --platform /out
 FROM node:22-bookworm
+# Build-time npm registry for the bundled CLIs below; default keeps the public
+# registry so the published image is unchanged. It is not persisted, so runtime
+# npm (sandbox CLI installs) still uses the default unless overridden there.
+ARG NPM_CONFIG_REGISTRY=https://registry.npmjs.org/
 RUN --mount=type=cache,target=/root/.npm apt-get update && apt-get install -y --no-install-recommends ca-certificates git openssh-client bash curl python3 python3-pip python3-venv ripgrep \
  && rm -rf /var/lib/apt/lists/* \
- && npm install -g @openai/codex@0.162.1 @tencent-ai/codebuddy-code@2.167.0 @deepseek-ai/dsh@0.2.2-rc.1
+ && NPM_CONFIG_REGISTRY="${NPM_CONFIG_REGISTRY}" npm install -g @openai/codex@0.162.1 @tencent-ai/codebuddy-code@2.167.0 @deepseek-ai/dsh@0.2.2-rc.1
 # A relocatable Python that sandboxes of images without python3 mount for the
 # native CLI hooks (internal/runtime/toolchain.go). Its terminfo database has
 # names differing only in case, which a case-insensitive data directory (macOS)
