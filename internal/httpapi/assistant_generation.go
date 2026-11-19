@@ -114,6 +114,10 @@ func (h *assistantHandlers) startGeneration(c *gin.Context) {
 		catalog = h.turnCatalog(c.Request.Context(), user, req.Model)
 	}
 	if !runnerLogin {
+		if refusal := assistantUnavailableCLIRefusal(req.Model, user); refusal != "" {
+			c.JSON(400, gin.H{"error": refusal})
+			return
+		}
 		req.Model = assistantAllowedUserModel(req.Model, catalog, user)
 	}
 	cliEngine, _ = assistantModelEngine(req.Model)

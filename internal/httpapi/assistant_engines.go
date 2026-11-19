@@ -335,6 +335,23 @@ func assistantAllowedUserModel(id string, catalog assistantModelCatalog, user do
 	return engine + ":" + model
 }
 
+// assistantUnavailableCLIRefusal refuses a turn that explicitly picks a
+// non-CodeBuddy CLI this caller cannot use. Falling back to CodeBuddy would
+// blame the wrong credential and pin the session to CodeBuddy.
+func assistantUnavailableCLIRefusal(id string, user domain.User) string {
+	engine, model := assistantModelEngine(id)
+	if engine == assistantEngineCodeBuddy {
+		return ""
+	}
+	if key, _ := assistantEngineCredential(user, engine); key == "" {
+		return assistantEngineMissingKey(engine)
+	}
+	if !assistantValidEngineModel(model) {
+		return "模型 ID 无效"
+	}
+	return ""
+}
+
 // assistantScheduledModel normalizes the model of an AI scheduled task on
 // save. The run uses the project owner's keys and CodeBuddy environment, not
 // the editor's, so a well-formed model is kept as-is; it is checked against

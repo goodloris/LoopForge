@@ -58,6 +58,16 @@ func kiroLoginDatabase() string {
 	return filepath.Join(home, ".local", "share", "kiro-cli", "data.sqlite3")
 }
 
+// KiroDataDirWarning returns a startup warning when AGENTFLOW_KIRO_DATA_DIR is
+// set but holds no data.sqlite3 (for example an empty fallback mount), else "".
+func KiroDataDirWarning() string {
+	dir := strings.TrimSpace(os.Getenv(kiroDataDirEnv))
+	if dir == "" || KiroLoginAvailable() {
+		return ""
+	}
+	return kiroDataDirEnv + "=" + dir + " contains no data.sqlite3: Kiro CLI will show as unconfigured. Set LOOPFORGE_KIRO_DATA_DIR in .env to the host's kiro-cli data directory and recreate the container (docker compose up -d)."
+}
+
 // KiroLoginAvailable reports whether this process has a kiro-cli login to
 // run Kiro CLI on. It does not check that the login is still valid.
 func KiroLoginAvailable() bool {
