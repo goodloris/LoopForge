@@ -126,7 +126,14 @@ func (h *catalogHandlers) repositories(c *gin.Context) {
 		}
 	}
 	githubShorthand := primary != "" && strings.HasPrefix(strings.TrimPrefix(primary, "git clone "), "github:")
-	if v.Provider == domain.RepositoryProviderSSH || (gitwork.IsSSHReference(sshReference) && !legacySSH && !githubShorthand) {
+	// A reference that resolves to a hosting provider (GitHub or the configured
+	// GitLab instance), including its git@/ssh:// forms, keeps the provider's
+	// token flow and automatic MR/PR; it must not fall into the generic SSH path.
+	hostingRef := false
+	if info, ok := domain.ParseRepositoryURL(sshReference); ok && (strings.HasPrefix(info.Project, "github:") || strings.HasPrefix(info.Project, "gitlab:")) {
+		hostingRef = true
+	}
+	if v.Provider == domain.RepositoryProviderSSH || (gitwork.IsSSHReference(sshReference) && !legacySSH && !githubShorthand && !hostingRef) {
 		remote, err := gitwork.ParseSSHRemote(sshReference)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -190,7 +197,7 @@ func (h *catalogHandlers) repositories(c *gin.Context) {
 	if v.GongfengProjectID != "" {
 		if info, ok := domain.ParseRepositoryURL(v.GongfengProjectID); ok {
 			v.GongfengProjectID = info.Project
-		} else if !strings.HasPrefix(v.GongfengProjectID, "github:") && !domain.IsSafeGongfengProjectID(v.GongfengProjectID) {
+		} else if !strings.HasPrefix(v.GongfengProjectID, "github:") && !strings.HasPrefix(v.GongfengProjectID, "gitlab:") && !domain.IsSafeGongfengProjectID(v.GongfengProjectID) {
 			c.JSON(400, map[string]string{"error": "仓库链接无法识别：请提供有效的 GitHub 仓库地址"})
 			return
 		}
@@ -209,7 +216,7 @@ func (h *catalogHandlers) repositories(c *gin.Context) {
 			v.Name = parsed.Name
 		}
 	}
-	if v.GongfengProjectID != "" {
+	if v.GongfengProjectID != "" && !strings.HasPrefix(v.GongfengProjectID, "github:") && !strings.HasPrefix(v.GongfengProjectID, "gitlab:") {
 		if v.WebURL == "" {
 			v.WebURL = "https://" + domain.GongfengRepoHost + "/" + v.GongfengProjectID
 		}
@@ -230,11 +237,27 @@ func (h *catalogHandlers) repositories(c *gin.Context) {
 			v.DefaultBranch = "main"
 		}
 	}
+	if strings.HasPrefix(v.GongfengProjectID, "gitlab:") {
+		if !domain.GitLabEnabled() {
+			c.JSON(400, map[string]string{"error": "GitLab 未启用：请先配置 LOOPFORGE_GITLAB_URL"})
+			return
+		}
+		v.Provider = "gitlab"
+		if v.DefaultBranch == "" {
+			v.DefaultBranch = "main"
+		}
+	}
 	if v.Provider == "" {
 		v.Provider = "gongfeng"
 	}
-	if v.Provider != "gongfeng" && v.Provider != "github" {
-		c.JSON(400, map[string]string{"error": "provider must be github or gongfeng"})
+	if v.Provider == "gitlab" && !(domain.GitLabEnabled() && strings.HasPrefix(v.GongfengProjectID, "gitlab:")) {
+		// The gitlab provider is derived from a gitlab: identity on the
+		// configured instance; a raw provider field cannot opt a bare path in.
+		c.JSON(400, map[string]string{"error": "GitLab 仓库需提供该实例的仓库链接"})
+		return
+	}
+	if v.Provider != "gongfeng" && v.Provider != "github" && v.Provider != "gitlab" {
+		c.JSON(400, map[string]string{"error": "provider must be github, gitlab or gongfeng"})
 		return
 	}
 	if v.DefaultBranch == "" {

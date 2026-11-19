@@ -83,6 +83,24 @@ func formatUserGitCredential(user domain.User) string {
 	return tok
 }
 
+// GitLabCredential returns the user's GitLab personal access token as an
+// https git credential ("oauth2:<token>") so clone/push use the oauth2 HTTP
+// Basic user. It returns "" when the user has no GitLab token.
+func (r *UsersRepo) GitLabCredential(id int64) string {
+	user, ok := r.User(id)
+	if !ok {
+		return ""
+	}
+	tok := strings.TrimSpace(user.GitLabToken)
+	if tok == "" {
+		return ""
+	}
+	if strings.HasPrefix(strings.ToLower(tok), "oauth2:") {
+		return tok
+	}
+	return "oauth2:" + tok
+}
+
 func gongfengTokenDue(user domain.User, now time.Time) bool {
 	if strings.TrimSpace(user.GongfengRefreshToken) == "" {
 		return false

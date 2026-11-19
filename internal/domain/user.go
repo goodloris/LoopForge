@@ -33,7 +33,12 @@ type User struct {
 	GitToken                     string     `json:"gitToken,omitempty"`
 	GitTokenConfigured           bool       `json:"gitTokenConfigured,omitempty"`
 	GitTokenOAuth                bool       `json:"gitTokenOAuth,omitempty"`
-	GitSSHKeyConfigured          bool       `json:"gitSshKeyConfigured,omitempty"`
+	// GitLabToken is the user's personal access token (scope api) for the
+	// single self-hosted GitLab instance. It is stored separately from the
+	// GitHub GitToken and never mixed with it.
+	GitLabToken           string `json:"gitLabToken,omitempty"`
+	GitLabTokenConfigured bool   `json:"gitLabTokenConfigured,omitempty"`
+	GitSSHKeyConfigured   bool   `json:"gitSshKeyConfigured,omitempty"`
 	GongfengRefreshToken         string     `json:"-"`
 	GongfengTokenExpiresAt       time.Time  `json:"-"`
 	CodeBuddyAPIKey              string     `json:"codeBuddyApiKey,omitempty"`
@@ -84,6 +89,8 @@ func PublicUser(u User) User {
 	u.GitTokenConfigured = strings.TrimSpace(u.GitToken) != ""
 	u.GitTokenOAuth = strings.TrimSpace(u.GongfengRefreshToken) != ""
 	u.GitToken = ""
+	u.GitLabTokenConfigured = strings.TrimSpace(u.GitLabToken) != ""
+	u.GitLabToken = ""
 	u.GongfengRefreshToken = ""
 	u.GongfengTokenExpiresAt = time.Time{}
 	u.CodeBuddyAPIKeyConfigured = strings.TrimSpace(u.CodeBuddyAPIKey) != ""

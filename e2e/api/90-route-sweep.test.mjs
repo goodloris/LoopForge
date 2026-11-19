@@ -117,6 +117,12 @@ test('unknown tasks and workflows answer 404; token verification needs a valid u
     const res = await status(method, '/api/users/not-a-number/git-token/verify', method === 'POST' ? {} : undefined, [400]);
     assert.equal(res.data.valid, false);
   }
+  // The GitLab token verify endpoint mirrors the GitHub one and rejects a
+  // non-numeric user id the same way, whether or not a GitLab instance is set.
+  for (const method of ['GET', 'POST']) {
+    const res = await status(method, '/api/users/not-a-number/gitlab-token/verify', method === 'POST' ? {} : undefined, [400]);
+    assert.equal(res.data.valid, false);
+  }
 });
 
 test('runner and gate MCP downloads are served or explain how to enable them', async () => {

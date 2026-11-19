@@ -544,7 +544,7 @@ function issueFromForm(){
 // 就能完成仓库配置。
 // repoDisplayPath shows host/path for a parsed repository, e.g. github.com/owner/name.
 function repoDisplayPath(info,fallback=''){return info?.provider==='ssh'?(info.project||info.cloneUrl||fallback):info?.webUrl?String(info.webUrl).replace(/^https?:\/\//,''):String(fallback||'')}
-function repoProviderLabel(info){return info?.provider==='ssh'?'Git SSH':info?.provider==='github'?'GitHub':'工蜂'}
+function repoProviderLabel(info){return info?.provider==='ssh'?'Git SSH':info?.provider==='github'?'GitHub':info?.provider==='gitlab'?'GitLab':'工蜂'}
 function parseGongfengRepoURL(raw){
   const sshInfo=globalThis.LoopForgeGitSSH?.(raw);if(sshInfo)return sshInfo;
   let publicURL=String(raw||'').trim().replace(/^git clone /,'').replace(/^github:/,'https://github.com/').replace(/^(?:git@github\.com:|ssh:\/\/git@github\.com(?::22)?\/)/,'https://github.com/');
@@ -554,7 +554,7 @@ function parseGongfengRepoURL(raw){
   let original=String(raw||'').trim().replace(/^['"]+|['"]+$/g,'');
   if(!original)return null;
   const strippedClone=/^git\s+clone\s+/i.test(original);
-  let s=original.replace(/^git\s+clone\s+/i,'').trim().replace(/^['"]+|['"]+$/g,'');
+  let s=original.replace(/^git\s+clone\s+/i,'').trim().replace(/^['"]+|['"]+$/g,'').replace(/^gitlab:/i,'');
   if(strippedClone&&/\s/.test(s))s=s.split(/\s+/)[0];
   if(!s||/[\s"'<>()\\]/.test(s))return null;
   const ssh=/^(git@|ssh:\/\/)/i.test(s);
@@ -563,22 +563,29 @@ function parseGongfengRepoURL(raw){
   let rest=s;
   if(hadScheme)rest=rest.slice(rest.indexOf('://')+3);
   if(rest.includes('@'))rest=rest.slice(rest.lastIndexOf('@')+1);
+  const gitlabHost=(globalThis.LoopForgeGitLabHost||'').toLowerCase();
+  let provider='gongfeng',gongfengHost='git.example.com',host=gongfengHost;
   let path='';
   if(!hadScheme&&!hadAt&&!rest.includes(':')){
-    path=rest;
+    path=rest; // bare project path: legacy gongfeng only (host must be explicit for gitlab)
   }else if(rest.includes('/')){
-    const cut=rest.search(/[:\/]/),host=rest.slice(0,cut);
-    if(host.toLowerCase()!=='git.example.com')return null;
+    const cut=rest.search(/[:\/]/);host=rest.slice(0,cut).toLowerCase();
+    if(host===gongfengHost){provider='gongfeng'}
+    else if(gitlabHost&&host===gitlabHost){provider='gitlab'}
+    else return null;
     path=rest.slice(cut+1);
     if(rest[cut]===':'){const j=path.indexOf('/');if(j>=0&&/^\d+$/.test(path.slice(0,j)))path=path.slice(j+1)}
   }else return null;
-  path=path.replace(/^git\.example\.com\//i,'').replace(/\.git$/i,'');
+  path=path.replace(new RegExp('^'+host.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\/','i'),'').replace(/\.git$/i,'');
   for(const marker of ['/-/','/tree/','/blob/','/commit/','/commits/','/merge_requests/','/issues/','/snippets/','/wikis/','/releases/','/tags/']){
     const i=path.indexOf(marker);if(i>=0)path=path.slice(0,i);
   }
   path=path.replace(/^\/+|\/+$/g,'');
   if(!path||path.includes('..')||path.split('/').some(seg=>!seg||/[\s\\?#]/.test(seg)))return null;
   const name=path.slice(path.lastIndexOf('/')+1);
+  if(provider==='gitlab'){
+    return {project:'gitlab:'+path,name,webUrl:`https://${gitlabHost}/${path}`,cloneUrl:ssh?`git@${gitlabHost}:${path}.git`:`https://${gitlabHost}/${path}.git`,provider:'gitlab'};
+  }
   return {project:path,name,webUrl:`https://git.example.com/${path}`,cloneUrl:ssh?`git@git.example.com:${path}.git`:`https://git.example.com/${path}.git`};
 }
 // fillRepositoryFromLink 把解析结果填进空缺字段；显式填过的字段不覆盖。

@@ -603,13 +603,18 @@ export function parseGongfengRepo(raw) {
   let rest = value;
   if (hadScheme) rest = rest.slice(rest.indexOf("://") + 3);
   if (rest.includes("@")) rest = rest.slice(rest.lastIndexOf("@") + 1);
+  const gitlabHost = String(globalThis.LoopForgeGitLabHost || "").toLowerCase();
+  let provider = "gongfeng";
+  let host = "git.example.com";
   let path = "";
   if (!hadScheme && !hadAt && !rest.includes(":")) {
     path = rest;
   } else if (rest.includes("/")) {
     const cut = rest.search(/[:/]/);
-    const host = rest.slice(0, cut);
-    if (host.toLowerCase() !== "git.example.com") return null;
+    host = rest.slice(0, cut).toLowerCase();
+    if (host === "git.example.com") provider = "gongfeng";
+    else if (gitlabHost && host === gitlabHost) provider = "gitlab";
+    else return null;
     path = rest.slice(cut + 1);
     if (rest[cut] === ":") {
       const slash = path.indexOf("/");
@@ -619,7 +624,9 @@ export function parseGongfengRepo(raw) {
   } else {
     return null;
   }
-  path = path.replace(/^git\.example\.com\//i, "").replace(/\.git$/i, "");
+  path = path
+    .replace(new RegExp("^" + host.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "/", "i"), "")
+    .replace(/\.git$/i, "");
   for (const marker of [
     "/-/",
     "/tree/",
@@ -645,6 +652,17 @@ export function parseGongfengRepo(raw) {
   )
     return null;
   const name = parts[parts.length - 1];
+  if (provider === "gitlab") {
+    return {
+      project: `gitlab:${path}`,
+      provider: "gitlab",
+      name,
+      webUrl: `https://${gitlabHost}/${path}`,
+      cloneUrl: ssh
+        ? `git@${gitlabHost}:${path}.git`
+        : `https://${gitlabHost}/${path}.git`,
+    };
+  }
   return {
     project: path,
     provider: "gongfeng",

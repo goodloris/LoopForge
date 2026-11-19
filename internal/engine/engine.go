@@ -57,6 +57,14 @@ type Engine struct {
 	// work branch. Nil (local/dev) falls back to MR links in run artifacts.
 	FindBranchMR func(projectID, sourceBranch string) (domain.DeliveryMR, bool, error)
 
+	// EnsureDeliveryMR finds, or opens, a GitLab merge request from a run
+	// repository's work branch into its base branch, authenticated as the
+	// run's responsible user. A GitLab SOP sandbox has no GitLab CLI, so the
+	// platform opens the delivery MR the way the conversation workspace does
+	// (GitHub/gongfeng agents still open their own). Nil, a non-GitLab project
+	// or a disabled instance is a no-op.
+	EnsureDeliveryMR func(projectID, sourceBranch, targetBranch string, responsibleUserID int64) (domain.DeliveryMR, bool, error)
+
 	// FindBranchMRsInto lists the MRs from a work branch into one target
 	// branch with their head commits, for mode=mr gates. Nil cannot verify.
 	FindBranchMRsInto func(domain.BranchMRQuery) ([]domain.DeliveryMR, error)

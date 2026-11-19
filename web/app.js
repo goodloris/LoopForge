@@ -916,6 +916,9 @@ async function boot(){
   const view=restoredView();
   const shell = await api('/api/bootstrap', {silent: view==='runs'});
   state.data = Object.assign(state.data, shell);
+  // Single-instance GitLab provider: expose the configured host so the repo
+  // paste parser recognizes its links and the UI shows the gitlab options.
+  globalThis.LoopForgeGitLabHost = (shell.gitlabEnabled && shell.gitlabHost) ? String(shell.gitlabHost).toLowerCase() : '';
   const savedProject=urlParams.get('projectId')||localStorage.getItem('agentflow.activeProject');
   state.projectFilter=(state.data.projects||[]).some(p=>p.id===savedProject)?savedProject:defaultProjectId(state.data.projects,state.currentUser?.id);
   state.workflow = clone(restoreOpenWorkflow());

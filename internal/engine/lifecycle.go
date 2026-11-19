@@ -168,6 +168,19 @@ func (e *Engine) deliveryMRsFromRun(run domain.Run) []domain.DeliveryMR {
 	var byBranch func(domain.RepositoryContext) (domain.DeliveryMR, bool)
 	if e.FindBranchMR != nil {
 		byBranch = func(rc domain.RepositoryContext) (domain.DeliveryMR, bool) {
+			// GitLab SOP deliveries have no agent-opened MR (the sandbox lacks a
+			// GitLab CLI); the platform opens it, then the normal lookup finds it.
+			if domain.IsGitLabProject(rc.GongfengProjectID) && e.EnsureDeliveryMR != nil && strings.TrimSpace(rc.WorkBranch) != "" && !rc.ReadOnly && !rc.AlignOnly {
+				target := strings.TrimSpace(rc.BaseBranch)
+				if target == "" {
+					target = strings.TrimSpace(rc.DefaultBranch)
+				}
+				if mr, ok, err := e.EnsureDeliveryMR(rc.GongfengProjectID, rc.WorkBranch, target, run.ExecutionContext.ResponsibleUserID); err != nil {
+					log.Printf("open delivery MR run=%s project=%s branch=%s: %v", run.ID, rc.GongfengProjectID, rc.WorkBranch, err)
+				} else if ok {
+					return mr, true
+				}
+			}
 			mr, ok, err := e.FindBranchMR(rc.GongfengProjectID, rc.WorkBranch)
 			if err != nil {
 				log.Printf("resolve delivery MR run=%s project=%s branch=%s: %v", run.ID, rc.GongfengProjectID, rc.WorkBranch, err)

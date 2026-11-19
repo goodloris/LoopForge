@@ -75,7 +75,12 @@ type workspacePull struct {
 // requirement tracks it yet; PRs opened elsewhere are left alone. It returns
 // a note for the reply, empty when nothing was registered.
 func (h *assistantHandlers) registerTurnDeliveries(ctx context.Context, s *AgentToolSession) string {
-	if s == nil || s.RunID != "" || h.engine == nil || strings.TrimSpace(s.User.GitToken) == "" {
+	if s == nil || s.RunID != "" || h.engine == nil {
+		return ""
+	}
+	hasGitHub := strings.TrimSpace(s.User.GitToken) != ""
+	hasGitLab := domain.GitLabEnabled() && strings.TrimSpace(s.User.GitLabToken) != ""
+	if !hasGitHub && !hasGitLab {
 		return ""
 	}
 	runID := s.conversationWorkspace()
@@ -91,18 +96,50 @@ func (h *assistantHandlers) registerTurnDeliveries(ctx context.Context, s *Agent
 		return ""
 	}
 	heads := map[string]bool{}
-	projects := []string{}
+	githubProjects := []string{}
+	gitlabBranches := map[string]map[string]bool{}
 	for _, checkout := range checkouts {
 		for _, head := range checkout.Heads {
 			heads[head] = true
 		}
 		for _, remote := range checkout.Remotes {
 			info, ok := domain.ParseRepositoryURL(withoutURLUserinfo(remote))
-			if ok && strings.HasPrefix(info.Project, "github:") && !slices.Contains(projects, info.Project) && len(projects) < turnDeliveryRepoMax {
-				projects = append(projects, info.Project)
+			if !ok {
+				continue
+			}
+			switch {
+			case strings.HasPrefix(info.Project, "github:") && hasGitHub:
+				if !slices.Contains(githubProjects, info.Project) && len(githubProjects) < turnDeliveryRepoMax {
+					githubProjects = append(githubProjects, info.Project)
+				}
+			case strings.HasPrefix(info.Project, "gitlab:") && hasGitLab:
+				set := gitlabBranches[info.Project]
+				if set == nil {
+					if len(gitlabBranches) >= turnDeliveryRepoMax {
+						continue
+					}
+					set = map[string]bool{}
+					gitlabBranches[info.Project] = set
+				}
+				for _, b := range checkout.Branches {
+					set[b] = true
+				}
 			}
 		}
 	}
+	notes := []string{}
+	if n := h.registerTurnGitHubDeliveries(ctx, s, run, githubProjects, heads); n != "" {
+		notes = append(notes, n)
+	}
+	if n := h.registerTurnGitLabDeliveries(ctx, s, run, gitlabBranches); n != "" {
+		notes = append(notes, n)
+	}
+	return strings.Join(notes, " ")
+}
+
+// registerTurnGitHubDeliveries registers GitHub pull requests the speaker
+// opened from the conversation workspace (the agent opens them with gh).
+func (h *assistantHandlers) registerTurnGitHubDeliveries(ctx context.Context, s *AgentToolSession, run domain.Run, projects []string, heads map[string]bool) string {
 	if len(heads) == 0 || len(projects) == 0 {
 		return ""
 	}
@@ -140,6 +177,69 @@ func (h *assistantHandlers) registerTurnDeliveries(ctx context.Context, s *Agent
 	for _, p := range fresh {
 		mrs = append(mrs, deliveredMR{URL: p.URL, TargetBranch: p.Base.Ref})
 		links = append(links, fmt.Sprintf("[PR #%d](%s)", p.Number, p.URL))
+	}
+	if err := gateway.recordConversationMRs(issue.ID, mrs, projectRepositories(h.repo.Repositories(), s.ProjectID)); err != nil {
+		log.Printf("record conversation workspace %s delivery: %v", run.ID, err)
+		return ""
+	}
+	if created {
+		return fmt.Sprintf("已新建需求 %s「%s」并登记 %s，合入后需求自动完成。", issue.ID, truncateRunes(issue.Title, 60), strings.Join(links, "、"))
+	}
+	return fmt.Sprintf("已把 %s 登记到需求 %s「%s」，合入后需求自动完成。", strings.Join(links, "、"), issue.ID, truncateRunes(issue.Title, 60))
+}
+
+// registerTurnGitLabDeliveries opens and registers GitLab merge requests for
+// the work branches the speaker pushed from the conversation workspace. Unlike
+// GitHub (where the agent opens the PR with gh), the sandbox has no GitLab CLI,
+// so the platform finds or creates the MR through the v4 API with the
+// speaker's GitLab token and targets each project's default branch.
+func (h *assistantHandlers) registerTurnGitLabDeliveries(ctx context.Context, s *AgentToolSession, run domain.Run, projectBranches map[string]map[string]bool) string {
+	if len(projectBranches) == 0 {
+		return ""
+	}
+	token := gitlabRawToken(s.User.GitLabToken)
+	base := domain.GitLabAPIBase()
+	if token == "" || base == "" {
+		return ""
+	}
+	fresh := []workspaceGitLabMR{}
+	for project, branches := range projectBranches {
+		mrs, err := workspaceGitLabMRs(ctx, base, token, project, branches)
+		if err != nil {
+			log.Printf("open conversation workspace %s GitLab merge requests for %s: %v", run.ID, project, err)
+			continue
+		}
+		fresh = append(fresh, mrs...)
+	}
+	if len(fresh) == 0 {
+		return ""
+	}
+	keys := make([]domain.MRDeliveryKey, 0, len(fresh))
+	for _, m := range fresh {
+		keys = append(keys, domain.MRDeliveryKey{Project: m.Project, IID: m.IID})
+	}
+	tracked := h.repo.MRDeliveryStatesMap(keys)
+	untracked := []workspaceGitLabMR{}
+	for _, m := range fresh {
+		if strings.TrimSpace(tracked[domain.MRDeliveryKey{Project: m.Project, IID: m.IID}].IssueID) != "" {
+			continue
+		}
+		untracked = append(untracked, m)
+	}
+	if len(untracked) == 0 {
+		return ""
+	}
+	gateway := &agentToolGateway{deps: h.deps}
+	issue, created, err := gateway.linkConversationRequirement(s, run, conversationRequirement{Title: strings.TrimSpace(untracked[0].Title), Description: strings.TrimSpace(untracked[0].Body)}, true)
+	if err != nil || issue.ID == "" {
+		log.Printf("link conversation workspace %s requirement for its merge requests: %v", run.ID, err)
+		return ""
+	}
+	mrs := make([]deliveredMR, 0, len(untracked))
+	links := make([]string, 0, len(untracked))
+	for _, m := range untracked {
+		mrs = append(mrs, deliveredMR{URL: m.URL, TargetBranch: m.TargetBranch})
+		links = append(links, fmt.Sprintf("[MR !%d](%s)", m.IID, m.URL))
 	}
 	if err := gateway.recordConversationMRs(issue.ID, mrs, projectRepositories(h.repo.Repositories(), s.ProjectID)); err != nil {
 		log.Printf("record conversation workspace %s delivery: %v", run.ID, err)
