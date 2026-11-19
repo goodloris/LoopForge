@@ -238,6 +238,21 @@ func (e *Engine) ensureConversationWorkspace(ctx context.Context, id, token stri
 	if !ok {
 		return fmt.Errorf("运行不存在")
 	}
+	// A control-plane workspace bound to a host that is gone (the platform
+	// container was rebuilt with a new hostname, or a legacy row still names a
+	// retired host) is taken over here instead of being chased over a control
+	// channel that single-container deployments never configure. The lease the
+	// caller already holds fences out any live owner. Rebinding leaves the
+	// cleaned/saved state intact, so the restore below still runs from the
+	// database-stored checkpoint when the checkout is gone.
+	if e.workspaceReclaimableHere(run) {
+		if err := e.repo.ReassignWorkspaceHostUnderLease(id, token, e.workspaceHost, e.sandboxes.Root(), time.Now().UTC()); err != nil {
+			return err
+		}
+		if run, ok = e.repo.RunState(id); !ok {
+			return fmt.Errorf("运行不存在")
+		}
+	}
 	runner := e.defaultExecutionRunner(run)
 	if runner == "" && e.foreignWorkspaceBind(run) {
 		if run.WorkspaceCleanedAt.IsZero() {

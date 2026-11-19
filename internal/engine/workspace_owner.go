@@ -1,15 +1,48 @@
 package engine
 
 import (
+	"os"
 	"strings"
 
 	"agentflow/internal/domain"
+	"agentflow/internal/runtime"
 )
 
 // The workspace of a run lives only on the host (or execution machine) that
 // checked it out. Nodes do not push intermediate commits: the remote work
 // branch receives code only from delivery steps (MR, integration). A child
 // SOP works in the checkout of the run that started its SOP chain.
+
+// workspaceReclaimableHere reports a control-plane workspace whose bound host
+// is gone, so this instance may take the checkout over locally. The checkpoint
+// archive lives in the database, so a saved workspace is restored here without
+// the old host; an unsaved one is reclaimed only when its files are still on
+// local disk (the platform container was rebuilt but its data volume
+// persisted). A live worker or instance that still advertises the host, a run
+// on an execution machine, and a child SOP are never reclaimed, so a real
+// multi-instance or split-worker owner keeps its workspace.
+func (e *Engine) workspaceReclaimableHere(run domain.Run) bool {
+	if e.defaultExecutionRunner(run) != "" || sharesWorkspace(run) {
+		return false
+	}
+	if !e.foreignWorkspaceBind(run) {
+		return false
+	}
+	host, _ := e.workspaceBind(run)
+	if host == e.workspaceHost || e.repo.WorkspaceHostAlive(host) {
+		return false
+	}
+	if meta, ok := e.repo.WorkspaceCheckpoint(run.ID); ok && meta.SavedAt != nil && meta.Error == "" {
+		return true
+	}
+	root := e.sandboxes.RunWorkspace(run.ID)
+	if info, err := os.Lstat(root); err == nil && info.IsDir() {
+		if has, herr := runtime.WorkspaceDirHasContent(root); herr == nil && has {
+			return true
+		}
+	}
+	return false
+}
 
 // workspaceRunID returns the run whose workspace r executes in.
 func workspaceRunID(r domain.Run) string {

@@ -65,15 +65,20 @@ func (e *Engine) requestWorkspaceCheckpoint(ctx context.Context, run domain.Run,
 		base = e.repo.WorkspaceHostControlURL(run.WorkspaceHost)
 	}
 	operation := workspaceOperationLabel(request.Operation)
-	if token == "" {
-		return domain.RunnerWorkspaceResponse{}, fmt.Errorf("%w：无法%s；请为 API 和 Worker 配置相同的 AGENTFLOW_CONTROL_TOKEN", ErrWorkspaceControlConfiguration, operation)
-	}
+	// Report the reachability problem first. An empty base means the workspace
+	// lives on another instance that is offline or never advertised a control
+	// address, so the missing control token is not the real fault and a
+	// single-container deployment (which correctly has no token) must not be
+	// told to configure one.
 	if base == "" {
-		hint := "工作区所属 Worker 未公布有效的 AGENTFLOW_CONTROL_URL"
+		hint := "工作区所在实例已离线或未公布控制地址，暂时无法访问其工作区"
 		if e.defaultExecutionRunner(run) != "" {
 			hint = "Worker 未配置内部 API 地址 AGENTFLOW_API_URL"
 		}
 		return domain.RunnerWorkspaceResponse{}, fmt.Errorf("%w：无法%s；%s", ErrWorkspaceControlConfiguration, operation, hint)
+	}
+	if token == "" {
+		return domain.RunnerWorkspaceResponse{}, fmt.Errorf("%w：无法%s；工作区位于另一实例，多实例或分离 Worker 部署需为 API 和 Worker 配置相同的 AGENTFLOW_CONTROL_TOKEN", ErrWorkspaceControlConfiguration, operation)
 	}
 	return postWorkspaceRequest(ctx, base, token, request)
 }
