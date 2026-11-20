@@ -1,12 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Bagel">
   <defs>
-    <linearGradient id="g" x1="0" y1="8" x2="0" y2="58" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#3b8eea"/>
-      <stop offset="1" stop-color="#8b5cf6"/>
-    </linearGradient>
+    <linearGradient id="bgl-crust" x1="12" y1="10" x2="54" y2="56" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FFD592"/><stop offset=".5" stop-color="#F0A043"/><stop offset="1" stop-color="#B4561C"/></linearGradient>
+    <linearGradient id="bgl-tip" x1="34" y1="4" x2="48" y2="22" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FFC774"/><stop offset="1" stop-color="#D9782A"/></linearGradient>
+    <radialGradient id="bgl-hole" cx="32" cy="32" r="11.2" gradientUnits="userSpaceOnUse"><stop offset=".5" stop-color="#6B300D" stop-opacity="0"/><stop offset="1" stop-color="#6B300D" stop-opacity=".4"/></radialGradient>
   </defs>
-  <g fill="none" stroke="url(#g)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M10.5 27 A11.5 11.5 0 0 1 33.5 27 V45"/>
-    <circle cx="43.5" cy="45" r="10"/>
+  <path d="M46.92 21.93 A18 18 0 1 1 35.13 14.27" fill="none" stroke="url(#bgl-crust)" stroke-width="14"/>
+  <path d="M9.59 26 A23.2 23.2 0 0 1 24.07 10.2" fill="none" stroke="#FFF1D2" stroke-opacity=".8" stroke-width="2.2" stroke-linecap="round"/>
+  <circle cx="32" cy="32" r="11.2" fill="url(#bgl-hole)"/>
+  <g fill="#FFF6E2">
+    <ellipse cx="14.25" cy="42.25" rx="1.15" ry="2.1" transform="rotate(255 14.25 42.25)"/><ellipse cx="15.1" cy="27.47" rx="1.15" ry="2.1" transform="rotate(300 15.1 27.47)"/><ellipse cx="22" cy="14.68" rx="1.15" ry="2.1" transform="rotate(345 22 14.68)"/><ellipse cx="28.61" cy="51.2" rx="1.15" ry="2.1" transform="rotate(205 28.61 51.2)"/><ellipse cx="41.46" cy="45.52" rx="1.15" ry="2.1" transform="rotate(160 41.46 45.52)"/><ellipse cx="51.8" cy="37.31" rx="1.15" ry="2.1" transform="rotate(120 51.8 37.31)"/><ellipse cx="33.31" cy="17.06" rx="1.15" ry="2.1" transform="rotate(20 33.31 17.06)"/><ellipse cx="18.21" cy="34.43" rx="1.15" ry="2.1" transform="rotate(275 18.21 34.43)"/><ellipse cx="34.43" cy="45.79" rx="1.15" ry="2.1" transform="rotate(185 34.43 45.79)"/><ellipse cx="44.8" cy="38.81" rx="1.15" ry="2.1" transform="rotate(133 44.8 38.81)"/><ellipse cx="20.94" cy="24.26" rx="1.15" ry="2.1" transform="rotate(320 20.94 24.26)"/><ellipse cx="19.38" cy="50.02" rx="1.15" ry="2.1" transform="rotate(230 19.38 50.02)"/><ellipse cx="27.43" cy="10.48" rx="1.15" ry="2.1" transform="rotate(3 27.43 10.48)"/>
   </g>
+  <path d="M37.04 3.44 L44.34 17.29 L33.81 21.76 Z" fill="url(#bgl-tip)" stroke="#B4561C" stroke-width=".8" stroke-linejoin="round"/>
 </svg>
