@@ -115,8 +115,6 @@ func (h *assistantHandlers) chat(c *gin.Context) {
 	if !decodeLimit(c, &req, assistantRequestBodyLimit) {
 		return
 	}
-	req.Executor = assistantExecutor(req.Executor)
-	req.Model = assistantRequestModel(req.Executor, req.Model)
 	if len(req.Messages) == 0 {
 		c.JSON(400, gin.H{"error": "请提供对话消息"})
 		return
@@ -152,6 +150,8 @@ func (h *assistantHandlers) chat(c *gin.Context) {
 	}
 	defer h.active.Delete(fmt.Sprintf("%d/%s", ownerID, req.SessionID))
 	old, exists := h.repo.AssistantSession(ownerID, req.SessionID)
+	req.Model = assistantDefaultRequestModel(req.Executor, req.Model, old.ID == "")
+	req.Model = assistantRequestModel(req.Executor, req.Model)
 	if exists {
 		target := old.Execution()
 		if req.ExecutionTarget != nil && *req.ExecutionTarget != target {

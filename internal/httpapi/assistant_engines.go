@@ -292,6 +292,19 @@ func assistantEngineMissingKey(engine string) string {
 	return fmt.Sprintf("请先在个人配置中配置 %s API Key 后再使用 %s 模型", assistantEngineLabel(engine), assistantEngineLabel(engine))
 }
 
+// assistantCodeBuddyMissingKey is the historical refusal for a CodeBuddy turn
+// without a personal or platform-shared key.
+const assistantCodeBuddyMissingKey = "请先在个人配置中配置自己的 CodeBuddy API Key"
+
+// assistantMissingCredential is the refusal for a turn on engine without its
+// credential; CodeBuddy keeps its historical wording.
+func assistantMissingCredential(engine string) string {
+	if engine == assistantEngineCodeBuddy || engine == "" {
+		return assistantCodeBuddyMissingKey
+	}
+	return assistantEngineMissingKey(engine)
+}
+
 // assistantTurnUser checks personal credentials or the chosen runner login.
 // Non-CodeBuddy turns can still borrow a CodeBuddy key for approval reviews.
 func (h *assistantHandlers) assistantTurnUser(stored domain.User, model string, runnerLogin bool) (domain.User, string, string) {
@@ -313,7 +326,7 @@ func (h *assistantHandlers) assistantTurnUser(stored domain.User, model string, 
 	}
 	user, shared, ok := h.assistantChatUser(stored)
 	if !ok {
-		return stored, "", "请先在个人配置中配置自己的 CodeBuddy API Key"
+		return stored, "", assistantMissingCredential(assistantEngineCodeBuddy)
 	}
 	if len(shared) > 0 {
 		forced, allowed := assistantSponsoredModelFor(shared, model)
@@ -684,14 +697,18 @@ func assistantRequestModel(executor, model string) string {
 	if engine, _ := assistantModelEngine(model); engine != assistantEngineCodeBuddy {
 		return model
 	}
-	switch assistantExecutor(executor) {
+	// An empty executor keeps the model as-is: helper turns (titles, approval
+	// reviews, bots) pass CodeBuddy catalog IDs without one, and the
+	// deployment's default CLI must not re-prefix them.
+	// Executor IDs ignore case and surrounding spaces, like IsAgentCLI.
+	switch executor = strings.ToLower(strings.TrimSpace(executor)); executor {
 	case assistantEngineCodex:
 		return assistantEngineCodex + ":" + model
 	case "claude", assistantEngineClaude:
 		return assistantEngineClaude + ":" + model
 	default:
 		if runtime.IsAgentCLI(executor) {
-			return strings.TrimSpace(executor) + ":" + model
+			return executor + ":" + model
 		}
 	}
 	return model

@@ -595,3 +595,69 @@ test('AI schedule model picker includes account login CLI models and keeps a sav
   assert.equal(form.elements.assistantModel.value, 'claude-code:opus');
   assert.match(doc.querySelector('#scheduleModelHint').textContent, /默认执行机器的账号登录.*离线时改用个人 API Key.*Key 缺失或不可用时任务失败.*平台共享 Key/);
 });
+
+test('a new AI schedule and the AI orchestrator start on the server\'s default CLI', async (t) => {
+  for (const defaultExecutor of ['kiro', 'codebuddy', undefined]) {
+    const app = await loadApp();
+    t.after(app.close);
+    app.router.get('/api/assistant/models', () => ({
+      default: 'glm-test',
+      ...(defaultExecutor ? { defaultExecutor } : {}),
+      models: [
+        { id: 'glm-test', name: 'GLM Test', family: 'glm' },
+        { id: 'kiro:default', name: 'Kiro default', family: 'other', engine: 'kiro' },
+      ],
+      engines: [
+        { id: 'codebuddy', name: 'CodeBuddy', configured: true },
+        { id: 'kiro', name: 'Kiro CLI', configured: true },
+      ],
+    }));
+    const picked = await app.evaluate(`(async () => {
+      localStorage.removeItem('agentflow.orchestratorModel');
+      localStorage.removeItem('agentflow.assistantModel');
+      await window.AgentFlowAssistantModels.load();
+      fillScheduleJobForm({});
+      const f=$('#scheduleJobForm');
+      f.elements.jobKind.value='assistant';syncScheduleJobKind();
+      await loadScheduleModels();
+      return JSON.stringify({
+        executor: window.AgentFlowAssistantModels.defaultExecutor(),
+        model: window.AgentFlowAssistantModels.defaultModel(),
+        orchestrator: selectedAIOrchestratorModel(),
+        schedule: f.elements.assistantModel.value,
+        engine: $('#scheduleEngine').value,
+      });
+    })()`).then(JSON.parse);
+    if (defaultExecutor === 'kiro') {
+      assert.deepEqual(picked, { executor: 'kiro', model: 'kiro:default', orchestrator: 'kiro:default', schedule: 'kiro:default', engine: 'kiro' });
+    } else {
+      // CodeBuddy as default, or an older server: exactly the previous picks.
+      assert.deepEqual(picked, { executor: 'codebuddy', model: 'glm-test', orchestrator: 'glm-test', schedule: 'default', engine: 'codebuddy' }, String(defaultExecutor));
+    }
+    // A saved job keeps its own model whatever the default.
+    app.evaluate(`fillScheduleJobForm({id:'job-1',assistantModel:'glm-test'});paintScheduleModel($('#scheduleJobForm').elements.assistantModel.value)`);
+    assert.equal(app.document.querySelector('#scheduleJobForm').elements.assistantModel.value, 'glm-test');
+  }
+});
+
+test('the default CLI is skipped when the viewer has not configured it', async (t) => {
+  const app = await loadApp();
+  t.after(app.close);
+  app.router.get('/api/assistant/models', () => ({
+    default: 'glm-test',
+    defaultExecutor: 'kiro',
+    models: [
+      { id: 'glm-test', name: 'GLM Test', family: 'glm' },
+      { id: 'kiro:default', name: 'Kiro default', family: 'other', engine: 'kiro' },
+    ],
+    engines: [
+      { id: 'codebuddy', name: 'CodeBuddy', configured: true },
+      { id: 'kiro', name: 'Kiro CLI', configured: false },
+    ],
+  }));
+  const model = await app.evaluate(`(async () => {
+    await window.AgentFlowAssistantModels.load();
+    return window.AgentFlowAssistantModels.defaultModel();
+  })()`);
+  assert.equal(model, 'glm-test');
+});

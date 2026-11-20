@@ -134,11 +134,7 @@ func (h *assistantHandlers) runTaskNow(c *gin.Context) {
 	task, err := loadAssistantTask(h.repo, current.ID, c.Param("id"))
 	engine, _ := assistantModelEngine(task.Model)
 	if !ok || !scheduleHasPersonalCredential(h.repo, user, engine) {
-		msg := "请先在个人配置中配置自己的 CodeBuddy API Key"
-		if engine != assistantEngineCodeBuddy {
-			msg = assistantEngineMissingKey(engine)
-		}
-		c.JSON(400, gin.H{"error": msg})
+		c.JSON(400, gin.H{"error": assistantMissingCredential(engine)})
 		return
 	}
 	if err != nil {

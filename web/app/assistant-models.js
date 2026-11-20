@@ -140,6 +140,21 @@
     if (!value || /^(codex|claude-code):/.test(value) || engineOf(value) !== 'codebuddy') return DEFAULT_MODEL;
     return value;
   }
+  // defaultExecutor is the deployment's default CLI announced by
+  // /api/assistant/models (AGENTFLOW_DEFAULT_EXECUTOR); older servers omit it.
+  function defaultExecutor(source = catalog) {
+    return source?.defaultExecutor || 'codebuddy';
+  }
+  // defaultModel is the model a picker without a saved choice starts on: the
+  // first listed model of the default CLI when that is not CodeBuddy, else
+  // fallback (the catalog default), exactly as before. A default CLI the
+  // viewer has not configured also yields fallback, as chatbot's usable() does.
+  function defaultModel(source = catalog, fallback = source?.default || DEFAULT_MODEL) {
+    const engine = defaultExecutor(source);
+    if (engine === 'codebuddy') return fallback;
+    if ((source?.engines || []).some(e => e.id === engine && e.configured === false)) return fallback;
+    return (source?.models || []).find(m => m.engine === engine)?.id || fallback;
+  }
   async function fetchCatalog() {
     const resp = await fetch('/api/assistant/models', {headers: {Accept: 'application/json'}, credentials: 'same-origin'});
     if (!resp.ok) throw new Error(`模型列表加载失败（${resp.status}）`);
@@ -150,7 +165,7 @@
   function load() {
     if (!loading) {
       loading = fetchCatalog().then(data => {
-        if (data?.models?.length) catalog = {default: data.default || DEFAULT_MODEL, models: data.models, engines: data.engines || []};
+        if (data?.models?.length) catalog = {default: data.default || DEFAULT_MODEL, models: data.models, engines: data.engines || [], defaultExecutor: data.defaultExecutor || 'codebuddy'};
         return catalog;
       }).catch(() => catalog).finally(() => { loading = null; });
     }
@@ -161,6 +176,8 @@
     catalog: () => catalog,
     codeBuddyModel,
     codeBuddyModels,
+    defaultExecutor,
+    defaultModel,
     engineOf,
     load,
     paint,

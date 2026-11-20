@@ -16,7 +16,7 @@ import { cliFailureSettles } from "./cli-install.jsx";
 import { useExecutionMachines } from "./useExecutionMachines.js";
 import { executionLocked } from "./execution-target.js";
 import { modelEffort } from "./effort.js";
-import { conversationEngine, defaultExecutor, engineModels } from "./engines.js";
+import { conversationEngine, defaultEngine, defaultExecutor, engineLabel, engineMissingKeyMessage, engineModels } from "./engines.js";
 import {
   enqueue,
   holdQueue,
@@ -45,9 +45,11 @@ export const EXECUTORS = [
   { id: "kiro", icon: "terminal", label: "Kiro CLI", detail: "使用执行机器上 kiro-cli login 的 Kiro 订阅，不需要 API Key。" },
 ];
 const EXECUTOR_KEY = "loopforge.assistant.executor";
-function knownExecutor(id) {
+// knownExecutor maps an executor ID onto EXECUTORS; an unknown one becomes
+// fallback (the server-resolved default once the catalog has loaded).
+function knownExecutor(id, fallback = "") {
   if (id === "claude") return "claude-code";
-  return EXECUTORS.some((item) => item.id === id) ? id : "codebuddy";
+  return EXECUTORS.some((item) => item.id === id) ? id : fallback;
 }
 // The CLI this browser last picked, "" before the first pick.
 function pickedExecutor() {
@@ -58,7 +60,6 @@ function pickedExecutor() {
     return "";
   }
 }
-const storedExecutor = () => pickedExecutor() || "codebuddy";
 // The chat model is a personal preference like the executor: new
 // conversations and page reloads keep the last pick. Each CLI remembers its
 // own, because model IDs differ between CLIs.
@@ -136,10 +137,11 @@ export function useChat() {
     // the header reveals that conversation's title once it has loaded.
     [revealId, setRevealId] = useState(activeId),
     [projectId, setProjectId] = useState(initialProject),
-    [model, setModel] = useState(() => storedModel(storedExecutor())),
+    [model, setModel] = useState(() => storedModel(pickedExecutor())),
     [effort, setEffort] = useState(""),
     [sponsoredModels, setSponsoredModels] = useState([]),
-    [executor, setExecutorState] = useState(storedExecutor),
+    // "" until the catalog resolves the default, so no CLI label flashes.
+    [executor, setExecutorState] = useState(pickedExecutor),
     [providerCatalogs, setProviderCatalogs] = useState({}),
     [generation, setGeneration] = useState(null),
     [stopRequest, setStopRequest] = useState(null),
@@ -170,7 +172,7 @@ export function useChat() {
   // A browser without a pick (another device, a cleared profile) starts new
   // conversations on what the server knows (see defaultExecutor), resolved
   // once the catalog and the conversation list have loaded.
-  const fallbackExecutor = useRef("codebuddy");
+  const fallbackExecutor = useRef(defaultEngine);
   const startingExecutor = () => pickedExecutor() || fallbackExecutor.current;
   const currentId = useRef(activeId),
     sessionRef = useRef(session),
@@ -277,7 +279,7 @@ export function useChat() {
         setSponsoredModels(sponsoredModelList(catalog));
         const rows = await refreshSessions();
         if (!current) return;
-        fallbackExecutor.current = defaultExecutor(catalog.engines, rows, auth.user?.id, catalog.models);
+        fallbackExecutor.current = defaultExecutor(catalog.engines, rows, auth.user?.id, catalog.models, catalog.defaultExecutor);
         const startExecutor = startingExecutor();
         if (!currentId.current) setExecutorState(startExecutor);
         setModel(preferredModel(executorModelList(catalog.models, startExecutor), startExecutor));
@@ -315,7 +317,7 @@ export function useChat() {
         // A conversation stays on the CLI that answered it. Replies saved before
         // model prefixes keep that CLI on the session executor.
         const locked = conversationEngine(stored.messages, models, stored.executor);
-        const storedEngine = knownExecutor(locked || stored.executor);
+        const storedEngine = knownExecutor(locked || stored.executor, fallbackExecutor.current);
         setExecutorState(storedEngine);
         // A conversation shows the model it runs on.
         setModel(stored.model || preferredModel(executorModelList(models, storedEngine), storedEngine));
@@ -604,7 +606,7 @@ export function useChat() {
   const activeModel = sponsored ? sharedModelFor(model) : model;
   const activeEffort = modelEffort(executorModels.find((m) => m.id === activeModel), effort);
   useEffect(() => {
-    if (!catalogAllowed || codeBuddy || listedForEngine.length || providerCatalogs[executor]) return;
+    if (!catalogAllowed || !executor || codeBuddy || listedForEngine.length || providerCatalogs[executor]) return;
     let current = true;
     api(`/api/assistant/models?executor=${encodeURIComponent(executor)}`)
       .then((catalog) => {
@@ -889,7 +891,7 @@ export function useChat() {
       if (rows) setUsers(rows);
       const fresh = rows?.find((u) => u.id === user.id);
       if (fresh && !fresh.codeBuddyApiKeyConfigured) {
-        setError("请先在个人配置中配置自己的 CodeBuddy API Key");
+        setError(engineMissingKeyMessage({ id: executor, name: engineLabel(executor) }));
         return false;
       }
     }

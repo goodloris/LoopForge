@@ -35,7 +35,10 @@ export const engineModels = (models, engine) =>
  * user has configured, else CodeBuddy. A deployment with only Kiro CLI
  * therefore never defaults to an unconfigured CodeBuddy.
  */
-export function defaultExecutor(engines = [], sessions = [], userId = 0, models = []) {
+export function defaultExecutor(engines = [], sessions = [], userId = 0, models = [], serverDefault = defaultEngine) {
+  // serverDefault is /api/assistant/models' defaultExecutor (the deployment's
+  // AGENTFLOW_DEFAULT_EXECUTOR); older servers omit it, meaning CodeBuddy.
+  const fallback = serverDefault || defaultEngine;
   const configured = (engines || []).filter((engine) => engine.configured).map((engine) => engine.id);
   const usable = (id) => id && (!engines?.length || configured.includes(id));
   const latest = [...(sessions || [])]
@@ -43,13 +46,18 @@ export function defaultExecutor(engines = [], sessions = [], userId = 0, models 
     .sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")))
     .map((session) => legacyEngine(session.executor) || (session.model ? engineOfModel(session.model, models) : ""))
     .find(usable);
-  return latest || configured[0] || defaultEngine;
+  return latest || (usable(fallback) ? fallback : "") || configured[0] || fallback;
 }
 
 // Mirrors assistantEngineMissingKey in internal/httpapi/assistant_engines.go;
 // credentialHint turns it into a "去配置" button.
+const CODEBUDDY_MISSING_KEY = "请先在个人配置中配置自己的 CodeBuddy API Key";
+export const KIRO_UNAVAILABLE = "Kiro CLI 不可用：请在平台或默认执行机器上安装 kiro-cli 并运行 kiro-cli login（订阅登录）";
 export function engineMissingKeyMessage(engine) {
-  if (engine.id === defaultEngine) return "请先在个人配置中配置自己的 CodeBuddy API Key";
+  // CodeBuddy itself, not whichever CLI the deployment defaults to.
+  if (engine?.id === "codebuddy") return CODEBUDDY_MISSING_KEY;
+  // Kiro CLI has no API key: it needs a kiro-cli login where the turn runs.
+  if (engine?.id === "kiro") return KIRO_UNAVAILABLE;
   return `请先在个人配置中配置 ${engine.name} API Key 后再使用 ${engine.name} 模型`;
 }
 
@@ -85,6 +93,7 @@ export function conversationEngine(messages, models = [], legacyExecutor = "") {
 }
 
 export function engineDetail(engine, models) {
+  if (!engine.configured && engine.id === "kiro") return "Kiro CLI 未就绪：请在平台或执行机器上安装 kiro-cli 并运行 kiro-cli login";
   if (!engine.configured) return `未配置 ${engine.name} API Key，选择后去个人配置填写`;
   const count = engineModels(models, engine.id).length;
   return count ? `${count} 个可用模型` : "暂无可用模型";

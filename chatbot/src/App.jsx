@@ -2134,7 +2134,7 @@ export default function App() {
                         e.target.value = "";
                       }}
                     />
-                    {chat.executors.length > 1 && !pinnedExecutor ? (
+                    {chat.executor && chat.executors.length > 1 && !pinnedExecutor ? (
                       <PermissionPicker
                         label="CLI"
                         options={chat.executors.map((executor) => {

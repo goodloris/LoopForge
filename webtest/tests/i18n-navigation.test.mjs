@@ -78,3 +78,19 @@ test('English mode translates the 个人配置 credential panel and the hints th
     'Without a personal CodeBuddy API key you can only use the models a platform admin allowed (glm-5.1, kimi-k2.6). To use other models, set your own CodeBuddy API key in Personal settings first');
   window.close();
 });
+
+test('English mode translates the missing-credential copy of every CLI', async () => {
+  const window = await englishPage('<html><body></body></html>');
+  const labels = ['Codex', 'Claude Code', 'OpenCode', 'Cursor', 'Cursor CLI', 'Antigravity', 'Kimi Code', 'Pi', 'DeepSeek Harness', 'ZCode'];
+  for (const text of [
+    'Kiro CLI 不可用：请在平台或默认执行机器上安装 kiro-cli 并运行 kiro-cli login（订阅登录）',
+    'Kiro CLI 未就绪：请在平台或执行机器上安装 kiro-cli 并运行 kiro-cli login',
+    ...labels.map((name) => `请先在个人配置中配置 ${name} API Key 后再使用 ${name} 模型`),
+  ]) {
+    assert.doesNotMatch(window.lfTranslate(text), HAN, text);
+  }
+  assert.equal(window.lfTranslate('请先在个人配置中配置 Codex API Key 后再使用 Codex 模型'), 'Set your Codex API key in Personal settings before using Codex models');
+  // The CodeBuddy wording keeps its existing translation.
+  assert.equal(window.lfTranslate('请先在个人配置中配置自己的 CodeBuddy API Key'), 'Set your own CodeBuddy API key in Personal settings first');
+  window.close();
+});

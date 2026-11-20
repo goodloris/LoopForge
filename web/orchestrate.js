@@ -11,7 +11,7 @@ function aiOrchestratorEngine(model) {
 }
 
 function selectedAIOrchestratorModel() {
-  return localStorage.getItem('agentflow.orchestratorModel') || localStorage.getItem('agentflow.assistantModel') || window.AgentFlowAssistantModels?.catalog().default || '';
+  return localStorage.getItem('agentflow.orchestratorModel') || localStorage.getItem('agentflow.assistantModel') || window.AgentFlowAssistantModels?.defaultModel() || '';
 }
 
 function aiOrchestratorModels(engine = aiOrchestratorEngine(selectedAIOrchestratorModel())) {
