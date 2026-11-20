@@ -97,7 +97,7 @@ function sopRunRequirements(w){
   const providers=new Set();
   for(const node of nodes.filter(n=>n.type==='agent')){
     const role=(state.data?.agents||[]).find(a=>a.id===node.agentId);
-    const id=role?.executorId||node.executorId||'codebuddy';
+    const id=role?.executorId||node.executorId||defaultExecutorId();
     const kind=(state.data?.executors||[]).find(e=>e.id===id)?.kind||id;
     if(['codebuddy','codex','claude','claude-code','opencode','cursor','agy','kimi','pi','dsh','zcode','kiro'].includes(kind))providers.add(kind==='claude'?'claude-code':kind);
   }

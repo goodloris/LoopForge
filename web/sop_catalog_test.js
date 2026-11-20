@@ -23,6 +23,7 @@ const ctx = {
   isPlatformAdmin: () => ctx.admin,
   lfT: zh => zh,
   userById: () => ({}),
+  defaultExecutorId: () => 'codebuddy',
   requestAnimationFrame: fn => frames.push(fn),
   setTimeout: () => 0,
   clock: 1000,

@@ -6,9 +6,10 @@
 # 033 is pending while a built-in code SOP has no node with id 'mr'; 037 while
 # a built-in 测试验证 role still holds the unedited pre-037 prompt, the text 037
 # rewrites (an edited prompt is left alone and is not reported); 038 while a
-# built-in code SOP still has the shipped 独立评审 node without rejectTo.
+# built-in code SOP still has the shipped 独立评审 node without rejectTo; 041
+# while a built-in role still names executorId codebuddy.
 # PostgreSQL installations started from a seed that already holds 033 and 037,
-# so only 038 can be pending there.
+# so only 038 and 041 can be pending there.
 cd "$(dirname "$0")/.." || exit 0
 source scripts/docker-access.sh
 source scripts/database.sh
@@ -20,6 +21,10 @@ WHERE id IN ('generic-backend-delivery', 'generic-frontend-delivery', 'issue-fix
   AND ((payload::jsonb -> 'Workflow' -> 'nodes' -> 3) = '{"id": "review", "name": "独立评审", "type": "agent", "agentId": "generic-backend-delivery-review", "maxAttempts": 2, "position": {"x": 835, "y": 150}, "artifactOutputs": [{"name": "review", "path": "review.md", "mediaType": "text/markdown", "required": true}]}'::jsonb
    OR (payload::jsonb -> 'Workflow' -> 'nodes' -> 3) = '{"id": "review", "name": "独立评审", "type": "agent", "agentId": "generic-frontend-delivery-review", "maxAttempts": 2, "position": {"x": 835, "y": 150}, "artifactOutputs": [{"name": "review", "path": "review.md", "mediaType": "text/markdown", "required": true}]}'::jsonb
    OR (payload::jsonb -> 'Workflow' -> 'nodes' -> 3) = '{"id": "review", "name": "独立评审", "type": "agent", "agentId": "issue-fix-production-review", "maxAttempts": 2, "position": {"x": 835, "y": 150}, "artifactOutputs": [{"name": "review", "path": "review.md", "mediaType": "text/markdown", "required": true}]}'::jsonb)
+LIMIT 1;
+SELECT '041_builtin_roles_default_executor.sql' FROM generic_templates
+WHERE id IN ('generic-backend-delivery', 'generic-frontend-delivery', 'issue-fix-production', 'generic-product-delivery')
+  AND payload::jsonb -> 'Agents' @> '[{"executorId": "codebuddy"}]'::jsonb
 LIMIT 1;
 SQL
   ) || exit 0
@@ -48,6 +53,10 @@ WHERE id IN ('generic-backend-delivery', 'generic-frontend-delivery', 'issue-fix
   AND (JSON_EXTRACT(payload, '$.Workflow.nodes[3]') = CAST('{"id": "review", "name": "独立评审", "type": "agent", "agentId": "generic-backend-delivery-review", "maxAttempts": 2, "position": {"x": 835, "y": 150}, "artifactOutputs": [{"name": "review", "path": "review.md", "mediaType": "text/markdown", "required": true}]}' AS JSON)
    OR JSON_EXTRACT(payload, '$.Workflow.nodes[3]') = CAST('{"id": "review", "name": "独立评审", "type": "agent", "agentId": "generic-frontend-delivery-review", "maxAttempts": 2, "position": {"x": 835, "y": 150}, "artifactOutputs": [{"name": "review", "path": "review.md", "mediaType": "text/markdown", "required": true}]}' AS JSON)
    OR JSON_EXTRACT(payload, '$.Workflow.nodes[3]') = CAST('{"id": "review", "name": "独立评审", "type": "agent", "agentId": "issue-fix-production-review", "maxAttempts": 2, "position": {"x": 835, "y": 150}, "artifactOutputs": [{"name": "review", "path": "review.md", "mediaType": "text/markdown", "required": true}]}' AS JSON))
+LIMIT 1;
+SELECT '041_builtin_roles_default_executor.sql' FROM generic_templates
+WHERE id IN ('generic-backend-delivery', 'generic-frontend-delivery', 'issue-fix-production', 'generic-product-delivery')
+  AND JSON_CONTAINS(JSON_EXTRACT(payload, '$.Agents[*].executorId'), '"codebuddy"')
 LIMIT 1;
 SQL
 ) || exit 0

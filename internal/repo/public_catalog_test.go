@@ -38,6 +38,31 @@ func publicCatalogTemplates(t *testing.T) map[string]GenericTemplate {
 	return templates
 }
 
+// Built-in roles name no CLI: they follow AGENTFLOW_DEFAULT_EXECUTOR (see
+// DefaultExecutorID and migrations/041), so a Kiro CLI deployment never needs
+// a CodeBuddy key to run them.
+func TestPublicRolesFollowTheDefaultExecutor(t *testing.T) {
+	for id, template := range publicCatalogTemplates(t) {
+		for _, agent := range template.Agents {
+			if agent.ExecutorID != "" {
+				t.Errorf("%s: role %s names executor %q", id, agent.ID, agent.ExecutorID)
+			}
+		}
+	}
+	for _, path := range []string{"../../migrations/seed/001_public_catalog.sql", "../../migrations/postgres/seed/001_public_catalog.sql"} {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(raw), `"executorId"`) {
+			t.Errorf("%s still names an executor for a built-in role", path)
+		}
+	}
+	if id := BaselineAlignResolverAgent().ExecutorID; id != "" {
+		t.Errorf("baseline-align role names executor %q", id)
+	}
+}
+
 // The production catalog must pass the user's task to every executable role.
 // Each public role stores that brief in prompt, including {{input}}.
 func TestPublicCatalogPassesRunInputToEveryRole(t *testing.T) {

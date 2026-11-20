@@ -59,3 +59,11 @@ func TestLoginPageAppliesThemeBeforeStyles(t *testing.T) {
 		t.Error("login.html should apply the theme before requesting stylesheets")
 	}
 }
+
+// The login page carries no link to the upstream repository.
+func TestLoginPageHasNoUpstreamGitHubLink(t *testing.T) {
+	page := readThemeSource(t, "login.html")
+	if strings.Contains(page, "github.com/Tencent/LoopForge") || strings.Contains(page, "GitHub ↗") {
+		t.Error("login.html should not link to the upstream GitHub repository")
+	}
+}

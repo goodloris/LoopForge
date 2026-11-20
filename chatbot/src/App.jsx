@@ -2503,6 +2503,7 @@ export default function App() {
         defaultModel={chat.model}
         sponsoredModel={chat.sponsoredModel}
         sponsoredModels={chat.sponsoredModels}
+        defaultExecutor={chat.deploymentExecutor}
         onClose={() => setQuickAccessOpen(false)}
         onOpenView={(view) => navigate(view)}
         onCredentialsSaved={chat.refreshUser}

@@ -419,7 +419,13 @@ function validateCredentialCatalog(catalog,models){
   return false;
 }
 // Platform features depend on these, in the order people should configure them.
-const CREDENTIAL_RECOMMENDED=['gitToken','codeBuddyApiKey'];
+// The model credential the default executor needs: CodeBuddy, Codex and
+// Claude Code keys, an agent CLI's key, or none for Kiro CLI (kiro-cli login).
+function credentialRecommended(){
+  const id=defaultExecutorId();
+  const model={codebuddy:'codeBuddyApiKey',codex:'codexApiKey',claude:'claudeCodeApiKey',kiro:''}[id]??('agentCli.'+id);
+  return ['gitToken',model].filter(key=>key&&credentialKind(key));
+}
 const CREDENTIAL_PAT_WARNING='请填写 GitHub <b>个人访问令牌（PAT）</b>，为目标仓库授予 <b>Contents</b> 和 <b>Pull requests</b> 的读写权限；少勾权限会导致克隆 / 推送仓库失败。';
 function credentialKind(key){return CREDENTIAL_KINDS.find(kind=>kind.key===key)||null}
 function credentialConfigured(kind,user){return !!credentialValue(user,kind.agentCli?kind.key+'.apiKeyConfigured':kind.key+'Configured')}
@@ -429,7 +435,7 @@ function credentialGlyph(name,size=16,cls=''){return `<svg class="agent-icon har
 function credentialSpinner(size=14){return credentialGlyph('arc-spinner',size,'credential-spin')}
 function credentialLogo(kind,cls=''){return `<span class="credential-logo${kind.monochrome?' monochrome':''}${cls?' '+cls:''}">${kind.icon?credentialGlyph(kind.icon,18):`<img src="/images/credentials/${kind.logo}.svg" alt="">`}</span>`}
 function hydrateCredentialIcons(root){if(root)window.AgentFlowHarnessIcons?.hydrate?.(root)}
-function credentialNextKind(user){return CREDENTIAL_RECOMMENDED.map(credentialKind).find(kind=>!credentialConfigured(kind,user))||null}
+function credentialNextKind(user){return credentialRecommended().map(credentialKind).find(kind=>!credentialConfigured(kind,user))||null}
 function credentialSecretError(kind,value){
   return '';
 }
@@ -922,7 +928,7 @@ function openCredentialWizard(key){
   if(key==='gitSshKey')return openGitSSHKeys();
   const preset=key?credentialKind(key):null;
   if(preset&&credentialConfigured(preset,user))return revealCredentialRow(key);
-  const kind=preset||CREDENTIAL_RECOMMENDED.map(credentialKind).find(k=>!credentialConfigured(k,user))||CREDENTIAL_KINDS.find(k=>!credentialConfigured(k,user))||null;
+  const kind=preset||credentialRecommended().map(credentialKind).find(k=>!credentialConfigured(k,user))||CREDENTIAL_KINDS.find(k=>!credentialConfigured(k,user))||null;
   if(credentialWizard)closeCredentialWizard(true);
   credentialUI().open&&toggleCredentialRow(credentialUI().open,false);
   credentialWizard={step:preset?2:1,kind:kind?.key||null,direct:!!preset,secret:'',extra:credentialWizardDefaults(kind,user),protocol:credentialProtocol(kind||{},user),saving:false,error:'',done:false,guide:{},returnFocus:document.activeElement};
@@ -975,7 +981,7 @@ function credentialWizardStepOneHTML(user){
   const wizard=credentialWizard,all=CREDENTIAL_KINDS.every(kind=>credentialConfigured(kind,user));
   const groups=CREDENTIAL_GROUPS.map(group=>`<p class="credential-opt-label">${escapeHTML(group.name)}</p><div class="credential-opts" role="radiogroup" aria-label="${escapeHTML(group.name)}">${CREDENTIAL_KINDS.filter(kind=>kind.group===group.id).map((kind,index)=>{
     const on=credentialConfigured(kind,user),selected=wizard.kind===kind.key;
-    return `<button type="button" class="credential-opt${selected?' is-selected':''}" style="--i:${index}" role="radio" aria-checked="${selected}" data-wizard-kind="${kind.key}"${on&&kind.key!=='gitSshKey'?' disabled':''}><span class="credential-radio">${credentialGlyph('check',10)}</span>${credentialLogo(kind)}<span class="credential-opt-text"><b>${escapeHTML(kind.name)}</b><small>${escapeHTML(kind.short)}</small></span>${on?'<span class="credential-pill is-ok">已配置</span>':CREDENTIAL_RECOMMENDED.includes(kind.key)?'<span class="credential-pill">推荐</span>':''}</button>`;
+    return `<button type="button" class="credential-opt${selected?' is-selected':''}" style="--i:${index}" role="radio" aria-checked="${selected}" data-wizard-kind="${kind.key}"${on&&kind.key!=='gitSshKey'?' disabled':''}><span class="credential-radio">${credentialGlyph('check',10)}</span>${credentialLogo(kind)}<span class="credential-opt-text"><b>${escapeHTML(kind.name)}</b><small>${escapeHTML(kind.short)}</small></span>${on?'<span class="credential-pill is-ok">已配置</span>':credentialRecommended().includes(kind.key)?'<span class="credential-pill">推荐</span>':''}</button>`;
   }).join('')}</div>`).join('');
   return `<div class="credential-question">${credentialGlyph('key',16)}<span>要添加哪一项凭证？</span><small>选择一项 · 已配置的可在列表中编辑</small></div>${groups}${all?`<div class="credential-note">${credentialGlyph('check',14)}<span>已全部配置，可在列表中编辑。</span></div>`:''}`;
 }
@@ -1231,14 +1237,17 @@ function renderPlatformNav(){
   const group=$('#platformNavGroup');if(!group)return;
   group.hidden=!isPlatformAdmin();
 }
-// 平台管理分成三个 tab：成员账号、平台管理员、共享 CodeBuddy Key。
+// 平台管理分成三个 tab：成员账号、平台管理员、共享 CodeBuddy Key（默认执行器为 CodeBuddy 时）。
 const PLATFORM_TABS=[
   {id:'accounts',zh:'成员账号',en:'Accounts'},
   {id:'admins',zh:'平台管理员',en:'Admins'},
   {id:'sharedKey',zh:'共享 CodeBuddy Key',en:'Shared CodeBuddy Key'},
 ];
+// The shared CodeBuddy key only matters where CodeBuddy is the default
+// executor; elsewhere the tab is not rendered (the API stays available).
+function platformTabs(){return PLATFORM_TABS.filter(t=>t.id!=='sharedKey'||codeBuddyIsDefault())}
 function platformTabsHTML(active){
-  return `<div class="pa-tabs-wrap platform-tabs-wrap"><div class="pa-tabs platform-tabs" id="platformTabs" role="tablist" aria-label="平台管理分区">${PLATFORM_TABS.map(t=>{
+  return `<div class="pa-tabs-wrap platform-tabs-wrap"><div class="pa-tabs platform-tabs" id="platformTabs" role="tablist" aria-label="平台管理分区">${platformTabs().map(t=>{
     const on=t.id===active;
     const extra=t.id==='sharedKey'?'<span class="platform-tab-state" data-platform-tab-state hidden></span>':'<span class="pa-tab-n" data-platform-tab-count hidden></span>';
     return `<button type="button" role="tab" class="pa-tab${on?' on':''}" id="platformTab-${t.id}" data-platform-tab="${t.id}" aria-controls="platformPanel-${t.id}" aria-selected="${on}" tabindex="${on?0:-1}">${lfT(t.zh,t.en)}${extra}</button>`;
@@ -1248,7 +1257,7 @@ function platformTabPanel(id,active,body){
   return `<section class="platform-tab-panel" id="platformPanel-${id}" role="tabpanel" aria-labelledby="platformTab-${id}" data-platform-panel="${id}"${id===active?'':' hidden'}>${body}</section>`;
 }
 function setPlatformTab(host,tab){
-  if(!PLATFORM_TABS.some(t=>t.id===tab))tab=PLATFORM_TABS[0].id;
+  if(!platformTabs().some(t=>t.id===tab))tab=PLATFORM_TABS[0].id;
   state.platformTab=tab;
   host.querySelectorAll('[data-platform-tab]').forEach(b=>{const on=b.dataset.platformTab===tab;b.classList.toggle('on',on);b.setAttribute('aria-selected',String(on));b.tabIndex=on?0:-1});
   host.querySelectorAll('[data-platform-panel]').forEach(p=>{p.hidden=p.dataset.platformPanel!==tab});
@@ -1258,7 +1267,7 @@ function bindPlatformTabs(host){
   bar.querySelectorAll('[data-platform-tab]').forEach(b=>b.onclick=()=>setPlatformTab(host,b.dataset.platformTab));
   bar.onkeydown=e=>{
     if(!['ArrowLeft','ArrowRight'].includes(e.key))return;
-    const ids=PLATFORM_TABS.map(t=>t.id),i=ids.indexOf(state.platformTab),next=ids[(i+(e.key==='ArrowRight'?1:ids.length-1))%ids.length];
+    const ids=platformTabs().map(t=>t.id),i=ids.indexOf(state.platformTab),next=ids[(i+(e.key==='ArrowRight'?1:ids.length-1))%ids.length];
     setPlatformTab(host,next);bar.querySelector(`[data-platform-tab="${next}"]`)?.focus();
   };
 }
@@ -1269,7 +1278,7 @@ function setPlatformTabCount(host,tab,n){
 function renderPlatformAdminPanel(){
   const host=$('#platformAdminPanel');if(!host)return;
   if(!isPlatformAdmin()){host.innerHTML='';return}
-  const tab=PLATFORM_TABS.some(t=>t.id===state.platformTab)?state.platformTab:PLATFORM_TABS[0].id;
+  const tab=platformTabs().some(t=>t.id===state.platformTab)?state.platformTab:PLATFORM_TABS[0].id;
   state.platformTab=tab;
   host.innerHTML=`
     ${platformTabsHTML(tab)}
@@ -1403,7 +1412,7 @@ function renderPlatformAdminPanel(){
       </div>
     </div>
     `)}
-    ${platformTabPanel('sharedKey',tab,platformSharedKeyHTML())}
+    ${codeBuddyIsDefault()?platformTabPanel('sharedKey',tab,platformSharedKeyHTML()):''}
   `;
   bindPlatformTabs(host);
   loadPlatformAccounts(host);
@@ -1516,7 +1525,7 @@ async function loadPlatformAccounts(host){
     if(!rows.length){list.innerHTML=`<div class="platform-empty-state"><b>${accounts.length?'没有匹配的账号':'还没有账号'}</b></div>`;return}
     list.innerHTML=rows.map(a=>{
       const name=a.chineseName&&a.chineseName.toLowerCase()!==String(a.loginName).toLowerCase()?`${a.loginName}(${a.chineseName})`:a.loginName;
-      const badges=[a.admin?'<span class="platform-source-badge source-builtin">平台管理员</span>':'',a.password?'<span class="platform-source-badge source-default">用户名密码</span>':'<span class="platform-source-badge source-default">GitHub / 网关登录</span>',a.codeBuddyApiKeyConfigured?'<span class="platform-source-badge source-env">已配 CodeBuddy Key</span>':'<span class="platform-source-badge source-default">未配 CodeBuddy Key</span>'].join('');
+      const badges=[a.admin?'<span class="platform-source-badge source-builtin">平台管理员</span>':'',a.password?'<span class="platform-source-badge source-default">用户名密码</span>':'<span class="platform-source-badge source-default">GitHub / 网关登录</span>',!codeBuddyIsDefault()?'':a.codeBuddyApiKeyConfigured?'<span class="platform-source-badge source-env">已配 CodeBuddy Key</span>':'<span class="platform-source-badge source-default">未配 CodeBuddy Key</span>'].join('');
       const editing=resetting===a.userId;
       return `<div class="platform-admin-row platform-account-row" data-account-row="${Number(a.userId)}">
         <div class="platform-admin-user">
@@ -1882,7 +1891,7 @@ function renderUserProfilePopover() {
             <b>⚠️ 认证换票未通过</b><br>此前统一认证票据已失效，请点击下方按钮重新登录。
           </div>
         ` : `
-          <p class="upp-guest-desc">当前以访客身份访问平台。登录后可在左侧「个人配置」配置 GitHub Git Token 和 CodeBuddy API Key。</p>
+          <p class="upp-guest-desc">当前以访客身份访问平台。登录后可在左侧「个人配置」配置 GitHub Git Token${codeBuddyIsDefault()?' 和 CodeBuddy API Key':''}。</p>
         `}
       </div>
       <div class="upp-divider"></div>

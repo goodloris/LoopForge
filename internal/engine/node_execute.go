@@ -192,7 +192,7 @@ func resolveNodeExecutor(st *repo.Store, node domain.WorkflowNode, agent domain.
 		executorID = node.ExecutorID
 	}
 	if executorID == "" {
-		executorID = "codebuddy"
+		executorID = repo.DefaultExecutorID()
 	}
 	ex, found := repo.BuiltInExecutor(executorID)
 	if !found && executorID == "mock" {

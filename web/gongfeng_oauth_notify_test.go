@@ -48,6 +48,7 @@ const assert=require('node:assert/strict');
 const code=require('node:fs').readFileSync('` + appBundlePath(t) + `','utf8');
 const state={currentUser:{id:1},data:{users:[{id:1,gitTokenConfigured:false}]}};
 const userById=id=>state.data.users.find(u=>u.id===id);
+const defaultExecutorId=()=>'codebuddy',codeBuddyIsDefault=()=>true;
 const escapeHTML=v=>String(v),userAvatarHTML=()=>'',userDisplay=()=>'Alice',loadPersonalBotBindings=()=>{};
 const toasts=[];const toast=(message,kind)=>toasts.push({message,kind});
 let view='runs';const activeViewName=()=>view;
