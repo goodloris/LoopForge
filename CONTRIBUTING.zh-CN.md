@@ -11,6 +11,10 @@ python3 scripts/check-public.py
 bash scripts/scan-secrets.sh
 ```
 
+`.loopforge/verify` 是仓库的测试门禁。在仓库根目录执行 `.loopforge/verify`（或 `bash .loopforge/verify`）即可运行。需要 Go（`go.mod` 指定版本）、Node 22+ 和能访问 npm registry 的 npm，不需要数据库、Docker 或凭证。它按顺序执行，遇到第一个失败即停止：前端构建并跑 chatbot 测试（`scripts/build-chatbot.sh`）、`go build ./...`、`go vet ./...`、`go test ./... -count=1`（按 CI 拆分，真实浏览器测试和 fake docker 测试在独立进程中运行）、`webtest` 单元测试。每步输出 `==> [n/5]` 和耗时；失败时输出 `FAILED: [n/5] <步骤名>` 并以非 0 退出。可用 `GO_TEST_P`（默认 2）、`GO_TEST_TIMEOUT`（600s）、`GO_BROWSER_TEST_TIMEOUT`（300s）和 `GOCACHE`（默认 `/tmp/agentflow-gocache`）调整。
+
+在 SOP 流程中，「测试验证」节点提交 pass 后，平台会运行目标分支上已提交的 `.loopforge/verify`：先复制到临时文件，再以仓库根为工作目录、关闭 stdin 执行。非 0 退出码会把输出打回「开发实现」。修改脚本要等合入目标分支后才生效，所以脚本必须以当前目录为仓库根，不能依赖自身路径。如需排除测试，必须在脚本注释中逐条写明原因。
+
 社区贡献不需要私有来源清单，也不需要更新文件哈希。维护者在本地保存来源与同步审计记录，公共 CI 不依赖这些资料。长期流程见[维护策略](docs/upstream-sync.md)。
 
 登录、语言/主题或执行链路的改动需要跑[公共浏览器验收](e2e/public/README.md)。真实模型与外部知识库测试需显式配置；请区分通过、失败、跳过与未运行。
