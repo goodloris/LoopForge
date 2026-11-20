@@ -282,7 +282,12 @@ func installKiroRunnerReady(store interface{ Runners() []domain.Runner }) {
 
 func assistantEngineMissingKey(engine string) string {
 	if engine == runtime.AgentCLIKiro {
-		return "Kiro CLI 不可用：请在平台或默认执行机器上安装 kiro-cli 并运行 kiro-cli login（订阅登录）"
+		refusal := "Kiro CLI 不可用：请在平台或默认执行机器上安装 kiro-cli 并运行 kiro-cli login（订阅登录）"
+		// The data dir is set (compose.yaml mounts one) but holds no login.
+		if runtime.KiroDataDirWarning() != "" {
+			refusal += "；Compose 部署请在 .env 设置 LOOPFORGE_KIRO_DATA_DIR 并 docker compose up -d"
+		}
+		return refusal
 	}
 	return fmt.Sprintf("请先在个人配置中配置 %s API Key 后再使用 %s 模型", assistantEngineLabel(engine), assistantEngineLabel(engine))
 }
@@ -346,6 +351,23 @@ func assistantAllowedUserModel(id string, catalog assistantModelCatalog, user do
 		return catalog.Default
 	}
 	return engine + ":" + model
+}
+
+// assistantUnavailableCLIRefusal refuses a turn that explicitly picks a
+// non-CodeBuddy CLI this caller cannot use. Falling back to CodeBuddy would
+// blame the wrong credential and pin the session to CodeBuddy.
+func assistantUnavailableCLIRefusal(id string, user domain.User) string {
+	engine, model := assistantModelEngine(id)
+	if engine == assistantEngineCodeBuddy {
+		return ""
+	}
+	if key, _ := assistantEngineCredential(user, engine); key == "" {
+		return assistantEngineMissingKey(engine)
+	}
+	if !assistantValidEngineModel(model) {
+		return "模型 ID 无效"
+	}
+	return ""
 }
 
 // assistantScheduledModel normalizes the model of an AI scheduled task on
