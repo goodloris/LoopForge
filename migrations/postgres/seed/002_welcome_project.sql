@@ -9,8 +9,8 @@
 SET client_encoding = 'UTF8';
 BEGIN;
 INSERT INTO projects (id,project_key,name,owner_user_id,payload,created_at,updated_at)
-SELECT 'welcome','LOOP','LoopForge 体验项目',o.id,
-  '{"id": "welcome", "key": "LOOP", "name": "LoopForge 体验项目", "description": "从创建需求、选择 SOP 到查看运行与审批，体验完整交付流程。", "color": "#3867f4", "workflowId": "welcome-workflow", "clarification": {"enabled": false}, "createdAt": "2026-10-15T00:00:00Z", "updatedAt": "2026-10-15T00:00:00Z"}'::jsonb
+SELECT 'welcome','LOOP','Bagel 体验项目',o.id,
+  '{"id": "welcome", "key": "LOOP", "name": "Bagel 体验项目", "description": "从创建需求、选择 SOP 到查看运行与审批，体验完整交付流程。", "color": "#3867f4", "workflowId": "welcome-workflow", "clarification": {"enabled": false}, "createdAt": "2026-10-15T00:00:00Z", "updatedAt": "2026-10-15T00:00:00Z"}'::jsonb
     || jsonb_build_object('ownerId', COALESCE(o.id, 0),
          'members', CASE WHEN o.id IS NULL THEN '[]'::jsonb ELSE jsonb_build_array(jsonb_build_object('userId', o.id, 'role', 'maintainer')) END),
   now(),now()

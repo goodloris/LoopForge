@@ -80,3 +80,19 @@ func TestChatRailUsesBagelMark(t *testing.T) {
 		t.Error("BagelMark should draw the Bagel ring (crust arc from bagel-mark.svg)")
 	}
 }
+
+// The seed's user-visible labels say Bagel too: the welcome project name and
+// the built-in SOP author tag (Workflow.owner, shown on the SOP card).
+func TestSeedLabelsSayBagel(t *testing.T) {
+	for _, path := range []string{"../migrations/seed/001_public_catalog.sql", "../migrations/postgres/seed/001_public_catalog.sql", "../migrations/seed/002_welcome_project.sql", "../migrations/postgres/seed/002_welcome_project.sql"} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, old := range []string{`"owner": "LoopForge"`, "LoopForge 体验项目"} {
+			if strings.Contains(string(data), old) {
+				t.Errorf("%s still seeds %s", path, old)
+			}
+		}
+	}
+}
