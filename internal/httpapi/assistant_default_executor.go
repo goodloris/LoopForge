@@ -38,11 +38,13 @@ func assistantDefaultExecutor() string {
 	return assistantEngineCodeBuddy
 }
 
-// assistantDefaultRequestModel fills a request that names neither a CLI nor
-// a model with the deployment's default CLI. Any other input is the caller's
-// choice and is kept; CodeBuddy as default keeps the old empty model.
-func assistantDefaultRequestModel(executor, model string) string {
-	if strings.TrimSpace(executor) != "" || strings.TrimSpace(model) != "" {
+// assistantDefaultRequestModel fills a request for a new conversation that
+// names neither a CLI nor a model with the deployment's default CLI. Any other
+// input is the caller's choice and is kept; CodeBuddy as default keeps the old
+// empty model. An existing conversation keeps the CLI it was started on, so an
+// old CodeBuddy conversation is not refused for switching CLI mid-way.
+func assistantDefaultRequestModel(executor, model string, newSession bool) string {
+	if !newSession || strings.TrimSpace(executor) != "" || strings.TrimSpace(model) != "" {
 		return model
 	}
 	if engine := assistantDefaultExecutor(); engine != assistantEngineCodeBuddy {

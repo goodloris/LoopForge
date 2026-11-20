@@ -33,8 +33,6 @@ func (h *assistantHandlers) startGeneration(c *gin.Context) {
 	if !decodeLimit(c, &req, assistantRequestBodyLimit) {
 		return
 	}
-	req.Model = assistantDefaultRequestModel(req.Executor, req.Model)
-	req.Model = assistantRequestModel(req.Executor, req.Model)
 	if len(req.Messages) == 0 || req.Messages[len(req.Messages)-1].Role != "user" {
 		c.JSON(400, gin.H{"error": "请提供用户消息"})
 		return
@@ -58,6 +56,8 @@ func (h *assistantHandlers) startGeneration(c *gin.Context) {
 		return
 	}
 	old, _ := h.repo.AssistantSession(ownerID, req.SessionID)
+	req.Model = assistantDefaultRequestModel(req.Executor, req.Model, old.ID == "")
+	req.Model = assistantRequestModel(req.Executor, req.Model)
 	if old.ID != "" && old.ExecutionLocked() {
 		if req.ExecutionTarget != nil && *req.ExecutionTarget != old.Execution() {
 			c.JSON(409, gin.H{"error": "会话执行机器已固定，不能更换"})

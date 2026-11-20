@@ -245,4 +245,18 @@ func TestAssistantRequestModelTrimsAndFoldsExecutor(t *testing.T) {
 			t.Fatalf("executor %q -> %q", executor, got)
 		}
 	}
+	for executor, want := range map[string]string{
+		" Codex ":       "codex:" + assistantChatDefaultModel,
+		"CODEX":         "codex:" + assistantChatDefaultModel,
+		"CLAUDE":        "claude-code:" + assistantChatDefaultModel,
+		" Claude-Code ": "claude-code:" + assistantChatDefaultModel,
+		" OpenCode ":    "opencode:" + assistantChatDefaultModel,
+	} {
+		if got := assistantRequestModel(executor, assistantChatDefaultModel); got != want {
+			t.Fatalf("executor %q -> %q, want %q", executor, got, want)
+		}
+	}
+	if got := assistantExecutor(" Codex "); got != "codex" {
+		t.Fatalf("assistantExecutor folds case: %q", got)
+	}
 }

@@ -45,9 +45,11 @@ export const EXECUTORS = [
   { id: "kiro", icon: "terminal", label: "Kiro CLI", detail: "使用执行机器上 kiro-cli login 的 Kiro 订阅，不需要 API Key。" },
 ];
 const EXECUTOR_KEY = "loopforge.assistant.executor";
-function knownExecutor(id) {
+// knownExecutor maps an executor ID onto EXECUTORS; an unknown one becomes
+// fallback (the server-resolved default once the catalog has loaded).
+function knownExecutor(id, fallback = "") {
   if (id === "claude") return "claude-code";
-  return EXECUTORS.some((item) => item.id === id) ? id : "codebuddy";
+  return EXECUTORS.some((item) => item.id === id) ? id : fallback;
 }
 // The CLI this browser last picked, "" before the first pick.
 function pickedExecutor() {
@@ -58,7 +60,6 @@ function pickedExecutor() {
     return "";
   }
 }
-const storedExecutor = () => pickedExecutor() || "codebuddy";
 // The chat model is a personal preference like the executor: new
 // conversations and page reloads keep the last pick. Each CLI remembers its
 // own, because model IDs differ between CLIs.
@@ -136,10 +137,11 @@ export function useChat() {
     // the header reveals that conversation's title once it has loaded.
     [revealId, setRevealId] = useState(activeId),
     [projectId, setProjectId] = useState(initialProject),
-    [model, setModel] = useState(() => storedModel(storedExecutor())),
+    [model, setModel] = useState(() => storedModel(pickedExecutor())),
     [effort, setEffort] = useState(""),
     [sponsoredModels, setSponsoredModels] = useState([]),
-    [executor, setExecutorState] = useState(storedExecutor),
+    // "" until the catalog resolves the default, so no CLI label flashes.
+    [executor, setExecutorState] = useState(pickedExecutor),
     [providerCatalogs, setProviderCatalogs] = useState({}),
     [generation, setGeneration] = useState(null),
     [stopRequest, setStopRequest] = useState(null),
@@ -315,7 +317,7 @@ export function useChat() {
         // A conversation stays on the CLI that answered it. Replies saved before
         // model prefixes keep that CLI on the session executor.
         const locked = conversationEngine(stored.messages, models, stored.executor);
-        const storedEngine = knownExecutor(locked || stored.executor);
+        const storedEngine = knownExecutor(locked || stored.executor, fallbackExecutor.current);
         setExecutorState(storedEngine);
         // A conversation shows the model it runs on.
         setModel(stored.model || preferredModel(executorModelList(models, storedEngine), storedEngine));
@@ -604,7 +606,7 @@ export function useChat() {
   const activeModel = sponsored ? sharedModelFor(model) : model;
   const activeEffort = modelEffort(executorModels.find((m) => m.id === activeModel), effort);
   useEffect(() => {
-    if (!catalogAllowed || codeBuddy || listedForEngine.length || providerCatalogs[executor]) return;
+    if (!catalogAllowed || !executor || codeBuddy || listedForEngine.length || providerCatalogs[executor]) return;
     let current = true;
     api(`/api/assistant/models?executor=${encodeURIComponent(executor)}`)
       .then((catalog) => {

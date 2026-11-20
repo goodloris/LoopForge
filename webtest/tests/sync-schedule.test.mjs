@@ -639,3 +639,25 @@ test('a new AI schedule and the AI orchestrator start on the server\'s default C
     assert.equal(app.document.querySelector('#scheduleJobForm').elements.assistantModel.value, 'glm-test');
   }
 });
+
+test('the default CLI is skipped when the viewer has not configured it', async (t) => {
+  const app = await loadApp();
+  t.after(app.close);
+  app.router.get('/api/assistant/models', () => ({
+    default: 'glm-test',
+    defaultExecutor: 'kiro',
+    models: [
+      { id: 'glm-test', name: 'GLM Test', family: 'glm' },
+      { id: 'kiro:default', name: 'Kiro default', family: 'other', engine: 'kiro' },
+    ],
+    engines: [
+      { id: 'codebuddy', name: 'CodeBuddy', configured: true },
+      { id: 'kiro', name: 'Kiro CLI', configured: false },
+    ],
+  }));
+  const model = await app.evaluate(`(async () => {
+    await window.AgentFlowAssistantModels.load();
+    return window.AgentFlowAssistantModels.defaultModel();
+  })()`);
+  assert.equal(model, 'glm-test');
+});

@@ -35,7 +35,7 @@ func TestAssistantDefaultExecutorUnsetKeepsCodeBuddy(t *testing.T) {
 	if got := assistantExecutor(""); got != assistantEngineCodeBuddy {
 		t.Fatalf("assistantExecutor(\"\") = %q", got)
 	}
-	if got := assistantDefaultRequestModel("", ""); got != "" {
+	if got := assistantDefaultRequestModel("", "", true); got != "" {
 		t.Fatalf("empty request model = %q", got)
 	}
 	if got := assistantRequestModel("", assistantSponsoredModel); got != assistantSponsoredModel {
@@ -64,8 +64,16 @@ func TestAssistantDefaultExecutorOverride(t *testing.T) {
 	if got := assistantExecutor("codex"); got != "codex" {
 		t.Fatalf("named executor must win: %q", got)
 	}
-	if got := assistantDefaultRequestModel("", ""); got != "kiro:auto" {
+	if got := assistantDefaultRequestModel("", "", true); got != "kiro:auto" {
 		t.Fatalf("empty request model = %q", got)
+	}
+	// An existing conversation keeps its CLI: an old CodeBuddy conversation
+	// sends no executor and must not be moved onto the default CLI (409).
+	if got := assistantDefaultRequestModel("", "", false); got != "" {
+		t.Fatalf("existing conversation re-targeted: %q", got)
+	}
+	if refusal := assistantEngineSwitchRefusal(assistantEngineCodeBuddy, assistantRequestModel("", assistantDefaultRequestModel("", "", false))); refusal != "" {
+		t.Fatalf("old CodeBuddy conversation refused: %q", refusal)
 	}
 	// Anything the caller named is their choice.
 	for _, tc := range []struct{ executor, model string }{
@@ -74,7 +82,7 @@ func TestAssistantDefaultExecutorOverride(t *testing.T) {
 		{"codex", ""},
 		{"", "codex:gpt-5.5"},
 	} {
-		if got := assistantDefaultRequestModel(tc.executor, tc.model); got != tc.model {
+		if got := assistantDefaultRequestModel(tc.executor, tc.model, true); got != tc.model {
 			t.Errorf("%+v: model = %q", tc, got)
 		}
 	}
@@ -107,7 +115,7 @@ func TestAssistantDefaultExecutorInvalidFallsBackAndWarnsOnce(t *testing.T) {
 	if !strings.Contains(buf.String(), `"foo-invalid-2"`) {
 		t.Fatalf("a second invalid value warns too: %s", buf.String())
 	}
-	if got := assistantDefaultRequestModel("", ""); got != "" {
+	if got := assistantDefaultRequestModel("", "", true); got != "" {
 		t.Fatalf("invalid default must keep the CodeBuddy empty model: %q", got)
 	}
 }
@@ -191,15 +199,15 @@ func TestAssistantEmptyTurnFollowsTheDefaultExecutor(t *testing.T) {
 	h := &assistantHandlers{deps: &deps{repo: st}}
 
 	t.Setenv(assistantDefaultExecutorEnv, "")
-	if _, _, refusal := h.assistantTurnUser(newcomer, assistantDefaultRequestModel("", ""), false); refusal != "请先在个人配置中配置自己的 CodeBuddy API Key" {
+	if _, _, refusal := h.assistantTurnUser(newcomer, assistantDefaultRequestModel("", "", true), false); refusal != "请先在个人配置中配置自己的 CodeBuddy API Key" {
 		t.Fatalf("unset default must keep the CodeBuddy refusal: %q", refusal)
 	}
 	t.Setenv(assistantDefaultExecutorEnv, "codex")
-	if _, _, refusal := h.assistantTurnUser(newcomer, assistantDefaultRequestModel("", ""), false); refusal != assistantEngineMissingKey(assistantEngineCodex) {
+	if _, _, refusal := h.assistantTurnUser(newcomer, assistantDefaultRequestModel("", "", true), false); refusal != assistantEngineMissingKey(assistantEngineCodex) {
 		t.Fatalf("codex default refusal = %q", refusal)
 	}
 	t.Setenv(assistantDefaultExecutorEnv, "kiro")
-	_, model, refusal := h.assistantTurnUser(newcomer, assistantDefaultRequestModel("", ""), false)
+	_, model, refusal := h.assistantTurnUser(newcomer, assistantDefaultRequestModel("", "", true), false)
 	if strings.Contains(refusal, "CodeBuddy") || model != "kiro:auto" {
 		t.Fatalf("kiro default turn = %q / %q", model, refusal)
 	}
