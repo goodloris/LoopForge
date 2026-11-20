@@ -64,7 +64,7 @@ func TestAssistantDefaultExecutorOverride(t *testing.T) {
 	if got := assistantExecutor("codex"); got != "codex" {
 		t.Fatalf("named executor must win: %q", got)
 	}
-	if got := assistantDefaultRequestModel("", ""); got != "kiro:default" {
+	if got := assistantDefaultRequestModel("", ""); got != "kiro:auto" {
 		t.Fatalf("empty request model = %q", got)
 	}
 	// Anything the caller named is their choice.
@@ -200,12 +200,12 @@ func TestAssistantEmptyTurnFollowsTheDefaultExecutor(t *testing.T) {
 	}
 	t.Setenv(assistantDefaultExecutorEnv, "kiro")
 	_, model, refusal := h.assistantTurnUser(newcomer, assistantDefaultRequestModel("", ""), false)
-	if strings.Contains(refusal, "CodeBuddy") || model != "kiro:default" {
+	if strings.Contains(refusal, "CodeBuddy") || model != "kiro:auto" {
 		t.Fatalf("kiro default turn = %q / %q", model, refusal)
 	}
 	defer func(previous func() bool) { kiroCLIInstalled = previous }(kiroCLIInstalled)
 	kiroCLIInstalled = func() bool { return true }
-	if got := assistantAllowedUserModel(model, assistantModelCatalog{Default: assistantSponsoredModel}, domain.User{}); got != "kiro:default" {
-		t.Fatalf("kiro:default must be accepted where Kiro runs: %q", got)
+	if got := assistantAllowedUserModel(model, assistantModelCatalog{Default: assistantSponsoredModel}, domain.User{}); got != "kiro:auto" {
+		t.Fatalf("kiro:auto must be accepted where Kiro runs: %q", got)
 	}
 }

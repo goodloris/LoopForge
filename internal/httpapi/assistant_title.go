@@ -108,7 +108,7 @@ func (h *assistantHandlers) scheduleAssistantTitle(ctx context.Context, ownerID 
 			if sessionEngine == "" {
 				sessionEngine = assistantLegacyExecutor(old.Executor)
 			}
-			title, err = summarizeAssistantTitle(runCtx, user, assistantTitleFallbackModel(user, model, sessionEngine, shared), prompt, shared)
+			title, err = titleSummarizer(runCtx, user, assistantTitleFallbackModel(user, model, sessionEngine, shared), prompt, shared)
 		}
 		if err != nil || strings.TrimSpace(title) == "" {
 			log.Printf("assistant title summary skipped session=%s: %s", sessionID, sanitizeAssistantDiagnostic(fmt.Sprint(err), user, 4096))
@@ -153,7 +153,7 @@ func assistantTitleFallbackModel(user domain.User, model, sessionEngine string, 
 		return model
 	}
 	if fallback := assistantTitleFallbackEngine(user, sessionEngine, assistantDefaultExecutor()); fallback != "" {
-		return fallback + ":default"
+		return assistantEngineDefaultModel(fallback)
 	}
 	return model
 }
@@ -177,6 +177,10 @@ func assistantTitleFallbackEngine(user domain.User, candidates ...string) string
 	}
 	return ""
 }
+
+// titleSummarizer is replaceable so tests can see which model a scheduled
+// title summary asks for without starting a CLI.
+var titleSummarizer = summarizeAssistantTitle
 
 func summarizeAssistantTitle(ctx context.Context, user domain.User, model, prompt string, shared []string) (string, error) {
 	model, effort := assistantTitleModel(ctx, user, model, shared)

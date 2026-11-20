@@ -685,7 +685,9 @@ func assistantRequestModel(executor, model string) string {
 		return assistantEngineClaude + ":" + model
 	default:
 		if runtime.IsAgentCLI(executor) {
-			return strings.TrimSpace(executor) + ":" + model
+			// IsAgentCLI ignores case and surrounding spaces, so the prefix
+			// must be normalized the same way or "Kiro" is not a known engine.
+			return strings.ToLower(strings.TrimSpace(executor)) + ":" + model
 		}
 	}
 	return model

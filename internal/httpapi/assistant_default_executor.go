@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"agentflow/internal/runtime"
 	"log"
 	"os"
 	"slices"
@@ -45,7 +46,17 @@ func assistantDefaultRequestModel(executor, model string) string {
 		return model
 	}
 	if engine := assistantDefaultExecutor(); engine != assistantEngineCodeBuddy {
-		return engine + ":default"
+		return assistantEngineDefaultModel(engine)
 	}
 	return model
+}
+
+// assistantEngineDefaultModel is the model ID that lets a CLI pick its own
+// model. kiro-cli rejects a literal "default" (InvalidModelError, found by
+// running a real title summary), so Kiro uses its "auto" model instead.
+func assistantEngineDefaultModel(engine string) string {
+	if engine == runtime.AgentCLIKiro {
+		return engine + ":auto"
+	}
+	return engine + ":default"
 }
