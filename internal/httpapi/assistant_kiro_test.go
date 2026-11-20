@@ -153,3 +153,20 @@ func TestKiroConfiguredByOwnRunner(t *testing.T) {
 		t.Fatal("Kiro needs a login hint, not an API key one")
 	}
 }
+
+// An unavailable CLI is refused, never rewritten to CodeBuddy.
+func TestUnavailableCLIRefusedNotFallenBack(t *testing.T) {
+	defer func(previous func() bool) { kiroCLIInstalled = previous }(kiroCLIInstalled)
+	kiroCLIInstalled = func() bool { return false }
+	user := domain.User{ID: 9}
+	if got := assistantUnavailableCLIRefusal("kiro:default", user); got != assistantEngineMissingKey(runtime.AgentCLIKiro) {
+		t.Fatalf("refusal=%q", got)
+	}
+	if got := assistantUnavailableCLIRefusal("personal-a", user); got != "" {
+		t.Fatalf("CodeBuddy must not be refused here: %q", got)
+	}
+	kiroCLIInstalled = func() bool { return true }
+	if got := assistantUnavailableCLIRefusal("kiro:default", user); got != "" {
+		t.Fatalf("available CLI refused: %q", got)
+	}
+}

@@ -115,6 +115,10 @@ func (h *assistantHandlers) startGeneration(c *gin.Context) {
 		catalog = h.turnCatalog(c.Request.Context(), user, req.Model)
 	}
 	if !runnerLogin {
+		if refusal := assistantUnavailableCLIRefusal(req.Model, user); refusal != "" {
+			c.JSON(400, gin.H{"error": refusal})
+			return
+		}
 		req.Model = assistantAllowedUserModel(req.Model, catalog, user)
 	}
 	cliEngine, _ = assistantModelEngine(req.Model)
@@ -464,12 +468,7 @@ func (h *assistantHandlers) steerGeneration(c *gin.Context) {
 		c.JSON(400, gin.H{"error": "请先配置个人 CodeBuddy API Key"})
 		return
 	}
-	user, sharedModels, ok := h.assistantChatUser(stored)
-	if !ok {
-		c.JSON(400, gin.H{"error": "请先配置个人 CodeBuddy API Key"})
-		return
-	}
-	ownerID, _, err := h.conversationScope(c, c.Param("id"), "", "", user.ID)
+	ownerID, _, err := h.conversationScope(c, c.Param("id"), "", "", stored.ID)
 	if err != nil {
 		c.JSON(403, gin.H{"error": err.Error()})
 		return
@@ -500,22 +499,31 @@ func (h *assistantHandlers) steerGeneration(c *gin.Context) {
 		c.JSON(404, gin.H{"error": "会话不存在"})
 		return
 	}
-	model := body.Model
-	if sharedModels != nil {
-		forced, allowed := assistantSponsoredModelFor(sharedModels, model)
-		if !allowed {
-			c.JSON(400, gin.H{"error": errAssistantSponsoredModel(sharedModels)})
+	// Same checks as a new turn: the steer's model becomes the session's in
+	// followSteer, so an unavailable CLI is refused, never turned into CodeBuddy.
+	engine, _ := assistantModelEngine(body.Model)
+	target := session.Execution()
+	runnerLogin := h.assistantUsesRunnerLogin(stored.ID, &target, engine)
+	user, model, refusal := h.assistantTurnUser(stored, body.Model, runnerLogin)
+	if refusal != "" {
+		c.JSON(400, gin.H{"error": refusal})
+		return
+	}
+	if engine == assistantEngineCodeBuddy {
+		// A CodeBuddy model this instance has not listed yet refreshes the
+		// list first, like a new turn, instead of silently becoming the default.
+		model = assistantAllowedModel(model, h.turnCatalog(c.Request.Context(), user, model))
+	} else if !runnerLogin {
+		if refusal := assistantUnavailableCLIRefusal(model, user); refusal != "" {
+			c.JSON(400, gin.H{"error": refusal})
 			return
 		}
-		model = forced
 	}
-	// A CodeBuddy model this instance has not listed yet refreshes the list
-	// first, like a new turn, instead of silently becoming the default.
-	catalog := h.chatCatalog(c.Request.Context(), user)
-	if engine, _ := assistantModelEngine(model); engine == assistantEngineCodeBuddy {
-		catalog = h.turnCatalog(c.Request.Context(), user, model)
+	// Before the first reply the running turn's CLI holds the lock.
+	if refusal := assistantEngineSwitchRefusal(firstNonEmpty(assistantConversationEngine(session.Messages, session.Executor), g.Executor), model); refusal != "" {
+		c.JSON(409, gin.H{"error": refusal})
+		return
 	}
-	model = assistantAllowedModel(model, catalog)
 	if err := validateAssistantEffort(user, model, body.Effort); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
