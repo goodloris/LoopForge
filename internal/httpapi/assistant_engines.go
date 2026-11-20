@@ -678,16 +678,15 @@ func assistantRequestModel(executor, model string) string {
 	// An empty executor keeps the model as-is: helper turns (titles, approval
 	// reviews, bots) pass CodeBuddy catalog IDs without one, and the
 	// deployment's default CLI must not re-prefix them.
-	switch strings.TrimSpace(executor) {
+	// Executor IDs ignore case and surrounding spaces, like IsAgentCLI.
+	switch executor = strings.ToLower(strings.TrimSpace(executor)); executor {
 	case assistantEngineCodex:
 		return assistantEngineCodex + ":" + model
 	case "claude", assistantEngineClaude:
 		return assistantEngineClaude + ":" + model
 	default:
 		if runtime.IsAgentCLI(executor) {
-			// IsAgentCLI ignores case and surrounding spaces, so the prefix
-			// must be normalized the same way or "Kiro" is not a known engine.
-			return strings.ToLower(strings.TrimSpace(executor)) + ":" + model
+			return executor + ":" + model
 		}
 	}
 	return model

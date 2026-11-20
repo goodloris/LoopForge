@@ -147,10 +147,12 @@
   }
   // defaultModel is the model a picker without a saved choice starts on: the
   // first listed model of the default CLI when that is not CodeBuddy, else
-  // fallback (the catalog default), exactly as before.
+  // fallback (the catalog default), exactly as before. A default CLI the
+  // viewer has not configured also yields fallback, as chatbot's usable() does.
   function defaultModel(source = catalog, fallback = source?.default || DEFAULT_MODEL) {
     const engine = defaultExecutor(source);
     if (engine === 'codebuddy') return fallback;
+    if ((source?.engines || []).some(e => e.id === engine && e.configured === false)) return fallback;
     return (source?.models || []).find(m => m.engine === engine)?.id || fallback;
   }
   async function fetchCatalog() {
