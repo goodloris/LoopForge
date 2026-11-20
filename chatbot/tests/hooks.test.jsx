@@ -158,6 +158,28 @@ describe("conversation hooks", () => {
     localStorage.removeItem("loopforge.assistant.executor");
   });
 
+  test("a browser without a pick starts on the server's default CLI", async () => {
+    localStorage.removeItem("loopforge.assistant.executor");
+    const original = apiMock.getMockImplementation();
+    const engines = [{ id: "codebuddy", name: "CodeBuddy", configured: true }, { id: "kiro", name: "Kiro CLI", configured: true }];
+    const models = [{ id: "m1", name: "模型一" }, { id: "kiro:auto", name: "Auto", engine: "kiro" }];
+    for (const [defaultExecutor, want] of [["kiro", "kiro"], ["codebuddy", "codebuddy"], [undefined, "codebuddy"]]) {
+      apiMock.mockImplementation(async (path, options) => {
+        if (path === "/api/assistant/models") return { default: "m1", models, engines, ...(defaultExecutor ? { defaultExecutor } : {}) };
+        if (path === "/api/assistant/sessions") return [];
+        return original(path, options);
+      });
+      try {
+        const { result, unmount } = renderHook(() => useChat());
+        await waitFor(() => expect(result.current.ready).toBe(true));
+        await waitFor(() => expect(result.current.executor).toBe(want));
+        unmount();
+      } finally {
+        apiMock.mockImplementation(original);
+      }
+    }
+  });
+
   test("without an own key chat is limited to the administrator's shared models", async () => {
     localStorage.removeItem("loopforge.assistant.executor");
     const original = apiMock.getMockImplementation();

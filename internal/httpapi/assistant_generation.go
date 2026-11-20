@@ -33,6 +33,7 @@ func (h *assistantHandlers) startGeneration(c *gin.Context) {
 	if !decodeLimit(c, &req, assistantRequestBodyLimit) {
 		return
 	}
+	req.Model = assistantDefaultRequestModel(req.Executor, req.Model)
 	req.Model = assistantRequestModel(req.Executor, req.Model)
 	if len(req.Messages) == 0 || req.Messages[len(req.Messages)-1].Role != "user" {
 		c.JSON(400, gin.H{"error": "请提供用户消息"})

@@ -16,7 +16,7 @@ import { cliFailureSettles } from "./cli-install.jsx";
 import { useExecutionMachines } from "./useExecutionMachines.js";
 import { executionLocked } from "./execution-target.js";
 import { modelEffort } from "./effort.js";
-import { conversationEngine, defaultExecutor, engineModels } from "./engines.js";
+import { conversationEngine, defaultEngine, defaultExecutor, engineLabel, engineMissingKeyMessage, engineModels } from "./engines.js";
 import {
   enqueue,
   holdQueue,
@@ -170,7 +170,7 @@ export function useChat() {
   // A browser without a pick (another device, a cleared profile) starts new
   // conversations on what the server knows (see defaultExecutor), resolved
   // once the catalog and the conversation list have loaded.
-  const fallbackExecutor = useRef("codebuddy");
+  const fallbackExecutor = useRef(defaultEngine);
   const startingExecutor = () => pickedExecutor() || fallbackExecutor.current;
   const currentId = useRef(activeId),
     sessionRef = useRef(session),
@@ -277,7 +277,7 @@ export function useChat() {
         setSponsoredModels(sponsoredModelList(catalog));
         const rows = await refreshSessions();
         if (!current) return;
-        fallbackExecutor.current = defaultExecutor(catalog.engines, rows, auth.user?.id, catalog.models);
+        fallbackExecutor.current = defaultExecutor(catalog.engines, rows, auth.user?.id, catalog.models, catalog.defaultExecutor);
         const startExecutor = startingExecutor();
         if (!currentId.current) setExecutorState(startExecutor);
         setModel(preferredModel(executorModelList(catalog.models, startExecutor), startExecutor));
@@ -889,7 +889,7 @@ export function useChat() {
       if (rows) setUsers(rows);
       const fresh = rows?.find((u) => u.id === user.id);
       if (fresh && !fresh.codeBuddyApiKeyConfigured) {
-        setError("请先在个人配置中配置自己的 CodeBuddy API Key");
+        setError(engineMissingKeyMessage({ id: executor, name: engineLabel(executor) }));
         return false;
       }
     }

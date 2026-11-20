@@ -150,3 +150,54 @@ func TestScheduleAssistantTitleWritesSummary(t *testing.T) {
 		t.Fatalf("summary not stored: %+v", got)
 	}
 }
+
+// Without any CodeBuddy key a title no longer needs CodeBuddy: it runs on the
+// session's CLI, then the default CLI, then the first configured one.
+func TestAssistantTitleFallsBackWithoutCodeBuddyKey(t *testing.T) {
+	defer func(previous func() bool) { kiroCLIInstalled = previous }(kiroCLIInstalled)
+	kiroCLIInstalled = func() bool { return true }
+	t.Setenv(assistantDefaultExecutorEnv, "")
+	noKey := domain.User{ID: 1}
+	if got := assistantTitleFallbackModel(noKey, assistantChatDefaultModel, "kiro", nil); got != "kiro:default" {
+		t.Fatalf("session CLI fallback = %q", got)
+	}
+	t.Setenv(assistantDefaultExecutorEnv, "kiro")
+	if got := assistantTitleFallbackModel(noKey, assistantChatDefaultModel, "", nil); got != "kiro:default" {
+		t.Fatalf("default CLI fallback = %q", got)
+	}
+	t.Setenv(assistantDefaultExecutorEnv, "")
+	kiroCLIInstalled = func() bool { return false }
+	codexOnly := domain.User{ID: 1, CodexAPIKey: "codex-secret"}
+	if got := assistantTitleFallbackModel(codexOnly, assistantChatDefaultModel, "", nil); got != "codex:default" {
+		t.Fatalf("first configured CLI fallback = %q", got)
+	}
+	// A session CLI the user cannot run is skipped.
+	if got := assistantTitleFallbackModel(codexOnly, assistantChatDefaultModel, "kiro", nil); got != "codex:default" {
+		t.Fatalf("unusable session CLI must be skipped: %q", got)
+	}
+
+	// A CodeBuddy key of their own or the platform's keeps today's behavior.
+	kiroCLIInstalled = func() bool { return true }
+	t.Setenv(assistantDefaultExecutorEnv, "kiro")
+	own := domain.User{ID: 1, CodeBuddyAPIKey: "own-secret"}
+	if got := assistantTitleFallbackModel(own, assistantChatDefaultModel, "kiro", nil); got != assistantChatDefaultModel {
+		t.Fatalf("own CodeBuddy key = %q", got)
+	}
+	if got := assistantTitleFallbackModel(noKey, assistantChatDefaultModel, "kiro", []string{assistantSponsoredModel}); got != assistantChatDefaultModel {
+		t.Fatalf("shared CodeBuddy key = %q", got)
+	}
+	if got := assistantTitleFallbackModel(noKey, "codex:gpt-5.5", "kiro", nil); got != "codex:gpt-5.5" {
+		t.Fatalf("non-CodeBuddy session model = %q", got)
+	}
+
+	// Nothing usable: the model stays CodeBuddy and the summary is skipped.
+	kiroCLIInstalled = func() bool { return false }
+	got := assistantTitleFallbackModel(noKey, assistantChatDefaultModel, "kiro", nil)
+	if got != assistantChatDefaultModel {
+		t.Fatalf("no CLI = %q", got)
+	}
+	model, effort := assistantTitleModel(context.Background(), noKey, got, nil)
+	if _, err := runAssistantTitleSummary(context.Background(), noKey, model, effort, "标题"); err == nil || !strings.Contains(err.Error(), "unavailable") {
+		t.Fatalf("summary without any credential must be skipped: %v", err)
+	}
+}

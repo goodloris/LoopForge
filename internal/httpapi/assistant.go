@@ -115,7 +115,7 @@ func (h *assistantHandlers) chat(c *gin.Context) {
 	if !decodeLimit(c, &req, assistantRequestBodyLimit) {
 		return
 	}
-	req.Executor = assistantExecutor(req.Executor)
+	req.Model = assistantDefaultRequestModel(req.Executor, req.Model)
 	req.Model = assistantRequestModel(req.Executor, req.Model)
 	if len(req.Messages) == 0 {
 		c.JSON(400, gin.H{"error": "请提供对话消息"})
