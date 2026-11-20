@@ -161,6 +161,9 @@ export function useChat() {
     // A queued message sent with "send now": it interrupts the running reply
     // and stays on screen until the server's follow-up turn has started.
     [steering, setSteering] = useState(null);
+  // The deployment's default CLI (/api/assistant/models defaultExecutor);
+  // CodeBuddy-only setup is hidden when it is something else.
+  const [deploymentExecutor, setDeploymentExecutor] = useState(defaultEngine);
   const executionMachines = useExecutionMachines(
     user?.isGuest ? null : user?.id,
     submitting || generation?.status === "running",
@@ -277,6 +280,7 @@ export function useChat() {
         setSandboxes(sandboxRows || []);
         setModels(catalog.models || []);
         setSponsoredModels(sponsoredModelList(catalog));
+        setDeploymentExecutor(catalog.defaultExecutor || defaultEngine);
         const rows = await refreshSessions();
         if (!current) return;
         fallbackExecutor.current = defaultExecutor(catalog.engines, rows, auth.user?.id, catalog.models, catalog.defaultExecutor);
@@ -1383,6 +1387,7 @@ export function useChat() {
     sponsored,
     sponsoredModel,
     sponsoredModels,
+    deploymentExecutor,
     generation,
     live,
     error,

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -16,7 +17,8 @@ import (
 )
 
 // BaselineAlignResolverAgent is the shared platform role for scheduled
-// baseline alignment. No project hooks or issue-fix verification gates.
+// baseline alignment. No project hooks or issue-fix verification gates. It
+// names no executor, so it runs on DefaultExecutorID().
 func BaselineAlignResolverAgent() domain.AgentDefinition {
 	return domain.AgentDefinition{
 		ID:          domain.BaselineAlignAgentID,
@@ -26,7 +28,6 @@ func BaselineAlignResolverAgent() domain.AgentDefinition {
 		Shared:      true,
 		Description: "全平台共用：把默认分支合入集成分支并解决冲突。不跑项目测试，不写修复报告，不发 MR。",
 		Prompt:      "你只做基线对齐，不是需求修复。\n1. 在当前工作分支执行 git fetch 并 merge 默认分支\n2. 逐块解决冲突，保留双方有效实现；拿不准时选对业务影响更小的一侧并在提交说明里写清\n3. git add 冲突文件并创建合并提交，提交说明列出冲突文件与取舍\n4. 不要 push，不要改默认分支，不要跑项目单测或 E2E，不要写 fix-plan.md / fix-report.md / review-report.md\n5. 结束后用几句话说明每个冲突文件的取舍即可",
-		ExecutorID:  "codebuddy",
 	}
 }
 
@@ -246,6 +247,21 @@ func BuiltInExecutors() []domain.ExecutorDefinition {
 		{ID: "zcode", Name: "ZCode", Kind: "zcode", Binary: "zcode", Protocol: "stream-json"},
 		{ID: "kiro", Name: "Kiro CLI", Kind: "kiro", Binary: "kiro-cli", Protocol: "stream-json"},
 	}
+}
+
+// DefaultExecutorID is the built-in executor a role or node that names none
+// runs on: AGENTFLOW_DEFAULT_EXECUTOR when it names a built-in CLI (the
+// assistant engine id claude-code is accepted for claude), else CodeBuddy.
+// Read on every call, like the assistant's default executor.
+func DefaultExecutorID() string {
+	id := strings.ToLower(strings.TrimSpace(os.Getenv("AGENTFLOW_DEFAULT_EXECUTOR")))
+	if id == "claude-code" {
+		id = "claude"
+	}
+	if executor, ok := BuiltInExecutor(id); ok {
+		return executor.ID
+	}
+	return "codebuddy"
 }
 
 func BuiltInExecutor(id string) (domain.ExecutorDefinition, bool) {

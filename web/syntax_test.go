@@ -394,6 +394,7 @@ global.escapeHTML = s => String(s);
 global.state = { currentUser: { isGuest: true }, loginUrl: "" };
 const fnStart = appCode.indexOf("function renderUserProfilePopover()");
 const fnEnd = appCode.indexOf("function renderDashboard()");
+const codeBuddyIsDefault = () => true;
 eval(appCode.slice(fnStart, fnEnd));
 
 // Guest mode
@@ -490,6 +491,7 @@ const user = {id: 1, gitTokenConfigured: true, codexApiKeyConfigured: true, code
 const state = {currentUser: {id: 1}, data: {users: [user]}};
 const userById = id => state.data.users.find(u => u.id === id);
 const escapeHTML = v => String(v), toast = () => {};
+const defaultExecutorId = () => state.data.defaultExecutor || 'codebuddy';
 const calls = [];
 const api = async (path, options = {}) => {
   calls.push({path, method: options.method || 'GET', body: options.body && JSON.parse(options.body)});
@@ -529,6 +531,17 @@ assert.ok(!html.includes('点击任意行配置或编辑') && !html.includes('�
 assert.ok(credentialRowHTML(cred.kind('gitToken'), user).includes('git-token-verify'), 'Git row keeps 重新校验');
 assert.ok(credentialPanelHTML({...user, codeBuddyApiKeyConfigured: true}).includes('推荐凭证已全部就绪'));
 assert.equal(credentialNextKind({}).key, 'gitToken');
+// 下一步 follows the default executor: Kiro CLI needs no key (kiro-cli login),
+// another CLI asks for its own key, and CodeBuddy is never suggested.
+state.data.defaultExecutor = 'kiro';
+assert.equal(credentialNextKind({gitTokenConfigured: true}), null);
+assert.ok(!credentialPanelHTML(user).includes('CodeBuddy API Key →') && !credentialPanelHTML(user).includes('data-credential-setup="codeBuddyApiKey"'));
+assert.ok(credentialPanelHTML(user).includes('推荐凭证已全部就绪'));
+state.data.defaultExecutor = 'claude';
+assert.equal(credentialNextKind({gitTokenConfigured: true}).key, 'claudeCodeApiKey');
+state.data.defaultExecutor = 'opencode';
+assert.equal(credentialNextKind({gitTokenConfigured: true}).key, 'agentCli.opencode');
+delete state.data.defaultExecutor;
 
 // Each kind saves and deletes only its own fields.
 assert.deepEqual(credentialSavePayload(cred.kind('gitToken'), {secret: ' ghp_1 '}), {gitToken: 'ghp_1'});

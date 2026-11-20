@@ -787,6 +787,10 @@ func (s *Server) bootstrap(c *gin.Context) {
 		// (sponsoredModel is the default).
 		"sponsoredModel":  sponsoredModel,
 		"sponsoredModels": sharedModels,
+		// The built-in executor a role without one runs on
+		// (AGENTFLOW_DEFAULT_EXECUTOR). The web hides CodeBuddy-only
+		// setup when it is not codebuddy.
+		"defaultExecutor": repo.DefaultExecutorID(),
 	})
 }
 

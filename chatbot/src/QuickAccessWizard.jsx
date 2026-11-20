@@ -698,7 +698,7 @@ async function provisionFallbackProjectSOP(projectId, workflowId, owner) {
         name: role.name,
         projectId,
         version: 1,
-        executorId: "codebuddy",
+        // No executorId: the role runs on the deployment's default CLI.
         description: role.description,
         prompt: role.prompt,
         artifactOutputs: [
@@ -773,6 +773,7 @@ export default function QuickAccessWizard({
   projectId = "",
   sponsoredModel = "",
   sponsoredModels = [],
+  defaultExecutor = "codebuddy",
   onClose,
   onCompleted,
   onCredentialsSaved,
@@ -1195,6 +1196,11 @@ export default function QuickAccessWizard({
   const codeBuddyReady = Boolean(
     storedUser?.codeBuddyApiKeyConfigured || codeBuddyApiKey.trim(),
   );
+  // The CodeBuddy key block only applies where CodeBuddy is the deployment's
+  // default CLI. Elsewhere (e.g. Kiro CLI, which signs in with kiro-cli
+  // login) the model needs nothing from this wizard.
+  const codeBuddyDefault = (defaultExecutor || "codebuddy") === "codebuddy";
+  const modelReady = codeBuddyDefault ? codeBuddyReady || Boolean(sponsoredModel) : true;
   // The CLI gets the stored text as-is: an old value such as china preselects
   // what it meant, and still differs from it, so 下一步 rewrites it.
   const storedCodeBuddyEnvRaw = String(
@@ -1224,7 +1230,7 @@ export default function QuickAccessWizard({
     if (codeBuddyApiKey.trim())
       payload.codeBuddyApiKey = codeBuddyApiKey.trim();
     // A key is always saved with the environment it was issued for.
-    if (codeBuddyApiKey.trim() || codeBuddyEnv !== storedCodeBuddyEnvRaw)
+    if (codeBuddyApiKey.trim() || (codeBuddyDefault && codeBuddyEnv !== storedCodeBuddyEnvRaw))
       payload.codeBuddyInternetEnvironment = codeBuddyEnv;
     if (!Object.keys(payload).length) return storedUser;
     const saved = await write(
@@ -1278,7 +1284,7 @@ export default function QuickAccessWizard({
     if (saving) return;
     setError("");
     if (activeStep.id === "auth") {
-      if (!gitReady && !hasSSHKeys && !codeBuddyReady && !sponsoredModel) {
+      if (!gitReady && !hasSSHKeys && !modelReady) {
         setError("请先配置 GitHub Git Token、Git SSH 密钥或 CodeBuddy API Key。");
         return;
       }
@@ -1583,7 +1589,7 @@ export default function QuickAccessWizard({
                   </div>
                   <div className="qa-step-copy">
                     <div className="qa-step-title">{item.title}</div>
-                    <div className="qa-step-desc">{item.desc}</div>
+                    <div className="qa-step-desc">{item.id === "auth" && !codeBuddyDefault ? "GitHub 与 Git SSH 访问" : item.desc}</div>
                   </div>
                 </li>
               );
@@ -1690,6 +1696,7 @@ export default function QuickAccessWizard({
                               : "未配置，克隆/推送私有仓库前可在个人配置补齐"}
                           </span>
                         </li>
+                        {codeBuddyDefault ? (
                         <li
                           className={
                             completedSummary?.codeBuddyReady || sponsoredModel
@@ -1714,6 +1721,7 @@ export default function QuickAccessWizard({
                                 : "未配置。对话可用平台默认模型，但运行 SOP 时节点需要它调模型，请先在个人配置补齐"}
                           </span>
                         </li>
+                        ) : null}
                         <li className="is-ok">
                           <HarnessIcon name="check" size={14} />
                           <span>
@@ -1884,6 +1892,7 @@ export default function QuickAccessWizard({
                         </div>
                       </section>
 
+                      {codeBuddyDefault ? (
                       <section className="qa-cred-card">
                         <header className="qa-cred-head">
                           <div>
@@ -1945,6 +1954,7 @@ export default function QuickAccessWizard({
                           </p>
                         </div>
                       </section>
+                      ) : null}
                     </div>
                   ) : null}
 
@@ -2336,16 +2346,13 @@ export default function QuickAccessWizard({
                             <dt>凭据</dt>
                             <dd>
                               <span
-                                className={`qa-dot ${(sshRepository ? sshReady : gitReady) && (codeBuddyReady || sponsoredModel) ? "is-ok" : ""}`}
+                                className={`qa-dot ${(sshRepository ? sshReady : gitReady) && modelReady ? "is-ok" : ""}`}
                               />
                               <span>
-                                {sshRepository ? "Git SSH" : "GitHub"} {(sshRepository ? sshReady : gitReady) ? "已配置" : "未配置"} ·
-                                CodeBuddy{" "}
-                                {codeBuddyReady
-                                  ? "已配置"
-                                  : sponsoredModel
-                                    ? "使用平台共享模型"
-                                    : "未配置"}
+                                {sshRepository ? "Git SSH" : "GitHub"} {(sshRepository ? sshReady : gitReady) ? "已配置" : "未配置"}
+                                {codeBuddyDefault
+                                  ? ` · CodeBuddy ${codeBuddyReady ? "已配置" : sponsoredModel ? "使用平台共享模型" : "未配置"}`
+                                  : ""}
                               </span>
                             </dd>
                           </div>

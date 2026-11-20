@@ -327,7 +327,7 @@ function nodeMeta(n){
   if(isPreviewBuildNode(n.id))return {kind:'preview',subtitle:'CodeBuddy 静态站点构建',tags:[{text:workflowPreviewModel(state.workflow)}]};
   if(n.type==='agent'){
     const a=workflowAgent(n.agentId),generic=catalogGeneric(state.workflow);
-    const e=(state.data.executors||[]).find(x=>x.id===(a?.executorId||n.executorId));
+    const e=(state.data.executors||[]).find(x=>x.id===(a?.executorId||n.executorId||defaultExecutorId()));
     const subtitle=a?.name||(n.agentId?(generic?n.agentId:'角色不可用'):'未绑定角色');
     const tags=[];
     if(!n.agentId)tags.push({text:'未绑定角色',warn:true});
@@ -958,7 +958,7 @@ function renderAgentHookEditors(d){
 }
 function renderAgentSummary(){
   const f=$('#agentForm'),d=state.agentDraft||{};
-  const exec=(state.data.executors||[]).find(x=>x.id===(f?.elements?.executorId?.value||d.executorId));
+  const exec=(state.data.executors||[]).find(x=>x.id===(f?.elements?.executorId?.value||d.executorId||defaultExecutorId()));
   const chosen=agentEffectiveModel(f),model=chosen||(exec?.model?`${exec.model}（默认）`:'默认模型');
   const effort=(f?.elements?.effort?.value||'').trim();
   const meta=$('#agentRuntimeMeta');
@@ -994,7 +994,7 @@ function sectionHead(title,hint,count,unit){
 }
 function agentBindCard(n){
   const agent=workflowAgent(n.agentId);
-  const exec=(state.data.executors||[]).find(x=>x.id===(agent?.executorId||n.executorId));
+  const exec=(state.data.executors||[]).find(x=>x.id===(agent?.executorId||n.executorId||defaultExecutorId()));
   const generic=catalogGeneric(state.workflow);
   const projectId=state.workflow?.projectId||state.projectFilter||'',projects=state.data.projects||[];
   const invalid=n.agentId&&!agent?'<option value="" selected disabled>当前绑定角色不可用，请重新选择</option>':'';
