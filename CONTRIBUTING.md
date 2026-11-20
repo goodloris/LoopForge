@@ -14,6 +14,10 @@ python3 scripts/check-public.py
 bash scripts/scan-secrets.sh
 ```
 
+`.loopforge/verify` is the repository's test gate. Run it from the repository root with `.loopforge/verify` (or `bash .loopforge/verify`). It needs Go (the `go.mod` version), Node 22+ and npm with registry access; no database, Docker or credentials. It runs, in order and stopping at the first failure: the frontend build with the chatbot tests (`scripts/build-chatbot.sh`), `go build ./...`, `go vet ./...`, `go test ./... -count=1` (split like CI: real-browser and fake-docker tests run in their own processes), and the `webtest` unit tests. Each step prints `==> [n/5]` and its duration; a failure prints `FAILED: [n/5] <step>` and exits non-zero. Tune it with `GO_TEST_P` (default 2), `GO_TEST_TIMEOUT` (600s), `GO_BROWSER_TEST_TIMEOUT` (300s) and `GOCACHE` (default `/tmp/agentflow-gocache`).
+
+In the SOP workflow, after the "test verification" node submits pass, the platform runs the version of `.loopforge/verify` committed on the target branch: it copies the file to a temporary path and runs it with the repository root as the working directory and stdin closed. A non-zero exit code sends the output back to the "implement" node. Changes to the script only take effect once merged into the target branch, so the script must work from the current directory and must not rely on its own path. If a test has to be excluded, list it in the script's comments with the reason.
+
 Community contributions do not require private source manifests or hash updates. Maintainers keep source synchronization records locally, separate from the public CI checks. See [the maintenance policy](docs/upstream-sync.md).
 
 Run the [public browser acceptance suite](e2e/public/README.md) for authentication, preferences or execution changes. Paid model and external knowledge tests require explicit operator configuration; state passed, failed, skipped and not-run checks accurately.

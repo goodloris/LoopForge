@@ -1,77 +1,81 @@
 import React, { useId } from "react";
 import "./home-logo.css";
 
-// Four circle segments stay aligned while four folded segments unfold the hook.
-const logoPath =
-  "M53 72 C53 59 63 52.5 73 52.5 C83 52.5 93 59 93 72 C93 85 83 91.5 73 91.5 C63 91.5 53 85 53 72 C53 66.667 53 61.333 53 56 C53 50.667 53 45.333 53 40 C53 27 44.5 20.5 36 20.5 C27.5 20.5 19 27 19 40";
-const ringPath =
-  "M24 56 C24 38.327 38.327 24 56 24 C73.673 24 88 38.327 88 56 C88 73.673 73.673 88 56 88 C38.327 88 24 73.673 24 56 C24 56 24 56 24 56 C24 56 24 56 24 56 C24 56 24 56 24 56 C24 56 24 56 24 56";
+// The Bagel ring (source artwork from agenzo-rsi console-ui, reused with
+// permission): the crust draws itself clockwise, the sesame and the closing
+// arrow settle after it. A logo keeps its own colours, so this mark does not
+// follow the theme. prefers-reduced-motion drops straight to the final frame.
+const SEEDS = [
+  [14.25, 42.25, 255], [15.1, 27.47, 300], [22, 14.68, 345], [28.61, 51.2, 205],
+  [41.46, 45.52, 160], [51.8, 37.31, 120], [33.31, 17.06, 20], [18.21, 34.43, 275],
+  [34.43, 45.79, 185], [44.8, 38.81, 133], [20.94, 24.26, 320], [19.38, 50.02, 230],
+  [27.43, 10.48, 3],
+];
 
 export default function HomeLogo() {
   const identity = useId().replaceAll(":", "");
-  const gradient = `home-logo-gradient-${identity}`;
-  const glow = `home-logo-glow-${identity}`;
+  const crust = `bgl-crust-${identity}`;
+  const tip = `bgl-tip-${identity}`;
+  const hole = `bgl-hole-${identity}`;
   return (
     <div className="home-logo" aria-hidden="true">
       <svg
         className="home-logo-glyph"
-        viewBox="12 12 88 88"
+        viewBox="0 0 64 64"
         width="64"
         height="64"
         fill="none"
         focusable="false"
       >
         <defs>
-          <linearGradient
-            id={gradient}
-            x1="19"
-            y1="20"
-            x2="93"
-            y2="93"
-            gradientUnits="userSpaceOnUse"
-          >
-            <stop stopColor="var(--home-logo-cyan)" />
-            <stop offset="0.48" stopColor="var(--home-logo-blue)" />
-            <stop offset="1" stopColor="var(--home-logo-violet)" />
+          <linearGradient id={crust} x1="12" y1="10" x2="54" y2="56" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stopColor="#FFD592" />
+            <stop offset=".5" stopColor="#F0A043" />
+            <stop offset="1" stopColor="#B4561C" />
           </linearGradient>
-          <filter id={glow} x="-60%" y="-60%" width="220%" height="220%" colorInterpolationFilters="sRGB">
-            <feGaussianBlur stdDeviation="2.2" />
-          </filter>
+          <linearGradient id={tip} x1="34" y1="4" x2="48" y2="22" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stopColor="#FFC774" />
+            <stop offset="1" stopColor="#D9782A" />
+          </linearGradient>
+          <radialGradient id={hole} cx="32" cy="32" r="11.2" gradientUnits="userSpaceOnUse">
+            <stop offset=".5" stopColor="#6B300D" stopOpacity="0" />
+            <stop offset="1" stopColor="#6B300D" stopOpacity=".4" />
+          </radialGradient>
         </defs>
-        <g stroke={`url(#${gradient})`} fill="none">
-          <circle className="home-logo-ring home-logo-ring-first" cx="73" cy="72" r="24" />
-          <circle className="home-logo-ring home-logo-ring-second" cx="73" cy="72" r="24" />
-          <path className="home-logo-aura" d={logoPath} pathLength="1" strokeWidth="11" strokeLinecap="round" filter={`url(#${glow})`} />
-          <path
-            className="home-logo-stroke"
-            d={logoPath}
-            pathLength="1"
-            strokeWidth="7.6"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </g>
+        {/* The ring, open at the top right where the loop closes. */}
         <path
-          className="home-logo-tracer home-logo-tracer-glow"
-          d={ringPath}
+          className="home-logo-crust"
+          d="M46.92 21.93 A18 18 0 1 1 35.13 14.27"
+          fill="none"
+          stroke={`url(#${crust})`}
+          strokeWidth="14"
           pathLength="1"
-          stroke="var(--home-logo-highlight)"
-          strokeWidth="7"
-          strokeLinecap="round"
-          filter={`url(#${glow})`}
         />
+        {/* Light on the crust, top left. */}
         <path
-          className="home-logo-tracer"
-          d={ringPath}
-          pathLength="1"
-          stroke="var(--home-logo-highlight)"
-          strokeWidth="3.2"
+          className="home-logo-shine"
+          d="M9.59 26 A23.2 23.2 0 0 1 24.07 10.2"
+          fill="none"
+          stroke="#FFF1D2"
+          strokeOpacity=".8"
+          strokeWidth="2.2"
           strokeLinecap="round"
         />
-        <g className="home-logo-head" style={{ offsetPath: `path("${ringPath}")` }}>
-          <circle r="7.5" fill="var(--home-logo-cyan)" opacity=".75" filter={`url(#${glow})`} />
-          <circle r="3.8" fill="var(--home-logo-head-core)" stroke="var(--home-logo-violet)" strokeWidth="2.1" />
+        <circle className="home-logo-hole" cx="32" cy="32" r="11.2" fill={`url(#${hole})`} />
+        <g className="home-logo-seeds" fill="#FFF6E2">
+          {SEEDS.map(([cx, cy, r]) => (
+            <ellipse key={`${cx}-${cy}`} cx={cx} cy={cy} rx="1.15" ry="2.1" transform={`rotate(${r} ${cx} ${cy})`} />
+          ))}
         </g>
+        {/* The arrow head that closes the loop, clockwise. */}
+        <path
+          className="home-logo-tip"
+          d="M37.04 3.44 L44.34 17.29 L33.81 21.76 Z"
+          fill={`url(#${tip})`}
+          stroke="#B4561C"
+          strokeWidth=".8"
+          strokeLinejoin="round"
+        />
       </svg>
     </div>
   );
