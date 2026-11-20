@@ -1,0 +1,148 @@
+#!/usr/bin/env bash
+# LoopForge SOP test gate.
+#
+# How the platform calls this file (migrations/postgres/038_generic_sop_gates.sql):
+# it copies the committed version from the target branch into a temp file under
+# /tmp, then runs it with the repository root as the working directory and
+# stdin=/dev/null. Only the exit code is checked: non-zero sends the output back
+# to the "implement" node. Because $0 lives in /tmp, this script treats the
+# current directory as the repository root and never uses dirname "$0".
+#
+# Steps:
+#   [1/5] frontend build (scripts/build-chatbot.sh: chatbot npm ci + test + build,
+#         which produces web/native-chat embedded by web/embed.go) + go build ./...
+#   [2/5] go vet ./...
+#   [3/5] go test ./... -count=1, split like .github/workflows/platform.yml:
+#         non-browser tests first, then the fake-docker tests in their own
+#         process, then the real-browser tests at -p=1
+#         (they skip themselves when no Chromium is available)
+#   [4/5] chatbot tests: already run inside [1/5] by scripts/build-chatbot.sh
+#         (npm --prefix chatbot ci, then npm --prefix chatbot test); not repeated
+#         to avoid a second npm ci. A chatbot test failure fails [1/5].
+#   [5/5] webtest: npm --prefix webtest ci, then npm --prefix webtest test
+#
+# Tunables (environment):
+#   GO_TEST_P               Go package parallelism (default 2, as in CI)
+#   GO_TEST_TIMEOUT         timeout for the main go test run (default 600s)
+#   GO_BROWSER_TEST_TIMEOUT timeout for the real-browser go test run (default 300s)
+#   GOCACHE                 Go build cache (default /tmp/agentflow-gocache, as in Makefile)
+#
+# Excluded tests: none. Isolating REAL_BROWSER_TESTS and DOCKER_STUB_TESTS
+# (-skip in the main run, then -run in a separate process) is not an exclusion:
+# the runs together cover every test in ./... . Go tests run with a
+# private TMPDIR and without host askpass helpers (see go_tests). Any future
+# exclusion must be listed here one by one with test name, package and reason.
+#
+# Requirements: Go (go.mod version), Node 22+, npm with registry access.
+# No database, Docker socket or credentials are needed.
+set -euo pipefail
+
+# Preflight: must run from the repository root with the toolchain on PATH.
+if ! { [ -f go.mod ] && head -n1 go.mod | grep -qx 'module agentflow'; }; then
+  echo "FAILED: preflight (run from the LoopForge repository root; cwd=$(pwd))" >&2
+  exit 2
+fi
+for tool in go node npm; do
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    echo "FAILED: preflight ($tool not found in PATH)" >&2
+    exit 2
+  fi
+done
+echo "go: $(go version)  node: $(node --version)  npm: $(npm --version)"
+
+export GOCACHE="${GOCACHE:-/tmp/agentflow-gocache}"
+GO_TEST_P="${GO_TEST_P:-2}"
+GO_TEST_TIMEOUT="${GO_TEST_TIMEOUT:-600s}"
+GO_BROWSER_TEST_TIMEOUT="${GO_BROWSER_TEST_TIMEOUT:-300s}"
+# Keep in sync with REAL_BROWSER_TESTS in .github/workflows/platform.yml.
+REAL_BROWSER_TESTS='^(TestMainBotBrowserStartsAndDrivesRunBrowser|TestBrowserStreamPushesFramesAndRunsCommands|TestRunnerStartsPanelBrowserInRunSandbox|TestBrowserAgentOperationsDriveRealChromium|TestBrowserScrollEndsOnASharpFrame)$'
+# Fake-docker tests in ./internal/runtime, run in their own process (not excluded).
+# They put a stub `docker` on PATH via t.Setenv, but dockerAvailable in
+# internal/runtime/sandbox_docker.go caches exec.LookPath("docker") once per
+# process. On hosts with no real docker binary (this gate's sandbox; GitHub
+# runners ship one, so CI is unaffected) an earlier test caches false and these
+# then fail inside the full package run, while passing in a fresh process:
+#   TestDockerSandboxRunsOnDemandClaudeCodeFromMountedDirectory (claude_install_test.go)
+#   TestDockerDiscoveryImagesAndBuildHelpers   (docker_cases_test.go)
+#   TestDockerManagerReclaimsCachedImages      (docker_cases_test.go)
+#   TestDockerExecRecoversFromUnsafeCWD        (docker_cases_test.go)
+#   TestIsolatedRuntimeImageReusesInstalledImage (isolated_image_test.go)
+#   TestAgentStateMountsAndDockerManagerReclaim (sandbox_edges_cases_test.go)
+# Fixing the cache is business code and out of scope for this gate.
+DOCKER_STUB_TESTS='^(TestDockerSandboxRunsOnDemandClaudeCodeFromMountedDirectory|TestDockerDiscoveryImagesAndBuildHelpers|TestDockerManagerReclaimsCachedImages|TestDockerExecRecoversFromUnsafeCWD|TestIsolatedRuntimeImageReusesInstalledImage|TestAgentStateMountsAndDockerManagerReclaim)$'
+
+summary=()
+print_summary() {
+  echo "---- verify summary ----"
+  printf '%s\n' "${summary[@]}"
+}
+
+# step <id> <name> <command...>
+# Commands run on the left of `||`, where set -e is disabled, so every step
+# function chains its commands with && to propagate failures.
+step() {
+  local id="$1" name="$2"
+  shift 2
+  local start=$SECONDS rc=0
+  echo "==> [$id/5] $name"
+  "$@" || rc=$?
+  local dur=$((SECONDS - start))
+  summary+=("[$id/5] $name: exit $rc, ${dur}s")
+  if [ "$rc" -ne 0 ]; then
+    echo "FAILED: [$id/5] $name (exit $rc, ${dur}s)" >&2
+    print_summary
+    exit "$rc"
+  fi
+  echo "<== [$id/5] $name: ok (${dur}s)"
+}
+
+build() {
+  bash scripts/build-chatbot.sh && go build ./...
+}
+
+go_vet() {
+  go vet ./...
+}
+
+# Go tests run in a hermetic environment instead of excluding tests. Agent
+# sandboxes (including the SOP gate) inject variables that break otherwise
+# passing tests on main:
+#   - TMPDIR under /workspace: t.TempDir() paths then exceed the unix socket
+#     limit (TestSDNotifySendsReadyAndMainPID) and contain "/workspace", which the
+#     fake docker/container tests use as the in-container mount point
+#     (TestDocker*, TestIsolatedRuntimeImageReusesInstalledImage,
+#     TestAgentStateMountsAndDockerManagerReclaim, TestMainBotAttachesWorkspaceFilesToReply).
+#   - GIT_ASKPASS/SSH_ASKPASS from the host: answers the credential prompt that
+#     TestHostInsteadOfUsernamePromptThenAskPass expects git to raise.
+# A short private TMPDIR under /tmp and an unset askpass fix both; the dir is
+# removed on exit.
+go_tests() {
+  go_tmp="$(mktemp -d /tmp/loopforge-verify-go.XXXXXX)" &&
+    trap 'rm -rf "$go_tmp"' EXIT &&
+    (
+      export TMPDIR="$go_tmp"
+      unset GIT_ASKPASS SSH_ASKPASS
+      go test -p="$GO_TEST_P" ./... -count=1 -timeout="$GO_TEST_TIMEOUT" \
+        -skip "$REAL_BROWSER_TESTS|$DOCKER_STUB_TESTS" &&
+        go test -p=1 ./internal/runtime -count=1 -timeout="$GO_BROWSER_TEST_TIMEOUT" -run "$DOCKER_STUB_TESTS" &&
+        go test -p=1 ./internal/httpapi ./internal/runner ./internal/runtime -count=1 \
+          -timeout="$GO_BROWSER_TEST_TIMEOUT" -run "$REAL_BROWSER_TESTS"
+    )
+}
+
+chatbot_tests() {
+  echo "chatbot tests: passed in [1/5] via scripts/build-chatbot.sh (npm --prefix chatbot ci + test)"
+}
+
+webtest() {
+  npm --prefix webtest ci --include=dev --no-audit --no-fund && npm --prefix webtest test
+}
+
+step 1 "build (frontend + chatbot tests + go build)" build
+step 2 "go vet" go_vet
+step 3 "go test" go_tests
+step 4 "chatbot tests" chatbot_tests
+step 5 "webtest" webtest
+
+echo "verify: all steps passed"
+print_summary
