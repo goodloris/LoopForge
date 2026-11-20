@@ -65,7 +65,12 @@ func KiroDataDirWarning() string {
 	if dir == "" || KiroLoginAvailable() {
 		return ""
 	}
-	return kiroDataDirEnv + "=" + dir + " contains no data.sqlite3: Kiro CLI will show as unconfigured. Set LOOPFORGE_KIRO_DATA_DIR in .env to the host's kiro-cli data directory and recreate the container (docker compose up -d)."
+	warning := kiroDataDirEnv + "=" + dir + " contains no data.sqlite3: Kiro CLI will show as unconfigured."
+	// /kiro-host is the compose.yaml mount; elsewhere the variable was set by hand.
+	if dir == "/kiro-host" {
+		warning += " Set LOOPFORGE_KIRO_DATA_DIR in .env to the host's kiro-cli data directory and recreate the container (docker compose up -d)."
+	}
+	return warning
 }
 
 // KiroLoginAvailable reports whether this process has a kiro-cli login to
