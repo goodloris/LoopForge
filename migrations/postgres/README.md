@@ -7,6 +7,7 @@ postgres/
   001_baseline_extensions.sql   # gorm 建不出来的结构：001 的生成列及索引
   038_generic_sop_gates.sql     # 已有安装的内置 SOP 数据修补，手动执行（见下表 038）
   041_builtin_roles_default_executor.sql  # 内置角色改为跟随默认执行器，手动执行（见下表 041）
+  042_bagel_builtin_labels.sql  # 体验项目名与内置 SOP 作者标签改为 Bagel，手动执行（见下表 042）
   seed/
     001_public_catalog.sql      # 公共目录，等价于 ../seed/001_public_catalog.sql
     002_welcome_project.sql     # 体验项目，等价于 ../seed/002_welcome_project.sql
@@ -99,6 +100,7 @@ CREATE DATABASE loopforge
 | 037_generic_test_role_requires_tests | 测试角色新 prompt | 不需要，seed 已含新 prompt |
 | 038_generic_sop_gates | 代码 SOP 的独立评审、测试验证加 `rejectTo=implement`、`maxReworks=2`；测试角色加 `.loopforge/verify` 退出码门禁；开发、评审、测试 prompt 与 SOP 描述 | 全新安装不需要，seed 已含（`TestPublicCodeSOPsReworkImplementAndGateTestsOnExitCode`）。**此前用 PG seed 建的安装需要手动执行** `038_generic_sop_gates.sql`：只改仍是出厂原文的字段，可重复执行；`manual-migration-hints.sh` 在独立评审节点仍是出厂原样时提示 |
 | 041_builtin_roles_default_executor | 内置 SOP 角色与基线对齐执行员去掉 `executorId: codebuddy`，跟随 `AGENTFLOW_DEFAULT_EXECUTOR` | 全新安装不需要，seed 已不带 executorId。**此前用 PG seed 建的安装需要手动执行** `041_builtin_roles_default_executor.sql`：只去掉仍是 `codebuddy` 的值，可重复执行；`manual-migration-hints.sh` 在内置角色仍写 `codebuddy` 时提示 |
+| 042_bagel_builtin_labels | 体验项目名「LoopForge 体验项目」改为「Bagel 体验项目」（`name` 列与 payload），内置 SOP 的 `Workflow.owner` 由 `LoopForge` 改为 `Bagel` | 全新安装不需要，seed 已是 Bagel（`web/brand_test.go` 的 `TestSeedLabelsSayBagel`）。**此前用 PG seed 建的安装需要手动执行** `042_bagel_builtin_labels.sql`：只改仍是出厂值的字段，可重复执行；`manual-migration-hints.sh` 在仍有出厂旧值时提示 |
 
 MySQL 脚本里有些列是 `NOT NULL DEFAULT ''` / `DEFAULT 0`（如 005 的 `source_id`、018 的 `thread_id`、011 的 `workspace_editor_id`），gorm 在 PG 上建成可空、无默认值。MySQL 全新安装同样只执行 001 和 seed（见 `scripts/install-schema-extensions.sh`），这些列在 MySQL 新库上也是 gorm 的定义，所以 PG 不需要补。
 

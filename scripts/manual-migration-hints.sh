@@ -7,9 +7,10 @@
 # a built-in 测试验证 role still holds the unedited pre-037 prompt, the text 037
 # rewrites (an edited prompt is left alone and is not reported); 038 while a
 # built-in code SOP still has the shipped 独立评审 node without rejectTo; 041
-# while a built-in role still names executorId codebuddy.
+# while a built-in role still names executorId codebuddy; 042 while the welcome
+# project is still 「LoopForge 体验项目」 or a built-in SOP's owner is LoopForge.
 # PostgreSQL installations started from a seed that already holds 033 and 037,
-# so only 038 and 041 can be pending there.
+# so only 038, 041 and 042 can be pending there.
 cd "$(dirname "$0")/.." || exit 0
 source scripts/docker-access.sh
 source scripts/database.sh
@@ -26,6 +27,10 @@ SELECT '041_builtin_roles_default_executor.sql' FROM generic_templates
 WHERE id IN ('generic-backend-delivery', 'generic-frontend-delivery', 'issue-fix-production', 'generic-product-delivery')
   AND payload::jsonb -> 'Agents' @> '[{"executorId": "codebuddy"}]'::jsonb
 LIMIT 1;
+SELECT '042_bagel_builtin_labels.sql'
+WHERE EXISTS (SELECT 1 FROM projects WHERE id = 'welcome' AND name = 'LoopForge 体验项目')
+   OR EXISTS (SELECT 1 FROM generic_templates WHERE id IN ('generic-backend-delivery', 'generic-frontend-delivery', 'issue-fix-production', 'generic-product-delivery')
+     AND payload::jsonb #>> '{Workflow,owner}' = 'LoopForge');
 SQL
   ) || exit 0
   for name in $pending; do
@@ -58,6 +63,10 @@ SELECT '041_builtin_roles_default_executor.sql' FROM generic_templates
 WHERE id IN ('generic-backend-delivery', 'generic-frontend-delivery', 'issue-fix-production', 'generic-product-delivery')
   AND JSON_CONTAINS(JSON_EXTRACT(payload, '$.Agents[*].executorId'), '"codebuddy"')
 LIMIT 1;
+SELECT '042_bagel_builtin_labels.sql' FROM DUAL
+WHERE EXISTS (SELECT 1 FROM projects WHERE id = 'welcome' AND name = 'LoopForge 体验项目')
+   OR EXISTS (SELECT 1 FROM generic_templates WHERE id IN ('generic-backend-delivery', 'generic-frontend-delivery', 'issue-fix-production', 'generic-product-delivery')
+     AND JSON_UNQUOTE(JSON_EXTRACT(payload, '$.Workflow.owner')) = 'LoopForge');
 SQL
 ) || exit 0
 
