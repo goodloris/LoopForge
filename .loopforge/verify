@@ -42,6 +42,10 @@ if ! { [ -f go.mod ] && head -n1 go.mod | grep -qx 'module agentflow'; }; then
   echo "FAILED: preflight (run from the LoopForge repository root; cwd=$(pwd))" >&2
   exit 2
 fi
+# Some sandboxes install Go under /usr/local/go/bin without adding it to PATH.
+if ! command -v go >/dev/null 2>&1 && [ -x /usr/local/go/bin/go ]; then
+  export PATH="/usr/local/go/bin:$PATH"
+fi
 for tool in go node npm; do
   if ! command -v "$tool" >/dev/null 2>&1; then
     echo "FAILED: preflight ($tool not found in PATH)" >&2
