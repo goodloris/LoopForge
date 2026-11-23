@@ -45,6 +45,9 @@ type deps struct {
 	api        http.Handler
 	// passwordAttempts is this server's brute-force budget (auth_password.go).
 	passwordAttempts *passwordLimiter
+	// feishuStates holds the one-time OAuth states of in-flight Feishu
+	// sign-ins (auth_feishu.go).
+	feishuStates *feishuStateStore
 }
 
 // configureSync 是跨领域共享的依赖配置行为（mcp/issues/sync 都调用）。
@@ -123,7 +126,7 @@ func NewWithNotificationsAndBackground(ctx context.Context, s *repo.Store, e *en
 }
 
 func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Service, basicUser, basicPass string, notifications *notification.Service, bg *Background, startBackground func(*assistantHandlers, *runsHandlers)) *gin.Engine {
-	d := &deps{repo: s, engine: e, sync: syncSvc, authClient: auth.NewClientFromEnv(), passwordAttempts: newPasswordLimiter()}
+	d := &deps{repo: s, engine: e, sync: syncSvc, authClient: auth.NewClientFromEnv(), passwordAttempts: newPasswordLimiter(), feishuStates: newFeishuStateStore()}
 	installKiroRunnerReady(s)
 	if warning := runtime.KiroDataDirWarning(); warning != "" {
 		log.Print("warning: " + warning)
@@ -249,6 +252,8 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 	g.GET("/api/auth/gongfeng", api.auth.gongfengOAuthStatus)
 	g.GET("/api/auth/gongfeng/start", api.auth.gongfengOAuthStart)
 	g.GET("/api/auth/gongfeng/callback", api.auth.gongfengOAuthCallback)
+	g.GET("/api/auth/feishu/start", api.auth.feishuStart)
+	g.GET("/api/auth/feishu/callback", api.auth.feishuCallback)
 	g.GET("/api/auth/github", api.github.status)
 	g.PUT("/api/auth/github/config", api.github.configure)
 	g.POST("/api/auth/github/device", api.github.start)
