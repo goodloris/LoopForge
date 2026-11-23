@@ -269,7 +269,7 @@ func TestConversationStopBeforeRemoteStartReplyConfirmsExit(t *testing.T) {
 			continue
 		}
 		payload, _ := json.Marshal(result)
-		hub.resolveWorkspace(message.RequestID, domain.RunnerWorkspaceResponse{Status: 200, Payload: payload})
+		hub.resolveWorkspace(conn, message.RequestID, domain.RunnerWorkspaceResponse{Status: 200, Payload: payload})
 	}
 }
 
@@ -319,7 +319,7 @@ func TestConversationStopGivesUpWhenRunnerStaysOffline(t *testing.T) {
 				defer pool.Handle(context.Background(), remoteRoot, "", nil, runtime.ConversationProcessRequest{Operation: "stop", ID: result.ID}, nil)
 			}
 			payload, _ := json.Marshal(result)
-			hub.resolveWorkspace(message.RequestID, domain.RunnerWorkspaceResponse{Status: 200, Payload: payload})
+			hub.resolveWorkspace(conn, message.RequestID, domain.RunnerWorkspaceResponse{Status: 200, Payload: payload})
 			if req.Operation == "start" {
 				runner.Status = domain.RunnerStatusOffline
 				if err := h.repo.PutRunner(runner); err != nil {
@@ -370,7 +370,7 @@ func TestConversationProcessRetriesBusyRunner(t *testing.T) {
 			}
 			if req.Operation == "poll" && busy < 3 {
 				busy++
-				hub.resolveWorkspace(message.RequestID, domain.RunnerWorkspaceResponse{Status: 429, Error: "too many workspace requests"})
+				hub.resolveWorkspace(conn, message.RequestID, domain.RunnerWorkspaceResponse{Status: 429, Error: "too many workspace requests"})
 				continue
 			}
 			if req.Command != nil {
@@ -381,7 +381,7 @@ func TestConversationProcessRetriesBusyRunner(t *testing.T) {
 				t.Fatal(err)
 			}
 			payload, _ := json.Marshal(result)
-			hub.resolveWorkspace(message.RequestID, domain.RunnerWorkspaceResponse{Status: 200, Payload: payload})
+			hub.resolveWorkspace(conn, message.RequestID, domain.RunnerWorkspaceResponse{Status: 200, Payload: payload})
 		case err := <-done:
 			if err != nil || busy != 3 {
 				t.Fatalf("busy runner failed the turn: busy=%d err=%v", busy, err)
@@ -460,5 +460,19 @@ func TestConversationWorkspaceFirstTurnAfterHostRebuild(t *testing.T) {
 	}
 	if body, err := os.ReadFile(filepath.Join(en.RunWorkspace(id), "README.md")); err != nil || string(body) != "uncommitted\n" {
 		t.Fatalf("reclaim did not restore the saved workspace: %q %v", body, err)
+	}
+}
+
+// This input represents one JSON line containing an attachment path and base64 data.
+func TestConversationImageInputChunkPreservesRemotePathAndUTF8(t *testing.T) {
+	const root = "/loopforge/source/session"
+	for name, part := range map[string]string{"path": root, "UTF8": "图"} {
+		t.Run(name, func(t *testing.T) {
+			input := strings.Repeat("x", maxConversationInputChunk-1) + part + strings.Repeat("z", maxConversationInputChunk)
+			first := conversationInputChunkLen(input, root)
+			if first != maxConversationInputChunk-1 {
+				t.Fatalf("first write would split %s: offset %d", name, first)
+			}
+		})
 	}
 }

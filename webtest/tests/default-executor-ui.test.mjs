@@ -15,8 +15,11 @@ async function adminApp(t, defaultExecutor) {
   return app;
 }
 
+// A project SOP: since upstream v0.4.1 the cards of built-in templates list
+// only resources, and the 使用 dialog asks the server
+// (/api/workflows/:id/executor-requirements) which CLI the roles resolve to.
 const sop = (executorId) => ({
-  id: 'generic-frontend-delivery', name: '通用前端交付 SOP', generic: true,
+  id: 'proj-frontend-delivery', name: '项目前端交付 SOP', projectId: 'p1',
   nodes: [{ id: 'build', name: '实现', type: 'agent', agentId: 'fe-build' }],
   agent: { id: 'fe-build', name: '实现', ...(executorId ? { executorId } : {}) },
 });
@@ -38,12 +41,9 @@ test('kiro default: no shared CodeBuddy key tab, SOP needs Kiro login not a Code
   const rows = app.evaluate(`sopRunRequirements(${JSON.stringify(w)})`);
   assert.ok(rows.every((row) => row.ok), 'Kiro CLI needs no personal key');
 
-  app.evaluate(`state.data.users=[{...state.currentUser,gitTokenConfigured:true}];state.currentUser=state.data.users[0];renderPersonalSettings()`);
-  await settle(4);
-  // 下一步 never points at CodeBuddy; with Git set up nothing else is required.
-  const progress = app.evaluate(`credentialProgressHTML(state.currentUser)`);
-  assert.doesNotMatch(progress, /CodeBuddy/);
-  assert.match(progress, /推荐凭证已全部就绪/);
+  // Upstream v0.4.1 redesigned 个人配置 as editable lists (no 下一步 block);
+  // the credential wizard still starts on the default CLI's credential.
+  assert.deepEqual(structuredClone(app.evaluate('credentialRecommended()')), ['gitToken']);
 });
 
 test('codebuddy default keeps the shared key tab and the CodeBuddy key dependency', async (t) => {
@@ -54,5 +54,5 @@ test('codebuddy default keeps the shared key tab and the CodeBuddy key dependenc
   const w = sop('');
   app.evaluate(`state.data.agents=[${JSON.stringify(w.agent)}];state.data.users=[{...state.currentUser,codeBuddyApiKeyConfigured:false}]`);
   assert.match(app.evaluate(`sopRunRequirementChips(${JSON.stringify(w)})`), /需要 CodeBuddy API Key/);
-  assert.match(app.evaluate(`credentialProgressHTML({gitTokenConfigured:true})`), /data-credential-setup="codeBuddyApiKey"/);
+  assert.deepEqual(structuredClone(app.evaluate('credentialRecommended()')), ['gitToken', 'codeBuddyApiKey']);
 });

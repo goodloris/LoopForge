@@ -165,6 +165,9 @@ func clearLegacyProjectAgentGitIndex(ctx context.Context, workspace string) erro
 		return cmd.CombinedOutput()
 	}
 	output, err := run()
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	if err == nil {
 		return nil
 	}
@@ -195,7 +198,7 @@ func clearLegacyProjectAgentGitIndex(ctx context.Context, workspace string) erro
 		}
 		inUse, confirmed, inspectErr = gitIndexLockInUse(ctx, lockPath)
 	}
-	if inspectErr != nil && ctx.Err() != nil {
+	if ctx.Err() != nil {
 		return ctx.Err()
 	}
 	if inspectErr != nil || !confirmed {

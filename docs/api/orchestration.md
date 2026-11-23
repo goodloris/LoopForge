@@ -273,11 +273,11 @@ curl -u "$AGENTFLOW_USER:$AGENTFLOW_PASS" -X POST \
 
 ## Run 评测
 
-只评测终态 run（`succeeded|failed|cancelled`），不自动触发。`model` 为 CodeBuddy 模型时使用当前登录用户的 CodeBuddy Key 和助手模型目录；`kiro:<model>` 等其他 CLI 的模型在平台服务器上以无工具的一次性调用执行（Kiro CLI 需要服务器上的 `kiro-cli` 登录，其他 CLI 需要当前用户的 API Key）。
+只评测终态 run（`succeeded|failed|cancelled`）。手动触发，使用请求人的执行器凭据。评测在平台服务器上以无工具的一次性调用执行：Kiro CLI（`kiro:<model>`）需要服务器上的 `kiro-cli` 登录，其他 CLI 需要请求人的 API Key。
 
 ### `POST /api/runs/{runId}/eval`
 
-请求 `{ "model": "default" }`，`model` 可选。成功 `202` 返回评测记录（`status=running`）。进行中的 run 返回 `409`；未登录 `401`；所选执行器不可用（未配置个人 CodeBuddy Key、服务器没有 kiro-cli 等）`400`。
+请求可选 `model`，例如 `{ "model": "codex:<model>" }`。省略或使用 `default` 时，从请求人的个人配置中选择默认执行器和模型。成功返回 `202` 与评测记录（`status=running`）。进行中的 run 返回 `409`。未登录返回 `401`。缺少所选执行器的凭据（含服务器没有 kiro-cli 登录）时返回 `400`。
 
 ### `GET /api/runs/{runId}/eval`
 
@@ -416,7 +416,9 @@ curl -u "$AGENTFLOW_USER:$AGENTFLOW_PASS" \
 - `overview.current` / `overview.previous`：最近 7×24 小时（含当前小时）与再往前 7×24 小时的 `total`、`finished`、`success`、`failed`、`running`、`avgMs`，只随 `jobId` 变化。已结束的执行来自按小时累计的统计表 `schedule_job_execution_stats`（保留 30 天，删除任务时一并删除），不受每个任务只保留 200 条记录的影响；进行中的执行从记录里数；
 - `records`：该项目保留的记录总数；`recentFailed`：该项目最近 7 天的失败次数（标签角标用）。
 
-缺 `projectId` 或 `since` 格式不对返回 400；`jobId` 属于无权访问的项目返回 403。统计表从部署后开始累计，部署前的执行不计入概览。
+缺 `projectId` 或 `since` 格式不对返回 400；`jobId` 属于无权访问的项目返回 403。统计表从部署后开始累计。升级时可备份并停止平台后，手动执行 `migrations/039_schedule_execution_legacy_stats.sql`，将仍保留的旧执行补入缺失的小时桶；脚本不覆盖已有桶，发现部分重叠时拒绝回补，不重建已清理的记录，也不推算旧 Token。
+
+AI 执行记录的可选 `model`、`usage`、`costCny` 保存本次 generation 的消耗与费用估计，包含重试及失败前已上报的调用，不含同一固定会话的前次执行或下游 SOP。`usage` 缺失表示未上报。`overview.current` / `overview.previous` 另外返回 `metered`、`tokens`（`total`、`input`、`output`、`cacheRead`、`cacheWrite`）、`avgTokens`、`priced`、`costCny`。`tokens.total` 优先使用模型上报总量，否则为输入加输出；缓存明细不再相加。`avgTokens` 仅对已上报执行取平均，`priced` 仅计入可估价执行。
 
 ```bash
 curl -u "$AGENTFLOW_USER:$AGENTFLOW_PASS" \

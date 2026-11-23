@@ -25,10 +25,14 @@ func TestWorkflowVerifyGateReportsTargetBranchFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(st.Close)
-	if err := st.PutUser(domain.User{LoginName: "shop-owner", GitToken: "owner-token"}); err != nil {
+	if err := st.PutUser(domain.User{LoginName: "shop-owner"}); err != nil {
 		t.Fatal(err)
 	}
 	owner, _ := st.UserByLoginName("shop-owner")
+	// Since upstream v0.4.1 the owner's GitHub token is a github.com HTTPS credential.
+	if err := st.SaveGitHTTPCredential(owner.ID, "", domain.GitHTTPCredentialSecret{GitHTTPCredential: domain.GitHTTPCredential{Name: "GitHub", Platform: domain.GitPlatformGitHub, Host: "github.com", Username: "x-access-token"}, Token: "owner-token"}); err != nil {
+		t.Fatal(err)
+	}
 	gate := domain.VerificationGate{ID: verifyGateID, Name: "验证命令", Mode: "command", Stage: "after_execution", Commands: []string{"true"}, Required: true, OnFailure: "reject", ExecutionScope: "run"}
 	for _, agent := range []domain.AgentDefinition{
 		{ID: "shop-test", ProjectID: "shop", Name: "测试验证", ExecutorID: "codebuddy", Verification: []domain.VerificationGate{gate}},

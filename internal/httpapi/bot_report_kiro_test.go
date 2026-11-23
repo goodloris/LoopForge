@@ -40,9 +40,10 @@ func TestBotReplyRunsOnKiroCLI(t *testing.T) {
 
 	kiroCLIInstalled = func() bool { return true }
 	argvFile := fakeKiroCLI(t, "没有提交回复")
-	_, err := h.generateBotReply(context.Background(), bot, domain.BotConversation{ChatType: "single"}, nil, item)
-	if err == nil || !strings.Contains(err.Error(), "未提交回复") {
-		t.Fatalf("fake CLI never submits: %v", err)
+	// Since upstream v0.4.1 a plain-text answer is a valid Bot reply.
+	reply, err := h.generateBotReply(context.Background(), bot, domain.BotConversation{ChatType: "single"}, nil, item)
+	if err != nil || reply != "没有提交回复" {
+		t.Fatalf("plain Kiro answer = %q %v", reply, err)
 	}
 	argv := readFakeArgv(t, argvFile)
 	if trust := kiroTrust(t, argv); trust == "" || strings.Contains(trust, "read") || strings.Contains(trust, "grep") || !strings.HasPrefix(trust, "@") {
@@ -50,18 +51,6 @@ func TestBotReplyRunsOnKiroCLI(t *testing.T) {
 	}
 	if !slices.Contains(argv, "auto") {
 		t.Fatalf("model not passed: %q", argv)
-	}
-}
-
-// CodeBuddy Bots keep requiring the account's own CodeBuddy key.
-func TestBotModelRefusalKeepsCodeBuddyKey(t *testing.T) {
-	if refusal := botModelRefusal(context.Background(), domain.User{}, domain.DefaultNotificationReportModel); !strings.Contains(refusal, "CodeBuddy Key") {
-		t.Fatal(refusal)
-	}
-	for model, want := range map[string]bool{domain.DefaultNotificationReportModel: true, "kiro:auto": true, "kiro:": true, "kiro:bad model": false, "codex:gpt-5.5": false} {
-		if validBotModel(model) != want {
-			t.Fatalf("validBotModel(%q) != %v", model, want)
-		}
 	}
 }
 

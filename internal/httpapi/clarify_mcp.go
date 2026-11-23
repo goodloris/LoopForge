@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -20,13 +21,9 @@ const (
 )
 
 var (
-	tapdURLRe          = regexp.MustCompile(`(?i)https?://(?:www\.)?(?:tapd\.example\.com|tapd\.cn)[^\s<>"'）】\]]+`)
-	gongfengIssueURLRe = regexp.MustCompile(`(?i)https?://git\.example\.com/[^\s<>"'）】\]]+/issues/\d+`)
+	clarifyWebURL      = regexp.MustCompile(`(?i)https?://[^\s<>"'）】\]]+`)
+	gongfengIssueURLRe = regexp.MustCompile(`(?i)https?://[^/\s<>"'）】\]]+/[^\s<>"'）】\]]+/issues/\d+`)
 )
-
-func clarifyAllowedModel(id string) string {
-	return assistantAllowedModel(id, assistantKnownCatalog())
-}
 
 // errClarifyResponsibleKey: a CodeBuddy clarification runs on the CodeBuddy
 // key of the requirement's assignee (or the project Owner).
@@ -36,58 +33,51 @@ var errClarifyResponsibleKey = errors.New("需求澄清用 CodeBuddy 模型时�
 // kiro-cli and its login here.
 var errClarifyKiroCLI = errors.New("需求澄清在平台服务器上运行：Kiro CLI 需要平台上安装 kiro-cli 并完成 kiro-cli login（订阅登录；Compose 部署设置 LOOPFORGE_KIRO_DATA_DIR 挂载宿主机登录），或改选其他模型")
 
-// clarifyModelFor resolves the model a clarification runs on: the panel's
-// choice, or for none CodeBuddy when the responsible user has a key, else
-// Kiro CLI when this server can run it.
-func clarifyModelFor(id string, responsible domain.User) string {
-	id = strings.TrimSpace(id)
-	if id == "" && strings.TrimSpace(responsible.CodeBuddyAPIKey) == "" && kiroCLIInstalled() {
-		return runtime.AgentCLIKiro + ":auto"
-	}
-	if engine, _ := assistantModelEngine(id); engine != assistantEngineCodeBuddy {
-		return id
-	}
-	return clarifyAllowedModel(id)
-}
-
 // clarifyPlatformRefusal reports what no responsible user can fix: a bad
 // model ID, or Kiro CLI without kiro-cli and its login on this server.
 func clarifyPlatformRefusal(model string) error {
-	engine, name := assistantModelEngine(model)
-	switch {
-	case engine == assistantEngineCodeBuddy:
-		return nil
-	case name != "" && !assistantValidEngineModel(name):
-		return errors.New("澄清模型无效，请重新选择")
-	case engine == runtime.AgentCLIKiro && !kiroCLIInstalled():
+	if _, err := normalizeFeatureModel(model); err != nil {
+		return err
+	}
+	if engine, _ := assistantModelEngine(model); engine == runtime.AgentCLIKiro && !kiroCLIInstalled() {
 		return errClarifyKiroCLI
 	}
 	return nil
 }
 
-// clarifyEngineRefusal reports, before any session or checkout, why model
-// cannot clarify for the responsible user. Clarification runs on this
-// server: Kiro CLI needs kiro-cli and its login here, the other CLIs the
-// responsible user's own key.
-func clarifyEngineRefusal(responsible domain.User, model string) error {
-	if err := clarifyPlatformRefusal(model); err != nil {
-		return err
+// clarifyModelFor resolves the model a clarification runs on for the
+// responsible user (resolveFeatureModel), and reports before any session or
+// checkout why it cannot run. Clarification runs on this server: Kiro CLI
+// needs kiro-cli and its login here, the other CLIs the responsible user's
+// own key. With no choice and no personal default, a user without a
+// CodeBuddy key gets Kiro CLI when this server can run it.
+func clarifyModelFor(id string, responsible domain.User) (string, error) {
+	id = strings.TrimSpace(id)
+	if err := clarifyPlatformRefusal(id); err != nil {
+		return "", err
 	}
-	switch engine, _ := assistantModelEngine(model); engine {
-	case assistantEngineCodeBuddy:
-		if strings.TrimSpace(responsible.CodeBuddyAPIKey) == "" {
-			return errClarifyResponsibleKey
-		}
-	case runtime.AgentCLIKiro:
-	default:
-		if key, _ := assistantEngineCredential(responsible, engine); key == "" {
+	if assistantModelUnspecified(id) && strings.TrimSpace(responsible.CodeBuddyAPIKey) == "" && personalDefaultModel(responsible) == "" && kiroCLIInstalled() {
+		return runtime.AgentCLIKiro + ":auto", nil
+	}
+	model, err := resolveFeatureModel(responsible, id)
+	if err != nil {
+		switch engine, _ := assistantModelEngine(id); {
+		case errors.Is(err, errFeatureModel):
+			return "", err
+		case assistantModelUnspecified(id), engine == assistantEngineCodeBuddy:
+			return "", errClarifyResponsibleKey
+		default:
 			label := assistantEngineLabel(engine)
-			return fmt.Errorf("需求澄清用 %s 模型时使用需求责任人（未指派时为项目 Owner）的 %s API Key：请该账号在「个人配置」中配置，或改选其他模型", label, label)
+			return "", fmt.Errorf("需求澄清用 %s 模型时使用需求责任人（未指派时为项目 Owner）的 %s API Key：请该账号在「个人配置」中配置，或改选其他模型", label, label)
 		}
 	}
-	return nil
+	// A personal default or another fallback can pick Kiro CLI through an
+	// execution machine's login, which does not help here.
+	if engine, _ := assistantModelEngine(model); engine == runtime.AgentCLIKiro && !kiroCLIInstalled() {
+		return "", errClarifyKiroCLI
+	}
+	return model, nil
 }
-
 func asStringKeyMap(v any) map[string]any {
 	m, ok := v.(map[string]any)
 	if !ok || m == nil {
@@ -238,7 +228,7 @@ func extractTAPDRefs(texts ...string) []clarifyTAPDHit {
 	seen := map[string]bool{}
 	var out []clarifyTAPDHit
 	for _, text := range texts {
-		for _, match := range tapdURLRe.FindAllString(text, -1) {
+		for _, match := range clarifyWebURL.FindAllString(text, -1) {
 			raw := strings.TrimRight(match, ".,;:，。；：")
 			ref, err := tracker.ParseTAPDStoryURL(raw)
 			if err != nil || ref.StoryID == "" || seen[ref.StoryID] {
@@ -287,8 +277,12 @@ func gongfengProjectPathFromClarifyURL(raw string) string {
 		return ""
 	}
 	path := raw
-	if i := strings.Index(strings.ToLower(raw), "git.example.com/"); i >= 0 {
-		path = raw[i+len("git.example.com/"):]
+	if strings.Contains(raw, "://") {
+		u, err := url.Parse(raw)
+		if err != nil || u.User != nil || !domain.IsGongfengHost(u.Host) {
+			return ""
+		}
+		path = u.Path
 	}
 	parts := strings.FieldsFunc(path, func(r rune) bool { return r == '/' })
 	for i, part := range parts {
@@ -562,7 +556,7 @@ func (h *streamHandlers) clarifyMCPUser(issue domain.Issue, responsible domain.U
 		return responsible
 	}
 	owner, ok := h.repo.User(project.OwnerID)
-	if !ok || strings.TrimSpace(owner.GitToken) == "" {
+	if !ok || len(h.repo.GitHTTPWorkspaceHosts(owner.ID)) == 0 {
 		return responsible
 	}
 	return owner

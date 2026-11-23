@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"agentflow/internal/domain"
+	"agentflow/internal/runtime"
 )
 
 // Adapted to platform/workspace operations from openai/codex's Guardian:
@@ -138,20 +139,18 @@ func approvalReviewInput(req assistantRequest, user domain.User) assistantApprov
 }
 
 // approvalReviewModels picks the review models of a turn. A conversation on
-// another CLI (Kiro CLI, Codex, …) is reviewed by that CLI and model: the
-// turn already runs on its credential or login, and a deployment without
-// CodeBuddy has nothing else. CodeBuddy turns keep the cheapest-model choice.
+// another CLI (Kiro CLI, Codex, …), a custom CodeBuddy endpoint or an exact
+// model choice is reviewed by that CLI and model: the turn already runs on
+// its credential or login. CodeBuddy turns keep the cheapest-model choice.
 func (h *assistantHandlers) approvalReviewModels(req assistantRequest, user domain.User) []string {
-	if model := assistantRequestModel(req.Executor, req.Model); !assistantCodeBuddyModel(model) {
-		return []string{model}
+	selected := assistantRequestModel(req.Executor, req.Model)
+	if !assistantCodeBuddyModel(selected) || user.CodeBuddyBaseURL != "" || (req.RequireExactModel && selected != "") {
+		return []string{selected}
 	}
-	var catalog assistantModelCatalog
 	if h.reviewCatalog != nil {
-		catalog = h.reviewCatalog(user.CodeBuddyInternetEnvironment)
-	} else {
-		catalog = h.chatCatalog(context.Background(), user)
+		return assistantApprovalReviewModels(h.reviewCatalog(user.CodeBuddyInternetEnvironment))
 	}
-	return assistantApprovalReviewModels(catalog)
+	return assistantApprovalReviewModels(h.chatCatalog(context.Background(), user))
 }
 
 func assistantCodeBuddyModel(model string) bool {
@@ -234,9 +233,12 @@ func (h *assistantHandlers) approvalReviewer(req assistantRequest, user domain.U
 }
 
 func runAssistantApprovalReview(ctx context.Context, input assistantApprovalInput, user domain.User, model string) (assistantApprovalReview, error) {
-	// Other CLIs name a missing key or login themselves; the review is then
-	// unavailable and the user confirms by hand.
-	if model == "" || assistantCodeBuddyModel(model) && strings.TrimSpace(user.CodeBuddyAPIKey) == "" {
+	engine, _ := assistantModelEngine(model)
+	key, _ := assistantEngineCredential(user, engine)
+	_, login := helperCLIExecution(ctx, "", user.ID, engine)
+	// Kiro CLI has no key and names a missing login itself; the review is
+	// then unavailable and the user confirms by hand.
+	if model == "" || key == "" && !login && engine != runtime.AgentCLIKiro {
 		return assistantApprovalReview{}, fmt.Errorf("review model or credential unavailable")
 	}
 	root, err := os.MkdirTemp("", "agentflow-approval-review-")
