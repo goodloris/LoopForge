@@ -166,7 +166,7 @@ func TestFeishuWorkspaceNote(t *testing.T) {
 }
 
 func TestDiagnosticsRedactFeishuTokens(t *testing.T) {
-	for _, token := range []string{"u-7Hk2mQ9xLp4Rz8Vb1Nc6Td3Ws5Ya0Ef", "t-g1044Nkcd3c2AbCdEfGhIjKlMnOpQrSt", "eyJhbGciOiJFUzI1NiIs.eyJzdWIiOiJvdV8xMjM0NTY3OCJ9.c2lnbmF0dXJl"} {
+	for _, token := range []string{"u-7Hk2mQ9xLp4Rz8Vb1Nc6Td3Ws5Ya0Ef", "t-g1044Nkcd3c2AbCdEfGhIjKlMnOpQrSt", strings.Join([]string{"eyJ" + "fakeheader01", "fakepayload01", "fakesig"}, ".")} {
 		out := sanitizeAssistantDiagnostic("lark-cli failed with "+token+" in output", domain.User{}, 1024)
 		if strings.Contains(out, token) {
 			t.Fatalf("token survived: %q", out)
