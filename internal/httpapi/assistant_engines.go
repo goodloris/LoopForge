@@ -282,9 +282,27 @@ func installKiroRunnerReady(store interface{ Runners() []domain.Runner }) {
 
 func assistantEngineMissingKey(engine string) string {
 	if engine == runtime.AgentCLIKiro {
-		return "Kiro CLI 不可用：请在平台或默认执行机器上安装 kiro-cli 并运行 kiro-cli login（订阅登录）"
+		refusal := "Kiro CLI 不可用：请在平台或默认执行机器上安装 kiro-cli 并运行 kiro-cli login（订阅登录）"
+		// The data dir is set (compose.yaml mounts one) but holds no login.
+		if runtime.KiroDataDirWarning() != "" {
+			refusal += "；Compose 部署请在 .env 设置 LOOPFORGE_KIRO_DATA_DIR 并 docker compose up -d"
+		}
+		return refusal
 	}
 	return fmt.Sprintf("请先在个人配置中配置 %s API Key 后再使用 %s 模型", assistantEngineLabel(engine), assistantEngineLabel(engine))
+}
+
+// assistantCodeBuddyMissingKey is the historical refusal for a CodeBuddy turn
+// without a personal or platform-shared key.
+const assistantCodeBuddyMissingKey = "请先在个人配置中配置自己的 CodeBuddy API Key"
+
+// assistantMissingCredential is the refusal for a turn on engine without its
+// credential; CodeBuddy keeps its historical wording.
+func assistantMissingCredential(engine string) string {
+	if engine == assistantEngineCodeBuddy || engine == "" {
+		return assistantCodeBuddyMissingKey
+	}
+	return assistantEngineMissingKey(engine)
 }
 
 // assistantTurnUser checks personal credentials or the chosen runner login.
@@ -308,7 +326,7 @@ func (h *assistantHandlers) assistantTurnUser(stored domain.User, model string, 
 	}
 	user, shared, ok := h.assistantChatUser(stored)
 	if !ok {
-		return stored, "", "请先在个人配置中配置自己的 CodeBuddy API Key"
+		return stored, "", assistantMissingCredential(assistantEngineCodeBuddy)
 	}
 	if len(shared) > 0 {
 		forced, allowed := assistantSponsoredModelFor(shared, model)
@@ -333,6 +351,23 @@ func assistantAllowedUserModel(id string, catalog assistantModelCatalog, user do
 		return catalog.Default
 	}
 	return engine + ":" + model
+}
+
+// assistantUnavailableCLIRefusal refuses a turn that explicitly picks a
+// non-CodeBuddy CLI this caller cannot use. Falling back to CodeBuddy would
+// blame the wrong credential and pin the session to CodeBuddy.
+func assistantUnavailableCLIRefusal(id string, user domain.User) string {
+	engine, model := assistantModelEngine(id)
+	if engine == assistantEngineCodeBuddy {
+		return ""
+	}
+	if key, _ := assistantEngineCredential(user, engine); key == "" {
+		return assistantEngineMissingKey(engine)
+	}
+	if !assistantValidEngineModel(model) {
+		return "模型 ID 无效"
+	}
+	return ""
 }
 
 // assistantScheduledModel normalizes the model of an AI scheduled task on
@@ -662,14 +697,18 @@ func assistantRequestModel(executor, model string) string {
 	if engine, _ := assistantModelEngine(model); engine != assistantEngineCodeBuddy {
 		return model
 	}
-	switch assistantExecutor(executor) {
+	// An empty executor keeps the model as-is: helper turns (titles, approval
+	// reviews, bots) pass CodeBuddy catalog IDs without one, and the
+	// deployment's default CLI must not re-prefix them.
+	// Executor IDs ignore case and surrounding spaces, like IsAgentCLI.
+	switch executor = strings.ToLower(strings.TrimSpace(executor)); executor {
 	case assistantEngineCodex:
 		return assistantEngineCodex + ":" + model
 	case "claude", assistantEngineClaude:
 		return assistantEngineClaude + ":" + model
 	default:
 		if runtime.IsAgentCLI(executor) {
-			return strings.TrimSpace(executor) + ":" + model
+			return executor + ":" + model
 		}
 	}
 	return model

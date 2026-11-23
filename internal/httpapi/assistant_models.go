@@ -44,6 +44,10 @@ type assistantModelCatalog struct {
 	SponsoredModels []string `json:"sponsoredModels,omitempty"`
 	// Engines lists the CLIs a signed-in user can switch between.
 	Engines []assistantEngineOption `json:"engines,omitempty"`
+	// DefaultExecutor is the deployment's default CLI for a new conversation
+	// (AGENTFLOW_DEFAULT_EXECUTOR, codebuddy when unset). Only the default
+	// catalog sets it.
+	DefaultExecutor string `json:"defaultExecutor,omitempty"`
 }
 
 func prefetchAssistantModels() {}
@@ -239,6 +243,7 @@ func (h *assistantHandlers) models(c *gin.Context) {
 		catalog.Models = append(catalog.Models, assistantEngineModels(c.Request.Context(), user, runnerLogin)...)
 		h.saveCursorCatalog(user)
 	}
+	catalog.DefaultExecutor = assistantDefaultExecutor()
 	c.JSON(200, catalog)
 }
 

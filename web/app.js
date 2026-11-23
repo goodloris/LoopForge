@@ -689,6 +689,12 @@ function catalogVisible(projectId,shared){return catalogOwned(projectId)||catalo
 function isPlatformAdmin(){return !!(state.currentUser&&!state.currentUser.isGuest&&state.currentUser.isPlatformAdmin)}
 function canEditGeneric(wf){return catalogGeneric(wf)&&isPlatformAdmin()}
 function catalogGeneric(item){return !!item?.generic}
+// The built-in executor a role without one runs on, as /api/bootstrap reports
+// it (AGENTFLOW_DEFAULT_EXECUTOR). Older servers omit it, meaning CodeBuddy.
+function defaultExecutorId(){return state.data?.defaultExecutor||'codebuddy'}
+// CodeBuddy-only setup (shared key, wizard key block, 下一步) is shown only
+// where CodeBuddy is the default executor.
+function codeBuddyIsDefault(){return defaultExecutorId()==='codebuddy'}
 // Generic roles live in generic_templates, but the first project that
 // adopted a template often reused the same role id. Looking the wizard
 // subject up in the project catalog then marks that role as foreign and

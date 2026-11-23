@@ -54,7 +54,7 @@ const flowPalette=(()=>{
   function roleTint(id){let h=0;for(const ch of String(id||''))h=(h*31+ch.charCodeAt(0))>>>0;return ROLE_TINTS[h%ROLE_TINTS.length]}
   const initial=name=>(String(name||'?').trim()[0]||'?').toUpperCase();
   function roleDesc(a){
-    const exec=(state.data?.executors||[]).find(x=>x.id===a.executorId);
+    const exec=(state.data?.executors||[]).find(x=>x.id===(a.executorId||defaultExecutorId()));
     const model=a.model||exec?.model||exec?.name||'未选模型';
     if(catalogGeneric(state.workflow))return `${model} · 通用模板`;
     const projectId=state.workflow?.projectId||state.projectFilter||'';

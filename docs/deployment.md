@@ -59,7 +59,7 @@ The installer checks Docker, Compose, Python 3 and curl. It offers to install mi
 
 Run it as the installation owner, including an ordinary Linux user. If that user cannot access Docker directly, the installer validates sudo and uses `sudo -n docker` consistently for Compose, schema installation and seeds. Before each operation it checks whether sudo credentials expired during a long build, prompting again in a terminal or failing with instructions in unattended mode. It does not require adding the user to the Docker group or logging out. For unattended installations run `sudo -v` first; `LOOPFORGE_YES=1` accepts installation prompts but does not bypass operating-system permissions. Without sudo or Docker access it fails immediately with instructions. Rootless Docker uses its active context's Unix socket; remote Docker contexts need a separately configured deployment because sandbox workspaces are local bind mounts.
 
-`compose.yaml` is the published-image stack and never builds: `./start.sh`, `scripts/install.sh` and a plain `docker compose --profile platform up` all pull the GHCR release pinned there (currently `ghcr.io/goodloris/loopforge:0.6.0`). The pin matches the checkout's migrations and seeds, so check out a release tag when you install. Set `LOOPFORGE_IMAGE` (for example to an `@sha256:` digest) only to override it; a value saved in `.env` takes precedence over later pin changes.
+`compose.yaml` is the published-image stack and never builds: `./start.sh`, `scripts/install.sh` and a plain `docker compose --profile platform up` all pull the GHCR release pinned there (currently `ghcr.io/goodloris/loopforge:0.7.0`). The pin matches the checkout's migrations and seeds, so check out a release tag when you install. Set `LOOPFORGE_IMAGE` (for example to an `@sha256:` digest) only to override it; a value saved in `.env` takes precedence over later pin changes.
 
 To upgrade, update the checkout first, then refresh the containers:
 
@@ -198,6 +198,17 @@ Credentials are needed to test end to end. Once you have them:
 4. To find your `tenant_key`, attempt a sign-in once with an empty allowlist and read it from the error page or the platform log, then add it to `LOOPFORGE_FEISHU_ALLOWED_TENANTS` and restart.
 5. Check that password login and existing accounts are unaffected, and that a member from a tenant not on the allowlist is refused.
 
+## Default executor
+
+`AGENTFLOW_DEFAULT_EXECUTOR` names the CLI that AI chat uses when nothing else names one. Leave it unset to keep CodeBuddy, the historical default.
+
+- **Valid values:** `codebuddy`, `codex`, `claude-code` (`claude` is accepted too), `opencode`, `cursor`, `agy`, `kimi`, `pi`, `dsh`, `zcode`, `kiro`. Case and surrounding spaces are ignored. Any other value falls back to `codebuddy`, and the server logs one warning naming the bad value.
+- **What it changes:** `/api/assistant/models` reports it as `defaultExecutor`. A browser with no saved CLI choice and no earlier conversation of its own starts new conversations on this CLI, as long as the user has it configured; otherwise the first configured CLI is used, as before. The AI orchestration panel and new AI scheduled tasks start on this CLI's first listed model. Chat API requests that name neither an executor nor a model run on this CLI's default model (`<cli>:default`), and a missing credential is reported for that CLI.
+- **What it does not change:** existing conversations, a browser's saved CLI choice, saved scheduled tasks and SOP definitions. Approval review, AI notification digests, Bot replies, requirement clarification and run evaluation keep their current models.
+- **CLI not available:** if the default CLI cannot run for a user (for example `kiro` without `kiro-cli login` on the platform or one of their execution machines), the chat request is refused with a message that names that CLI and how to configure it; it is not rewritten to CodeBuddy.
+
+With Compose, set it in `.env`; `compose.yaml` passes it to the platform container.
+
 ## Kiro CLI
 
 Kiro CLI runs on a subscription login (`kiro-cli login`), never on an API key.
@@ -205,7 +216,7 @@ Kiro CLI runs on a subscription login (`kiro-cli login`), never on an API key.
 - **Execution machine without a sandbox (local driver):** Kiro uses the machine's own login and may refresh its token in its data directory.
 - **Any sandbox (Docker, seatbelt, bwrap) and conversation workspaces:** each invocation gets a copy of only the login (no conversations or history) in its private HOME, so no sandboxed agent can read or write the machine's kiro-cli data. The copy refreshes its own access token; the refresh token does not rotate, so the machine stays logged in. Process sandboxes share one read-only copy of the machine's kiro-cli runtime, unpacked once under `AGENTFLOW_RUNTIME_CLI_DIR` (or the user cache directory).
 - **Conversation workspaces:** before each start, the conversation's `KIRO_HOME` is cleared of everything except sessions, logs, login state and what the platform rewrites, so hooks or permission rules a workspace turn planted there do not load in a later turn.
-- **Compose platform:** set `LOOPFORGE_KIRO_DATA_DIR` in `.env` to the absolute path of the host's kiro-cli data directory, for example `LOOPFORGE_KIRO_DATA_DIR=/home/<you>/.local/share/kiro-cli` on Linux or `LOOPFORGE_KIRO_DATA_DIR="/Users/<you>/Library/Application Support/kiro-cli"` on macOS (quote a path with spaces). Do not write `~`: the installer scripts read `.env` literally, and Compose resolves `~` against the home of the user running it, which is not yours when Docker is reached through sudo. It is mounted read-only at `/kiro-host`; without it Kiro CLI shows as unconfigured.
+- **Compose platform:** set `LOOPFORGE_KIRO_DATA_DIR` in `.env` to the absolute path of the host's kiro-cli data directory, for example `LOOPFORGE_KIRO_DATA_DIR=/home/<you>/.local/share/kiro-cli` on Linux or `LOOPFORGE_KIRO_DATA_DIR="/Users/<you>/Library/Application Support/kiro-cli"` on macOS (quote a path with spaces). Do not write `~`: the installer scripts read `.env` literally, and Compose resolves `~` against the home of the user running it, which is not yours when Docker is reached through sudo. It is mounted read-only at `/kiro-host`; without it Kiro CLI shows as unconfigured, and a chat that picks Kiro CLI is refused with a Kiro-specific message instead of falling back to CodeBuddy. Changing `.env` requires recreating the container (`docker compose up -d`); `./start.sh restart` does not pick up new values. The platform logs a warning at startup when the data directory has no `data.sqlite3`.
 
 The image bundles kiro-cli 3.4.0 with its runtime in `KIRO_RUNTIME_DIR=/opt/kiro-runtime`. A custom sandbox image without kiro-cli installs the same pinned release on first use and unpacks the runtime (about 415 MB) into the private HOME.
 

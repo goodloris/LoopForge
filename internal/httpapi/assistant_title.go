@@ -81,8 +81,10 @@ const assistantTitleTimeout = 180 * time.Second
 
 // scheduleAssistantTitle summarizes the first prompt on the CLI of the
 // session's model. shared lists the models a CodeBuddy turn on the platform
-// key may use. There is no cross-CLI fallback: a failed summary keeps the
-// first-prompt title.
+// key may use. A CodeBuddy session without any CodeBuddy key falls back to the
+// session's own CLI, then the deployment's default CLI, then the first
+// configured CLI (assistantTitleFallbackModel); when none is usable, or the
+// summary fails, the first-prompt title stays.
 func (h *assistantHandlers) scheduleAssistantTitle(ctx context.Context, ownerID int64, user domain.User, old domain.AssistantSession, sessionID string, messages []domain.AssistantMessage, model string, shared []string) {
 	if h == nil || h.repo == nil {
 		return
@@ -102,7 +104,11 @@ func (h *assistantHandlers) scheduleAssistantTitle(ctx context.Context, ownerID 
 		if h.titleSummary != nil {
 			title, err = h.titleSummary(runCtx, user, prompt)
 		} else {
-			title, err = summarizeAssistantTitle(runCtx, user, model, prompt, shared)
+			sessionEngine := assistantConversationEngine(old.Messages, old.Executor)
+			if sessionEngine == "" {
+				sessionEngine = assistantLegacyExecutor(old.Executor)
+			}
+			title, err = titleSummarizer(runCtx, user, assistantTitleFallbackModel(user, model, sessionEngine, shared), prompt, shared)
 		}
 		if err != nil || strings.TrimSpace(title) == "" {
 			log.Printf("assistant title summary skipped session=%s: %s", sessionID, sanitizeAssistantDiagnostic(fmt.Sprint(err), user, 4096))
@@ -137,6 +143,44 @@ func assistantTitleModel(ctx context.Context, user domain.User, model string, sh
 	}
 	return catalog.Default, ""
 }
+
+// assistantTitleFallbackModel moves a CodeBuddy title summary to another CLI
+// when the user has no CodeBuddy key of their own and the turn does not borrow
+// the platform key (shared). Otherwise the model is returned unchanged.
+func assistantTitleFallbackModel(user domain.User, model, sessionEngine string, shared []string) string {
+	if engine, _ := assistantModelEngine(model); engine != assistantEngineCodeBuddy ||
+		strings.TrimSpace(user.CodeBuddyAPIKey) != "" || len(shared) > 0 {
+		return model
+	}
+	if fallback := assistantTitleFallbackEngine(user, sessionEngine, assistantDefaultExecutor()); fallback != "" {
+		return assistantEngineDefaultModel(fallback)
+	}
+	return model
+}
+
+// assistantTitleFallbackEngine is the first candidate CLI other than
+// CodeBuddy the user can run, or else the first configured one; "" when the
+// user has no CLI besides CodeBuddy.
+func assistantTitleFallbackEngine(user domain.User, candidates ...string) string {
+	for _, engine := range candidates {
+		if engine == "" || engine == assistantEngineCodeBuddy {
+			continue
+		}
+		if key, _ := assistantEngineCredential(user, engine); key != "" {
+			return engine
+		}
+	}
+	for _, option := range assistantEngineOptions(user, false) {
+		if option.ID != assistantEngineCodeBuddy && option.Configured {
+			return option.ID
+		}
+	}
+	return ""
+}
+
+// titleSummarizer is replaceable so tests can see which model a scheduled
+// title summary asks for without starting a CLI.
+var titleSummarizer = summarizeAssistantTitle
 
 func summarizeAssistantTitle(ctx context.Context, user domain.User, model, prompt string, shared []string) (string, error) {
 	model, effort := assistantTitleModel(ctx, user, model, shared)

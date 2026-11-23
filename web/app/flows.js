@@ -327,7 +327,7 @@ function nodeMeta(n){
   if(isPreviewBuildNode(n.id))return {kind:'preview',subtitle:'CodeBuddy 静态站点构建',tags:[{text:workflowPreviewModel(state.workflow)}]};
   if(n.type==='agent'){
     const a=workflowAgent(n.agentId),generic=catalogGeneric(state.workflow);
-    const e=(state.data.executors||[]).find(x=>x.id===(a?.executorId||n.executorId));
+    const e=(state.data.executors||[]).find(x=>x.id===(a?.executorId||n.executorId||defaultExecutorId()));
     const subtitle=a?.name||(n.agentId?(generic?n.agentId:'角色不可用'):'未绑定角色');
     const tags=[];
     if(!n.agentId)tags.push({text:'未绑定角色',warn:true});
@@ -908,7 +908,7 @@ function renderAgentAssetsPanel(a){
   const d=ensureAgentDraft(a);
   const generic=catalogGeneric(state.workflow);
   const col=(title,sub,name,items,selected)=>{const vis=name==='mcpServers'?(generic?(items||[]):visibleMCPAssets(items)):(name==='rules'||name==='skills'?(items||[]).filter(item=>catalogVisible(item.projectId,item.shared)):visibleAssets(items));const picked=vis.filter(item=>name==='mcpServers'&&generic?genericMCPChecked(item.id,selected):(selected||[]).includes(item.id)).length;const empty=name==='mcpServers'?(generic?'通用模板绑定市场别名（如 github），运行时落到当前项目已安装的 MCP':'这个项目或你的个人范围还没有 MCP，先到「MCP 管理」里添加'):name==='rules'?'这个项目还没有可用规则，先到「规则管理」里添加或共享':name==='skills'?'这个项目还没有可用技能，先到「技能管理」里添加或共享':'这个项目还没有此类配置，先到「环境资产」里添加';return `<div class="as-asset-col"><div class="as-asset-col-head"><b>${title}</b><span>${sub}${picked?` · 已选 ${picked}`:''}</span></div><div class="as-asset-search"><span>⌕</span><input type="search" data-asset-filter="${name}" placeholder="搜索名称…"></div><div class="as-asset-list" data-asset-list="${name}">${vis.map(x=>`<label class="as-asset-item"><input type="checkbox" name="${name}" value="${escapeHTML(x.id)}" ${(name==='mcpServers'&&generic?genericMCPChecked(x.id,selected):(selected||[]).includes(x.id))?'checked':''}><div><b>${escapeHTML(x.name)}</b><small>${escapeHTML(x.description||x.id)}${x.shared&&x.projectId!==state.projectFilter?' · 共享':''}</small></div></label>`).join('')||`<div class="as-empty">${empty}</div>`}</div></div>`};
-  host.innerHTML=`<section class="as-section-block as-platform-mcp-section"><div class="as-section-head"><b>平台能力</b><small>独立开关，不占用 MCP 列表</small></div><label class="as-switch-row"><span><b>接入平台 MCP（LoopForge）</b><small>开启后，这个角色运行时通过平台 MCP（agentflow-platform）直接调用平台侧功能：需求、任务、运行、项目等平台操作。</small></span><input type="checkbox" name="platformMcp" ${d.platformMcp?'checked':''} role="switch"></label><label class="as-switch-row"><span><b>接入团队知识库</b><small>开启后，这个角色运行时可只读检索团队知识库（agentflow-knowledge），并自动附带「知识库使用规范」规则；产出的 knowledge.md 会进入知识沉淀审核队列。</small></span><input type="checkbox" name="knowledgeBase" ${d.knowledgeBase?'checked':''} role="switch"></label></section><div class="as-assets">${col('必须遵守','规则','rules',state.data.rules,d.rules)}${col('怎么干活','技能','skills',state.data.skills,d.skills)}${col('外部工具','MCP','mcpServers',generic?genericTemplateMCPOptions(d.mcpServers):state.data.mcpServers,d.mcpServers)}</div><section class="as-section-block as-hook-section"><div class="as-section-head"><b>运行时 Hook</b><small>在工具调用前后插一段脚本，比如拦危险命令。一般可以先不配。</small></div><div id="agentHookPanel"></div></section>`;
+  host.innerHTML=`<section class="as-section-block as-platform-mcp-section"><div class="as-section-head"><b>平台能力</b><small>独立开关，不占用 MCP 列表</small></div><label class="as-switch-row"><span><b>接入平台 MCP（Bagel）</b><small>开启后，这个角色运行时通过平台 MCP（agentflow-platform）直接调用平台侧功能：需求、任务、运行、项目等平台操作。</small></span><input type="checkbox" name="platformMcp" ${d.platformMcp?'checked':''} role="switch"></label><label class="as-switch-row"><span><b>接入团队知识库</b><small>开启后，这个角色运行时可只读检索团队知识库（agentflow-knowledge），并自动附带「知识库使用规范」规则；产出的 knowledge.md 会进入知识沉淀审核队列。</small></span><input type="checkbox" name="knowledgeBase" ${d.knowledgeBase?'checked':''} role="switch"></label></section><div class="as-assets">${col('必须遵守','规则','rules',state.data.rules,d.rules)}${col('怎么干活','技能','skills',state.data.skills,d.skills)}${col('外部工具','MCP','mcpServers',generic?genericTemplateMCPOptions(d.mcpServers):state.data.mcpServers,d.mcpServers)}</div><section class="as-section-block as-hook-section"><div class="as-section-head"><b>运行时 Hook</b><small>在工具调用前后插一段脚本，比如拦危险命令。一般可以先不配。</small></div><div id="agentHookPanel"></div></section>`;
   host.querySelectorAll('[data-asset-filter]').forEach(input=>input.oninput=()=>{const q=input.value.trim().toLowerCase();input.closest('.as-asset-col').querySelectorAll('.as-asset-item').forEach(row=>row.hidden=!!q&&!row.textContent.toLowerCase().includes(q))});
   host.querySelectorAll('input[type=checkbox]').forEach(el=>el.onchange=()=>{renderAgentSummary();dirty()});
   const platformToggle=host.querySelector('input[name="platformMcp"]');
@@ -958,7 +958,7 @@ function renderAgentHookEditors(d){
 }
 function renderAgentSummary(){
   const f=$('#agentForm'),d=state.agentDraft||{};
-  const exec=(state.data.executors||[]).find(x=>x.id===(f?.elements?.executorId?.value||d.executorId));
+  const exec=(state.data.executors||[]).find(x=>x.id===(f?.elements?.executorId?.value||d.executorId||defaultExecutorId()));
   const chosen=agentEffectiveModel(f),model=chosen||(exec?.model?`${exec.model}（默认）`:'默认模型');
   const effort=(f?.elements?.effort?.value||'').trim();
   const meta=$('#agentRuntimeMeta');
@@ -994,7 +994,7 @@ function sectionHead(title,hint,count,unit){
 }
 function agentBindCard(n){
   const agent=workflowAgent(n.agentId);
-  const exec=(state.data.executors||[]).find(x=>x.id===(agent?.executorId||n.executorId));
+  const exec=(state.data.executors||[]).find(x=>x.id===(agent?.executorId||n.executorId||defaultExecutorId()));
   const generic=catalogGeneric(state.workflow);
   const projectId=state.workflow?.projectId||state.projectFilter||'',projects=state.data.projects||[];
   const invalid=n.agentId&&!agent?'<option value="" selected disabled>当前绑定角色不可用，请重新选择</option>':'';

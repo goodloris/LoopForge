@@ -1,0 +1,64 @@
+package httpapi
+
+import (
+	"agentflow/internal/runtime"
+	"log"
+	"os"
+	"slices"
+	"strings"
+	"sync"
+)
+
+// assistantDefaultExecutorEnv names the deployment's default CLI.
+const assistantDefaultExecutorEnv = "AGENTFLOW_DEFAULT_EXECUTOR"
+
+// assistantDefaultExecutorWarned remembers the invalid values already logged,
+// so a bad setting warns once per distinct value instead of on every request.
+var assistantDefaultExecutorWarned sync.Map
+
+// assistantDefaultExecutor is the CLI a conversation or request runs on when
+// nothing names one. AGENTFLOW_DEFAULT_EXECUTOR overrides it; an unknown value
+// falls back to CodeBuddy and is logged once per distinct value. The variable
+// is read on every call so tests and operators never see a stale value.
+func assistantDefaultExecutor() string {
+	raw := strings.ToLower(strings.TrimSpace(os.Getenv(assistantDefaultExecutorEnv)))
+	if raw == "" {
+		return assistantEngineCodeBuddy
+	}
+	if raw == "claude" {
+		raw = assistantEngineClaude
+	}
+	valid := append([]string{assistantEngineCodeBuddy}, assistantCLIEngines()...)
+	if slices.Contains(valid, raw) {
+		return raw
+	}
+	if _, seen := assistantDefaultExecutorWarned.LoadOrStore(raw, true); !seen {
+		log.Printf("%s=%q is not a supported executor (%s); using %s", assistantDefaultExecutorEnv, raw, strings.Join(valid, ", "), assistantEngineCodeBuddy)
+	}
+	return assistantEngineCodeBuddy
+}
+
+// assistantDefaultRequestModel fills a request for a new conversation that
+// names neither a CLI nor a model with the deployment's default CLI. Any other
+// input is the caller's choice and is kept; CodeBuddy as default keeps the old
+// empty model. An existing conversation keeps the CLI it was started on, so an
+// old CodeBuddy conversation is not refused for switching CLI mid-way.
+func assistantDefaultRequestModel(executor, model string, newSession bool) string {
+	if !newSession || strings.TrimSpace(executor) != "" || strings.TrimSpace(model) != "" {
+		return model
+	}
+	if engine := assistantDefaultExecutor(); engine != assistantEngineCodeBuddy {
+		return assistantEngineDefaultModel(engine)
+	}
+	return model
+}
+
+// assistantEngineDefaultModel is the model ID that lets a CLI pick its own
+// model. kiro-cli rejects a literal "default" (InvalidModelError, found by
+// running a real title summary), so Kiro uses its "auto" model instead.
+func assistantEngineDefaultModel(engine string) string {
+	if engine == runtime.AgentCLIKiro {
+		return engine + ":auto"
+	}
+	return engine + ":default"
+}

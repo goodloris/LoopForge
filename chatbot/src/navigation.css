@@ -98,6 +98,15 @@
   height: 25px;
 }
 
+/* The Bagel ring is a full-colour glyph, so it never sits on a filled box
+   (the home shell otherwise gives .brand-icon a dark rounded background). */
+.brand-icon.brand-icon-bagel,
+.chat-shell .brand-icon.brand-icon-bagel,
+.home-shell .brand-icon.brand-icon-bagel {
+  background: transparent;
+  border-radius: 0;
+}
+
 .chat-shell .brand > .icon-button {
   width: 44px;
   height: 44px;

@@ -42,6 +42,7 @@ const assert=require('node:assert/strict');
 const code=require('node:fs').readFileSync('` + appBundlePath(t) + `','utf8');
 const state={currentUser:{id:1},data:{users:[{id:1,gitTokenConfigured:true}]}};
 const userById=id=>state.data.users.find(u=>u.id===id);
+const defaultExecutorId=()=>'codebuddy',codeBuddyIsDefault=()=>true;
 const escapeHTML=v=>String(v),userAvatarHTML=()=>'',userDisplay=()=>'Alice';
 const toasts=[];const toast=(message,kind)=>toasts.push({message,kind});
 let result={valid:false,error:'当前配置的是工蜂「私人令牌」，只能用于 API，不能克隆或推送仓库。请创建「个人访问令牌」'};

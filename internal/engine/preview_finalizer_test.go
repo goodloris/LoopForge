@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"errors"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -387,8 +388,20 @@ func TestDeleteRunRevokesPreviewSession(t *testing.T) {
 	if _, _, ok := svc.LookupSession(plain); !ok {
 		t.Fatalf("session should be live before delete: %s", urlStr)
 	}
-	if err := engine.DeleteRun(run.ID); err != nil {
-		t.Fatal(err)
+	// PreviewReady is written before the finalizer releases the workspace
+	// (markReady → ReleaseWorkspace → idle checkpoint save), so DeleteRun can
+	// race that tail and get ErrWorkspaceInUse. Callers treat it as "busy,
+	// retry" (HTTP 409 workspace_busy); do the same here.
+	deleteDeadline := time.Now().Add(5 * time.Second)
+	for {
+		err := engine.DeleteRun(run.ID)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, repo.ErrWorkspaceInUse) || time.Now().After(deleteDeadline) {
+			t.Fatal(err)
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 	if _, ok := store.PreviewByRun(run.ID); ok {
 		t.Fatal("preview metadata survived run delete")

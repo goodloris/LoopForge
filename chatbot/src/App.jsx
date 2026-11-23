@@ -60,6 +60,7 @@ import IssueContext from "./IssueContext";
 import { mentionAt, insertMention } from "./mentions.js";
 import { elementTitle } from "./element-context.js";
 import HarnessIcon from "./HarnessIcon";
+import BagelMark from "./BagelMark";
 import QueuedMessages from "./QueuedMessages";
 import { turnModeCaption } from "./message-info.js";
 import "./message-queue.css";
@@ -1171,14 +1172,14 @@ export default function App() {
         <button
           className="brand-home"
           onClick={startNewChat}
-          aria-label="LoopForge 首页"
+          aria-label="Bagel 首页"
           inert={!sidebar}
           aria-hidden={!sidebar || undefined}
         >
-          <span className="brand-icon">
-            <HarnessIcon name="workflow" size={20} />
+          <span className="brand-icon brand-icon-bagel">
+            <BagelMark size={25} />
           </span>
-          <strong>LoopForge</strong>
+          <strong>Bagel</strong>
         </button>
         <IconButton
           className="sidebar-toggle"
@@ -2133,7 +2134,7 @@ export default function App() {
                         e.target.value = "";
                       }}
                     />
-                    {chat.executors.length > 1 && !pinnedExecutor ? (
+                    {chat.executor && chat.executors.length > 1 && !pinnedExecutor ? (
                       <PermissionPicker
                         label="CLI"
                         options={chat.executors.map((executor) => {
@@ -2502,6 +2503,7 @@ export default function App() {
         defaultModel={chat.model}
         sponsoredModel={chat.sponsoredModel}
         sponsoredModels={chat.sponsoredModels}
+        defaultExecutor={chat.deploymentExecutor}
         onClose={() => setQuickAccessOpen(false)}
         onOpenView={(view) => navigate(view)}
         onCredentialsSaved={chat.refreshUser}

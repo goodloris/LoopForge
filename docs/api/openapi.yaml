@@ -182,6 +182,10 @@ paths:
                 required: [default, models]
                 properties:
                   default: {type: string}
+                  defaultExecutor:
+                    type: string
+                    description: "Deployment's default CLI (AGENTFLOW_DEFAULT_EXECUTOR, codebuddy when unset or invalid). Omitted from per-executor catalogs (?executor=)."
+                    example: codebuddy
                   models:
                     type: array
                     items:

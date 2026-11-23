@@ -281,7 +281,12 @@ async function loadScheduleModels(){
   }catch{
     scheduleCatalog=await picker.load();
   }
-  paintScheduleModel($('#scheduleJobForm')?.elements.assistantModel.value||picker.DEFAULT);
+  const f=$('#scheduleJobForm');
+  const saved=f?.elements.assistantModel.value;
+  // A new task without a pick starts on the deployment's default CLI; with
+  // CodeBuddy as default it keeps the CLI default model as before.
+  const fresh=f&&!f.elements.id?.value&&(!saved||saved===picker.DEFAULT);
+  paintScheduleModel(fresh?(picker.defaultModel?.(scheduleModelCatalog(),picker.DEFAULT)||picker.DEFAULT):(saved||picker.DEFAULT));
 }
 function paintScheduleModel(selected){
   const api=scheduleModelAPI();
@@ -289,7 +294,7 @@ function paintScheduleModel(selected){
   const f=$('#scheduleJobForm');
   if(!api||!host||!f)return;
   const catalog=scheduleModelCatalog();
-  const keep=selected||f.elements.assistantModel.value||catalog.default||api.DEFAULT;
+  const keep=selected||f.elements.assistantModel.value||api.defaultModel?.(catalog)||catalog.default||api.DEFAULT;
   f.elements.assistantModel.value=keep;
   const toggle=host.querySelector('[data-model-toggle]');
   const item=catalog.models?.find(model=>model.id===keep);
@@ -366,7 +371,8 @@ function fillScheduleJobForm(job={}){
   if(!cron)f.elements.intervalSec.value=interval;
   f.elements.jobKind.value=job.id?scheduleJobKind(job):scheduleEditorKind;
   f.elements.assistantPrompt.value=job.assistantPrompt||'';
-  f.elements.assistantModel.value=job.assistantModel||scheduleModelAPI()?.DEFAULT||'default';
+  const modelAPI=scheduleModelAPI();
+  f.elements.assistantModel.value=job.assistantModel||(!job.id&&modelAPI?.defaultModel?.(scheduleModelCatalog(),modelAPI.DEFAULT))||modelAPI?.DEFAULT||'default';
   fillScheduleSessionMode(f,job);
   f.elements.useIssueWorkflow.checked=job.id?!!job.useIssueWorkflow:true;
   f.elements.maxDispatch.value=job.maxDispatch||'';

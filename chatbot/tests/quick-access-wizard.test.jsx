@@ -147,6 +147,33 @@ describe("QuickAccessWizard", () => {
     expect(completed).toHaveBeenCalledWith("p1");
   });
 
+  test("hides CodeBuddy setup when the deployment defaults to another CLI", async () => {
+    const userAction = userEvent.setup();
+    mockState.unconfigured = true;
+    try {
+      const bare = { ...user, gitTokenConfigured: false, codeBuddyApiKeyConfigured: false };
+      render(<QuickAccessWizard open user={bare} projects={[project]} projectId="p1" defaultExecutor="kiro" onClose={vi.fn()} onCompleted={vi.fn()} onOpenView={vi.fn()} />);
+      const dialog = await screen.findByRole("dialog");
+      await waitFor(() => expect(apiMock).toHaveBeenCalledWith("/api/projects"));
+      expect(dialog.textContent).not.toMatch(/CodeBuddy/);
+      expect(screen.queryByPlaceholderText(/CodeBuddy/)).toBeNull();
+      // Kiro CLI needs no key here, so step 1 never asks for a CodeBuddy key.
+      await userAction.click(screen.getByRole("button", { name: "下一步" }));
+      await screen.findByText("项目与仓库", { selector: "h3" });
+      await userAction.click(screen.getByRole("button", { name: "下一步" }));
+      await screen.findByText("默认角色与 SOP", { selector: "h3" });
+      expect(dialog.textContent).not.toMatch(/CodeBuddy/);
+    } finally {
+      mockState.unconfigured = false;
+    }
+  });
+
+  test("keeps the CodeBuddy key block when CodeBuddy is the default", async () => {
+    render(<QuickAccessWizard open user={user} projects={[project]} projectId="p1" onClose={vi.fn()} onCompleted={vi.fn()} onOpenView={vi.fn()} />);
+    await screen.findByRole("dialog");
+    expect(screen.getByLabelText("CodeBuddy API Key")).toBeInTheDocument();
+  });
+
   test("warns only when the selected SSH host has no personal key and refreshes after settings changes", async () => {
     mockState.sshKeys = [{ id: "gitlab", name: "GitLab", host: "gitlab.example.org:22" }];
     const userAction = userEvent.setup();
@@ -432,7 +459,7 @@ describe("QuickAccessWizard", () => {
 
 describe("QuickAccessWizard repository permission (#122)", () => {
   const welcome = {
-    id: "welcome", key: "WELCOME", name: "LoopForge 体验项目", ownerId: 99,
+    id: "welcome", key: "WELCOME", name: "Bagel 体验项目", ownerId: 99,
     members: [{ userId: 1, role: "member" }], workflowId: "generic-backend-delivery",
   };
   const member = { ...user, isPlatformAdmin: false };
@@ -499,7 +526,7 @@ describe("QuickAccessWizard repository permission (#122)", () => {
     await userAction.click(screen.getByRole("button", { name: "跳过绑定，继续体验" }));
     await userAction.click(screen.getByRole("button", { name: "下一步" }));
     await screen.findByText("默认角色与 SOP", { selector: "h3" });
-    expect(screen.getByText(/使用已有项目「LoopForge 体验项目」/)).toBeInTheDocument();
+    expect(screen.getByText(/使用已有项目「Bagel 体验项目」/)).toBeInTheDocument();
     expect(screen.queryByText(/绑定 repo/)).toBeNull();
     await userAction.click(screen.getByRole("button", { name: "完成接入" }));
     expect(await screen.findByText("快速接入已完成")).toBeInTheDocument();

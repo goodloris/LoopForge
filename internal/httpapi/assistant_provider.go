@@ -17,11 +17,14 @@ import (
 	"agentflow/internal/runtime"
 )
 
+// assistantExecutor is the executor a request names (case and surrounding
+// spaces ignored), or the deployment's default CLI (assistantDefaultExecutor)
+// when it names none.
 func assistantExecutor(id string) string {
-	if id == "" {
-		return "codebuddy"
+	if id = strings.ToLower(strings.TrimSpace(id)); id == "" {
+		return assistantDefaultExecutor()
 	}
-	return strings.TrimSpace(id)
+	return id
 }
 
 func validateAssistantProvider(req *assistantRequest, user domain.User) error {

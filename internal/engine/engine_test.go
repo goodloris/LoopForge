@@ -2935,6 +2935,28 @@ func TestResolveNodeExecutorPrefersAgentModel(t *testing.T) {
 	}
 }
 
+// A role that names no CLI (the built-in roles) runs on the deployment's
+// default executor, so the UI's dependency check and the run agree.
+func TestResolveNodeExecutorFollowsDefaultExecutor(t *testing.T) {
+	s, err := repo.OpenTest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	role := domain.AgentDefinition{ID: "builtin"}
+	for env, want := range map[string]string{"": "codebuddy", "kiro": "kiro", "claude-code": "claude", "bogus": "codebuddy"} {
+		t.Setenv("AGENTFLOW_DEFAULT_EXECUTOR", env)
+		got, err := resolveNodeExecutor(s, domain.WorkflowNode{AgentID: "builtin"}, role)
+		if err != nil || got.ID != want {
+			t.Fatalf("AGENTFLOW_DEFAULT_EXECUTOR=%q: executor %q (%v), want %q", env, got.ID, err, want)
+		}
+	}
+	t.Setenv("AGENTFLOW_DEFAULT_EXECUTOR", "kiro")
+	if got, _ := resolveNodeExecutor(s, domain.WorkflowNode{}, domain.AgentDefinition{ExecutorID: "codex"}); got.ID != "codex" {
+		t.Fatalf("an explicit role CLI must win over the default, got %q", got.ID)
+	}
+}
+
 func TestResolveSandboxResourcesRequiresDockerfileForDocker(t *testing.T) {
 	t.Parallel()
 	s, err := repo.OpenTest()

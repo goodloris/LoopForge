@@ -158,6 +158,68 @@ describe("conversation hooks", () => {
     localStorage.removeItem("loopforge.assistant.executor");
   });
 
+  test("a browser without a pick starts on the server's default CLI", async () => {
+    localStorage.removeItem("loopforge.assistant.executor");
+    const original = apiMock.getMockImplementation();
+    const engines = [{ id: "codebuddy", name: "CodeBuddy", configured: true }, { id: "kiro", name: "Kiro CLI", configured: true }];
+    const models = [{ id: "m1", name: "模型一" }, { id: "kiro:auto", name: "Auto", engine: "kiro" }];
+    for (const [defaultExecutor, want] of [["kiro", "kiro"], ["codebuddy", "codebuddy"], [undefined, "codebuddy"]]) {
+      apiMock.mockImplementation(async (path, options) => {
+        if (path === "/api/assistant/models") return { default: "m1", models, engines, ...(defaultExecutor ? { defaultExecutor } : {}) };
+        if (path === "/api/assistant/sessions") return [];
+        return original(path, options);
+      });
+      try {
+        const { result, unmount } = renderHook(() => useChat());
+        await waitFor(() => expect(result.current.ready).toBe(true));
+        await waitFor(() => expect(result.current.executor).toBe(want));
+        unmount();
+      } finally {
+        apiMock.mockImplementation(original);
+      }
+    }
+  });
+
+  test("no CLI is shown before the default resolves, and an unknown saved CLI falls back to it", async () => {
+    const original = apiMock.getMockImplementation();
+    const engines = [{ id: "codebuddy", name: "CodeBuddy", configured: true }, { id: "kiro", name: "Kiro CLI", configured: true }];
+    const models = [{ id: "m1", name: "模型一" }, { id: "kiro:auto", name: "Auto", engine: "kiro" }];
+    let session = null;
+    apiMock.mockImplementation(async (path, options) => {
+      if (path === "/api/assistant/models") return { default: "m1", models, engines, defaultExecutor: "kiro" };
+      if (path === "/api/assistant/sessions") return [];
+      if (session && path.startsWith("/api/assistant/sessions/")) return session;
+      return original(path, options);
+    });
+    try {
+      localStorage.removeItem("loopforge.assistant.executor");
+      const fresh = renderHook(() => useChat());
+      expect(fresh.result.current.executor).toBe("");
+      await waitFor(() => expect(fresh.result.current.executor).toBe("kiro"));
+      fresh.unmount();
+
+      localStorage.setItem("loopforge.assistant.executor", "retired-cli");
+      const unknown = renderHook(() => useChat());
+      expect(unknown.result.current.executor).toBe("");
+      await waitFor(() => expect(unknown.result.current.ready).toBe(true));
+      await waitFor(() => expect(unknown.result.current.executor).toBe("kiro"));
+      unknown.unmount();
+
+      // A saved conversation naming an unknown CLI opens on the default too.
+      localStorage.removeItem("loopforge.assistant.executor");
+      session = { id: "s9", title: "旧会话", projectId: "p1", model: "", executor: "retired-cli", messages: [] };
+      history.replaceState({}, "", "/?session=s9");
+      const saved = renderHook(() => useChat());
+      await waitFor(() => expect(saved.result.current.session?.id).toBe("s9"));
+      expect(saved.result.current.executor).toBe("kiro");
+      saved.unmount();
+    } finally {
+      apiMock.mockImplementation(original);
+      localStorage.removeItem("loopforge.assistant.executor");
+      history.replaceState({}, "", "/");
+    }
+  });
+
   test("without an own key chat is limited to the administrator's shared models", async () => {
     localStorage.removeItem("loopforge.assistant.executor");
     const original = apiMock.getMockImplementation();

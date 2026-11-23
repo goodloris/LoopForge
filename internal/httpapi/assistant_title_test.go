@@ -150,3 +150,113 @@ func TestScheduleAssistantTitleWritesSummary(t *testing.T) {
 		t.Fatalf("summary not stored: %+v", got)
 	}
 }
+
+// Without any CodeBuddy key a title no longer needs CodeBuddy: it runs on the
+// session's CLI, then the default CLI, then the first configured one.
+func TestAssistantTitleFallsBackWithoutCodeBuddyKey(t *testing.T) {
+	defer func(previous func() bool) { kiroCLIInstalled = previous }(kiroCLIInstalled)
+	kiroCLIInstalled = func() bool { return true }
+	t.Setenv(assistantDefaultExecutorEnv, "")
+	noKey := domain.User{ID: 1}
+	if got := assistantTitleFallbackModel(noKey, assistantChatDefaultModel, "kiro", nil); got != "kiro:auto" {
+		t.Fatalf("session CLI fallback = %q", got)
+	}
+	t.Setenv(assistantDefaultExecutorEnv, "kiro")
+	if got := assistantTitleFallbackModel(noKey, assistantChatDefaultModel, "", nil); got != "kiro:auto" {
+		t.Fatalf("default CLI fallback = %q", got)
+	}
+	t.Setenv(assistantDefaultExecutorEnv, "")
+	kiroCLIInstalled = func() bool { return false }
+	codexOnly := domain.User{ID: 1, CodexAPIKey: "codex-secret"}
+	if got := assistantTitleFallbackModel(codexOnly, assistantChatDefaultModel, "", nil); got != "codex:default" {
+		t.Fatalf("first configured CLI fallback = %q", got)
+	}
+	// A session CLI the user cannot run is skipped.
+	if got := assistantTitleFallbackModel(codexOnly, assistantChatDefaultModel, "kiro", nil); got != "codex:default" {
+		t.Fatalf("unusable session CLI must be skipped: %q", got)
+	}
+
+	// A CodeBuddy key of their own or the platform's keeps today's behavior.
+	kiroCLIInstalled = func() bool { return true }
+	t.Setenv(assistantDefaultExecutorEnv, "kiro")
+	own := domain.User{ID: 1, CodeBuddyAPIKey: "own-secret"}
+	if got := assistantTitleFallbackModel(own, assistantChatDefaultModel, "kiro", nil); got != assistantChatDefaultModel {
+		t.Fatalf("own CodeBuddy key = %q", got)
+	}
+	if got := assistantTitleFallbackModel(noKey, assistantChatDefaultModel, "kiro", []string{assistantSponsoredModel}); got != assistantChatDefaultModel {
+		t.Fatalf("shared CodeBuddy key = %q", got)
+	}
+	if got := assistantTitleFallbackModel(noKey, "codex:gpt-5.5", "kiro", nil); got != "codex:gpt-5.5" {
+		t.Fatalf("non-CodeBuddy session model = %q", got)
+	}
+
+	// Nothing usable: the model stays CodeBuddy and the summary is skipped.
+	kiroCLIInstalled = func() bool { return false }
+	got := assistantTitleFallbackModel(noKey, assistantChatDefaultModel, "kiro", nil)
+	if got != assistantChatDefaultModel {
+		t.Fatalf("no CLI = %q", got)
+	}
+	model, effort := assistantTitleModel(context.Background(), noKey, got, nil)
+	if _, err := runAssistantTitleSummary(context.Background(), noKey, model, effort, "标题"); err == nil || !strings.Contains(err.Error(), "unavailable") {
+		t.Fatalf("summary without any credential must be skipped: %v", err)
+	}
+}
+
+// The scheduling call site, not just the fallback helper, must hand the
+// session's own CLI to the summarizer when the user has no CodeBuddy key.
+func TestScheduleAssistantTitleUsesSessionCLIWithoutCodeBuddyKey(t *testing.T) {
+	defer func(previous func() bool) { kiroCLIInstalled = previous }(kiroCLIInstalled)
+	kiroCLIInstalled = func() bool { return true }
+	t.Setenv(assistantDefaultExecutorEnv, "")
+	st, err := repo.OpenTest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(st.Close)
+	models := make(chan string, 1)
+	defer func(previous func(context.Context, domain.User, string, string, []string) (string, error)) {
+		titleSummarizer = previous
+	}(titleSummarizer)
+	titleSummarizer = func(_ context.Context, _ domain.User, model, _ string, _ []string) (string, error) {
+		models <- model
+		return "内核梳理", nil
+	}
+	h := &assistantHandlers{deps: &deps{repo: st}}
+	id := "schedule-title-cli"
+	prompt := strings.Repeat("需", 20)
+	if err := st.PutAssistantSession(1, domain.AssistantSession{ID: id, Title: prompt, Executor: "kiro"}); err != nil {
+		t.Fatal(err)
+	}
+	old, _ := st.AssistantSession(1, id)
+	h.scheduleAssistantTitle(context.Background(), 1, domain.User{ID: 1}, old, id, []domain.AssistantMessage{{Role: "user", Content: prompt + "，请按模块列出缺口"}}, assistantChatDefaultModel, nil)
+	select {
+	case got := <-models:
+		if got != "kiro:auto" {
+			t.Fatalf("summarizer model = %q, want kiro:auto", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("summarizer was never called")
+	}
+}
+
+func TestAssistantRequestModelTrimsAndFoldsExecutor(t *testing.T) {
+	for _, executor := range []string{"kiro", " kiro ", "Kiro", "\tKIRO\n"} {
+		if got := assistantRequestModel(executor, assistantChatDefaultModel); got != "kiro:"+assistantChatDefaultModel {
+			t.Fatalf("executor %q -> %q", executor, got)
+		}
+	}
+	for executor, want := range map[string]string{
+		" Codex ":       "codex:" + assistantChatDefaultModel,
+		"CODEX":         "codex:" + assistantChatDefaultModel,
+		"CLAUDE":        "claude-code:" + assistantChatDefaultModel,
+		" Claude-Code ": "claude-code:" + assistantChatDefaultModel,
+		" OpenCode ":    "opencode:" + assistantChatDefaultModel,
+	} {
+		if got := assistantRequestModel(executor, assistantChatDefaultModel); got != want {
+			t.Fatalf("executor %q -> %q, want %q", executor, got, want)
+		}
+	}
+	if got := assistantExecutor(" Codex "); got != "codex" {
+		t.Fatalf("assistantExecutor folds case: %q", got)
+	}
+}
