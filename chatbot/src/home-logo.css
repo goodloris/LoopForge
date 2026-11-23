@@ -1,12 +1,7 @@
-/* The Bagel ring shares the wordmark's tempo; the crust draws, then the sesame
+/* The LooPool ring shares the wordmark's tempo; the crust draws, then the sesame
    and the closing arrow settle. The mark keeps its own baked colours in both
-   themes; the --home-logo-* lights below belong to the wordmark sweep. */
+   themes. */
 .home-logo {
-  --home-logo-cyan: #008dcc;
-  --home-logo-blue: #526ce8;
-  --home-logo-violet: #8a4ed9;
-  --home-logo-highlight: #a8efff;
-  --home-logo-head-core: #fff;
   display: block;
   flex: none;
   width: 64px;
@@ -18,12 +13,6 @@
   background: transparent;
   box-shadow: none;
   pointer-events: none;
-}
-[data-theme="dark"] .home-logo {
-  --home-logo-cyan: #5bd9ff;
-  --home-logo-blue: #94a5ff;
-  --home-logo-violet: #c29aff;
-  --home-logo-highlight: #f0fbff;
 }
 .home-logo > .home-logo-glyph {
   display: block;

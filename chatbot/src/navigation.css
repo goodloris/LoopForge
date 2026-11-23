@@ -98,11 +98,11 @@
   height: 25px;
 }
 
-/* The Bagel ring is a full-colour glyph, so it never sits on a filled box
+/* The LooPool ring is a full-colour glyph, so it never sits on a filled box
    (the home shell otherwise gives .brand-icon a dark rounded background). */
-.brand-icon.brand-icon-bagel,
-.chat-shell .brand-icon.brand-icon-bagel,
-.home-shell .brand-icon.brand-icon-bagel {
+.brand-icon.brand-icon-loopool,
+.chat-shell .brand-icon.brand-icon-loopool,
+.home-shell .brand-icon.brand-icon-loopool {
   background: transparent;
   border-radius: 0;
 }

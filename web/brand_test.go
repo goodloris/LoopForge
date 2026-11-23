@@ -9,19 +9,20 @@ import (
 	"testing"
 )
 
-// The product is Bagel. "LoopForge" survives only in internal identifiers
+// The product is LooPool. "LoopForge" survives only in internal identifiers
 // (LoopForgeGitSSH globals, loopforge.* storage keys, LOOPFORGE_* env, the
 // ghcr image and .loopforge/verify) and in links to the upstream repository
 // (github.com/.../LoopForge), never as a word a user can read in the console
 // or chat UI. The leading [^/…] drops repo-path URLs; the trailing [^…] drops
 // longer identifiers such as LoopForgeGitSSHHost; case keeps lowercase
-// loopforge and all-caps LOOPFORGE out.
-var visibleOldBrand = regexp.MustCompile(`(^|[^/A-Za-z0-9_])LoopForge([^A-Za-z0-9_]|$)`)
+// loopforge and all-caps LOOPFORGE out. "Bagel", the name between the two,
+// has no internal identifiers left, so any readable Bagel is a miss.
+var visibleOldBrand = regexp.MustCompile(`(^|[^/A-Za-z0-9_])(LoopForge|Bagel)([^A-Za-z0-9_]|$)`)
 
-func TestUserFacingFrontendSaysBagel(t *testing.T) {
+func TestUserFacingFrontendSaysLooPool(t *testing.T) {
 	roots := []string{"app", "extensions", "../chatbot/src", "../chatbot/public"}
 	files := []string{"../chatbot/index.html", "mcp-setup.txt"}
-	for _, pattern := range []string{"*.js", "*.html"} {
+	for _, pattern := range []string{"*.js", "*.html", "*.svg"} {
 		matches, err := filepath.Glob(pattern)
 		if err != nil {
 			t.Fatal(err)
@@ -62,37 +63,62 @@ func TestUserFacingFrontendSaysBagel(t *testing.T) {
 	}
 }
 
-// The chat sidebar rail brands with the Bagel ring, not the old workflow glyph.
-func TestChatRailUsesBagelMark(t *testing.T) {
+// The chat sidebar rail brands with the LooPool ring, not the old workflow glyph.
+func TestChatRailUsesLooPoolMark(t *testing.T) {
 	app, err := os.ReadFile("../chatbot/src/App.jsx")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(app), "<BagelMark") {
-		t.Error("chatbot App rail should render <BagelMark /> as the brand logo")
+	if !strings.Contains(string(app), "<LooPoolMark") {
+		t.Error("chatbot App rail should render <LooPoolMark /> as the brand logo")
 	}
-	mark, err := os.ReadFile("../chatbot/src/BagelMark.jsx")
+	mark, err := os.ReadFile("../chatbot/src/LooPoolMark.jsx")
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The crust arc shared with web/bagel-mark.svg: the ring, not a placeholder.
+	// The crust arc shared with web/loopool-mark.svg: the ring, not a placeholder.
 	if !strings.Contains(string(mark), "A18 18 0 1 1") {
-		t.Error("BagelMark should draw the Bagel ring (crust arc from bagel-mark.svg)")
+		t.Error("LooPoolMark should draw the LooPool ring (crust arc from loopool-mark.svg)")
 	}
 }
 
-// The seed's user-visible labels say Bagel too: the welcome project name and
+// The seed's user-visible labels say LooPool too: the welcome project name and
 // the built-in SOP author tag (Workflow.owner, shown on the SOP card).
-func TestSeedLabelsSayBagel(t *testing.T) {
+func TestSeedLabelsSayLooPool(t *testing.T) {
 	for _, path := range []string{"../migrations/seed/001_public_catalog.sql", "../migrations/postgres/seed/001_public_catalog.sql", "../migrations/seed/002_welcome_project.sql", "../migrations/postgres/seed/002_welcome_project.sql"} {
 		data, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, old := range []string{`"owner": "LoopForge"`, "LoopForge 体验项目"} {
+		for _, old := range []string{`"owner": "LoopForge"`, "LoopForge 体验项目", `"owner": "Bagel"`, "Bagel 体验项目"} {
 			if strings.Contains(string(data), old) {
 				t.Errorf("%s still seeds %s", path, old)
 			}
+		}
+	}
+}
+
+// The old LoopForge logo was a "b" curve stroked with a #3b8eea → #8b5cf6
+// gradient, and the home title sweep lit up in its cyan/blue/violet palette.
+// The boot loader and the chat home show the LooPool ring and its crust
+// colours instead.
+func TestBootLoaderAndHomeDropOldLogo(t *testing.T) {
+	html, err := os.ReadFile("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	loader := regexp.MustCompile(`(?s)<svg class="boot-loader-logo".*?</svg>`).FindString(string(html))
+	if !strings.Contains(loader, "A18 18 0 1 1") {
+		t.Error("the boot loader should draw the LooPool ring (crust arc from loopool-mark.svg)")
+	}
+	oldLogo := regexp.MustCompile(`(?i)#3b8eea|#8b5cf6|#526ce8|M10\.5 27 A11\.5|--home-logo-(cyan|blue|violet)`)
+	for _, path := range []string{"index.html", "login.html", "../chatbot/index.html", "../chatbot/src/HomeWelcome.jsx", "../chatbot/src/HomeLogo.jsx", "../chatbot/src/home-welcome.css", "../chatbot/src/home-logo.css"} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if found := oldLogo.FindString(string(data)); found != "" {
+			t.Errorf("%s still carries the old LoopForge logo (%s)", path, found)
 		}
 	}
 }

@@ -60,7 +60,7 @@ import IssueContext from "./IssueContext";
 import { mentionAt, insertMention } from "./mentions.js";
 import { elementTitle } from "./element-context.js";
 import HarnessIcon from "./HarnessIcon";
-import BagelMark from "./BagelMark";
+import LooPoolMark from "./LooPoolMark";
 import QueuedMessages from "./QueuedMessages";
 import { turnModeCaption } from "./message-info.js";
 import "./message-queue.css";
@@ -1172,14 +1172,14 @@ export default function App() {
         <button
           className="brand-home"
           onClick={startNewChat}
-          aria-label="Bagel 首页"
+          aria-label="LooPool 首页"
           inert={!sidebar}
           aria-hidden={!sidebar || undefined}
         >
-          <span className="brand-icon brand-icon-bagel">
-            <BagelMark size={25} />
+          <span className="brand-icon brand-icon-loopool">
+            <LooPoolMark size={25} />
           </span>
-          <strong>Bagel</strong>
+          <strong>LooPool</strong>
         </button>
         <IconButton
           className="sidebar-toggle"

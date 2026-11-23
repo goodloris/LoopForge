@@ -1,6 +1,6 @@
 {
   "name": "workspace",
-  "displayName": "Bagel Run Workspace",
+  "displayName": "LooPool Run Workspace",
   "description": "SOP run workspace with explicit human takeover for VS Code for the Web",
   "version": "1.5.0",
   "publisher": "agentflow",

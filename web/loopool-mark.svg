@@ -1,7 +1,7 @@
-<!-- Bagel brand mark: a baked ring with sesame crust and an arrow head where the
+<!-- LooPool brand mark: a baked ring with sesame crust and an arrow head where the
      loop closes. Source artwork from agenzo-rsi console-ui (tommy, 2026-11-02),
      reused with permission. A logo keeps its own colours and does not follow the theme. -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Bagel">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="LooPool">
   <defs>
     <linearGradient id="bgl-crust" x1="12" y1="10" x2="54" y2="56" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FFD592"/><stop offset=".5" stop-color="#F0A043"/><stop offset="1" stop-color="#B4561C"/></linearGradient>
     <linearGradient id="bgl-tip" x1="34" y1="4" x2="48" y2="22" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FFC774"/><stop offset="1" stop-color="#D9782A"/></linearGradient>

@@ -1,7 +1,7 @@
 import React, { useId } from "react";
 
-// The Bagel ring, static, for the sidebar rail brand. Same artwork as the home
-// logo (web/bagel-mark.svg); a logo keeps its own baked colours in both themes.
+// The LooPool ring, static, for the sidebar rail brand. Same artwork as the home
+// logo (web/loopool-mark.svg); a logo keeps its own baked colours in both themes.
 const SEEDS = [
   [14.25, 42.25, 255], [15.1, 27.47, 300], [22, 14.68, 345], [28.61, 51.2, 205],
   [41.46, 45.52, 160], [51.8, 37.31, 120], [33.31, 17.06, 20], [18.21, 34.43, 275],
@@ -9,20 +9,20 @@ const SEEDS = [
   [27.43, 10.48, 3],
 ];
 
-export default function BagelMark({ size = 25 }) {
+export default function LooPoolMark({ size = 25 }) {
   const identity = useId().replaceAll(":", "");
   const crust = `bgl-crust-${identity}`;
   const tip = `bgl-tip-${identity}`;
   const hole = `bgl-hole-${identity}`;
   return (
     <svg
-      className="bagel-mark"
+      className="loopool-mark"
       viewBox="0 0 64 64"
       width={size}
       height={size}
       fill="none"
       role="img"
-      aria-label="Bagel"
+      aria-label="LooPool"
       focusable="false"
     >
       <defs>
