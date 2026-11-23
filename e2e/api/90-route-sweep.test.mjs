@@ -56,6 +56,11 @@ test('Feishu grant: status never carries a token, connect and disconnect answer 
   await res.body?.cancel();
   assert.ok([302, 503].includes(res.status), `connect -> ${res.status}`);
   if (res.status === 302) assert.match(res.headers.get('location'), /code_challenge_method=S256/);
+  const bind = await fetch(cfg.base + '/api/users/me/feishu/bind', { redirect: 'manual', headers: { Authorization: `Bearer ${cfg.token}` } });
+  await bind.body?.cancel();
+  assert.ok([302, 503].includes(bind.status), `bind -> ${bind.status}`);
+  // Unbinding an account with no Feishu sign-in is a no-op.
+  if (!state.loginBound) assert.equal((await api('DELETE', '/api/users/me/feishu/bind')).loginBound, undefined);
   // Disconnecting without a grant is a no-op; never drop a real one here.
   if (!state.connected) assert.equal((await api('DELETE', '/api/users/me/feishu')).connected, false);
 });

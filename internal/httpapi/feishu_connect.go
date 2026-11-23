@@ -300,6 +300,11 @@ type feishuGrantStatus struct {
 	RefreshExpiresAt *time.Time          `json:"refreshExpiresAt,omitempty"`
 	UpdatedAt        *time.Time          `json:"updatedAt,omitempty"`
 	Presets          map[string][]string `json:"presets,omitempty"`
+	// LoginBound: the account signs in with a Feishu identity
+	// (user_identities). CanUnbindLogin: it keeps another way in without it.
+	LoginBound     bool   `json:"loginBound,omitempty"`
+	LoginName      string `json:"loginName,omitempty"`
+	CanUnbindLogin bool   `json:"canUnbindLogin,omitempty"`
 }
 
 func (h *usersHandlers) feishuGrantStatus(userID int64) feishuGrantStatus {
@@ -310,6 +315,10 @@ func (h *usersHandlers) feishuGrantStatus(userID int64) feishuGrantStatus {
 	out.Presets = map[string][]string{}
 	for preset := range feishuScopePresets {
 		out.Presets[preset] = feishuPresetScopes(preset)
+	}
+	if own := h.repo.IdentitiesOf(userID, repo.IdentityProviderFeishu); len(own) > 0 {
+		out.LoginBound, out.LoginName = true, own[0].Name
+		out.CanUnbindLogin = h.repo.HasOtherSignIn(userID, repo.IdentityProviderFeishu)
 	}
 	grant, ok := h.repo.FeishuGrant(userID)
 	if !ok {
@@ -384,31 +393,80 @@ func (h *usersHandlers) feishuConnectStart(c *gin.Context) {
 		feishuConnectPage(c, http.StatusBadRequest, "未知的权限档位", "权限档位只能是 readonly（只读）或 readwrite（读写）。")
 		return
 	}
+	h.feishuAuthorize(c, cfg, feishuStateEntry{purpose: feishuPurposeConnect, userID: user.ID, preset: preset, bind: c.Query("login") == "1"}, feishuPresetScopes(preset))
+}
+
+// feishuBindStart is GET /api/users/me/feishu/bind: the signed-in member
+// proves a Feishu identity (no API scopes) so it becomes a sign-in of this
+// account, without touching the grant.
+func (h *usersHandlers) feishuBindStart(c *gin.Context) {
+	cfg := feishuConfigFromEnv()
+	if !cfg.enabled() {
+		feishuConnectPage(c, http.StatusServiceUnavailable, "飞书未启用", "服务没有配置飞书应用的 App ID 和 App Secret。")
+		return
+	}
+	user, ok := h.requestUser(c.Request, false)
+	if !ok || user == nil || user.IsGuest || user.ID <= 0 {
+		feishuConnectPage(c, http.StatusUnauthorized, "请先登录", "登录平台后再绑定飞书登录。")
+		return
+	}
+	h.feishuAuthorize(c, cfg, feishuStateEntry{purpose: feishuPurposeBind, userID: user.ID, bind: true}, nil)
+}
+
+// feishuAuthorize issues the one-time state (with a PKCE verifier) and sends
+// the browser to Feishu's authorization page.
+func (h *usersHandlers) feishuAuthorize(c *gin.Context, cfg feishuConfig, entry feishuStateEntry, scopes []string) {
 	verifier, err := newPKCEVerifier()
 	if err != nil {
 		feishuConnectPage(c, http.StatusInternalServerError, "无法开始授权", "生成校验值失败，请重试。")
 		return
 	}
-	state, err := h.feishuStateStoreOrInit().issue(feishuStateEntry{purpose: feishuPurposeConnect, userID: user.ID, preset: preset, verifier: verifier}, feishuStateTTL)
+	entry.verifier = verifier
+	state, err := h.feishuStateStoreOrInit().issue(entry, feishuStateTTL)
 	if err != nil {
 		feishuConnectPage(c, http.StatusInternalServerError, "无法开始授权", "生成校验值失败，请重试。")
 		return
 	}
 	setFeishuStateCookie(c, state)
-	c.Redirect(http.StatusFound, cfg.AccountsURL+"/open-apis/authen/v1/authorize?"+url.Values{
+	query := url.Values{
 		"client_id":             {cfg.AppID},
 		"redirect_uri":          {cfg.redirectURI(c.Request)},
 		"response_type":         {"code"},
 		"state":                 {state},
-		"scope":                 {strings.Join(feishuPresetScopes(preset), " ")},
 		"code_challenge":        {pkceChallenge(verifier)},
 		"code_challenge_method": {"S256"},
 		"prompt":                {"consent"},
-	}.Encode())
+	}
+	if len(scopes) > 0 {
+		query.Set("scope", strings.Join(scopes, " "))
+	}
+	c.Redirect(http.StatusFound, cfg.AccountsURL+"/open-apis/authen/v1/authorize?"+query.Encode())
 }
 
-// feishuConnectCallback finishes a connection once feishuCallback has
-// checked and consumed the state.
+// feishuUnbind is DELETE /api/users/me/feishu/bind: the account stops
+// signing in with Feishu, provided it keeps a password or another identity.
+// The grant (agents' Feishu identity) is left as it is.
+func (h *usersHandlers) feishuUnbind(c *gin.Context) {
+	user, ok := h.requestUser(c.Request, false)
+	if !ok || user == nil || user.ID <= 0 {
+		c.JSON(http.StatusUnauthorized, map[string]string{"error": "请先登录"})
+		return
+	}
+	err := h.repo.UnbindIdentity(user.ID, repo.IdentityProviderFeishu)
+	if errors.Is(err, repo.ErrLastSignInMethod) {
+		c.JSON(http.StatusConflict, map[string]string{"error": "飞书是这个账号唯一的登录方式，请先设置本地密码或绑定其他登录方式再解绑。"})
+		return
+	}
+	if err != nil && !errors.Is(err, repo.ErrIdentityNotBound) {
+		respond(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, h.feishuGrantStatus(user.ID))
+}
+
+// feishuConnectCallback finishes a connection (purpose connect) and/or a
+// sign-in binding (entry.bind) once feishuCallback has checked and consumed
+// the state. Every check runs before anything is stored.
 func (h *usersHandlers) feishuConnectCallback(c *gin.Context, cfg feishuConfig, entry feishuStateEntry) {
 	current, ok := h.requestUser(c.Request, false)
 	if !ok || current == nil || current.ID != entry.userID {
@@ -439,7 +497,8 @@ func (h *usersHandlers) feishuConnectCallback(c *gin.Context, cfg feishuConfig, 
 		feishuConnectPage(c, http.StatusBadGateway, "飞书暂时不可用", "请稍后再试。")
 		return
 	}
-	if tokens.RefreshToken == "" {
+	connect := entry.purpose == feishuPurposeConnect
+	if connect && tokens.RefreshToken == "" {
 		feishuConnectPage(c, http.StatusBadGateway, "飞书没有返回长期授权", "飞书应用需要开通 offline_access 权限，请联系平台管理员。")
 		return
 	}
@@ -474,19 +533,58 @@ func (h *usersHandlers) feishuConnectCallback(c *gin.Context, cfg feishuConfig, 
 			return
 		}
 	}
-	// An identity another account signs in with cannot be shared.
+	// An identity another account signs in with cannot be shared or moved.
 	if other, bound := h.repo.UserByIdentity(repo.IdentityProviderFeishu, info.TenantKey, subject); bound && other.ID != entry.userID {
-		feishuConnectPage(c, http.StatusForbidden, "该飞书账号已被占用", "这个飞书账号是平台上另一个账号的登录身份，不能再连接到当前账号。")
+		feishuIdentityTakenPage(c, other.LoginName)
 		return
 	}
-	if err := h.repo.SaveFeishuGrant(entry.userID, repo.FeishuGrantInput{
-		Tenant: info.TenantKey, Subject: subject, OpenID: info.OpenID, Name: info.Name, Preset: entry.preset, Tokens: tokens,
-	}); err != nil {
-		log.Printf("[feishu] save grant for user %d failed: %v", entry.userID, err)
-		feishuConnectPage(c, http.StatusInternalServerError, "保存授权失败", "请稍后重试。")
-		return
+	// A login binding must be the identity agents already act as.
+	if entry.bind && !connect {
+		if grant, ok := h.repo.FeishuGrant(entry.userID); ok && grant.Status != repo.FeishuGrantRevoked && (grant.Tenant != info.TenantKey || grant.Subject != subject) {
+			feishuConnectPage(c, http.StatusForbidden, "飞书账号不一致", "请用已连接的飞书账号绑定登录，或先断开飞书再绑定。")
+			return
+		}
 	}
-	c.Redirect(http.StatusFound, "/?feishu=connected#/settings")
+	if connect {
+		if err := h.repo.SaveFeishuGrant(entry.userID, repo.FeishuGrantInput{
+			Tenant: info.TenantKey, Subject: subject, OpenID: info.OpenID, Name: info.Name, Preset: entry.preset, Tokens: tokens,
+		}); err != nil {
+			log.Printf("[feishu] save grant for user %d failed: %v", entry.userID, err)
+			feishuConnectPage(c, http.StatusInternalServerError, "保存授权失败", "请稍后重试。")
+			return
+		}
+	}
+	done := "connected"
+	if entry.bind {
+		err := h.repo.BindIdentity(entry.userID, repo.ExternalIdentity{
+			Provider: repo.IdentityProviderFeishu, Tenant: info.TenantKey, Subject: subject, Name: info.Name, AvatarURL: info.AvatarURL,
+		})
+		switch {
+		case errors.Is(err, repo.ErrIdentityTaken):
+			owner, _ := h.repo.UserByIdentity(repo.IdentityProviderFeishu, info.TenantKey, subject)
+			feishuIdentityTakenPage(c, owner.LoginName)
+			return
+		case errors.Is(err, repo.ErrIdentityConflict):
+			feishuConnectPage(c, http.StatusForbidden, "已绑定其他飞书账号", "这个账号已经用另一个飞书账号登录，请先解绑再绑定。")
+			return
+		case err != nil:
+			log.Printf("[feishu] bind sign-in for user %d failed: %v", entry.userID, err)
+			feishuConnectPage(c, http.StatusInternalServerError, "绑定登录失败", "请稍后重试。")
+			return
+		}
+		done = "bound"
+		if connect {
+			done = "connected-bound"
+		}
+	}
+	c.Redirect(http.StatusFound, "/?feishu="+done+"#/settings")
+}
+
+// feishuIdentityTakenPage refuses an identity that signs in to another
+// account. Accounts are never merged automatically.
+func feishuIdentityTakenPage(c *gin.Context, ownerLogin string) {
+	feishuConnectPage(c, http.StatusForbidden, "该飞书账号已被其他账号使用",
+		"这个飞书账号是平台账号 <code>"+html.EscapeString(ownerLogin)+"</code> 的登录身份。平台不会自动合并账号，请联系平台管理员先处理那个账号后再试。")
 }
 
 // feishuConnectPage renders a small HTML page linking back to personal

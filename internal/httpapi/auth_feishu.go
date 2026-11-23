@@ -147,11 +147,15 @@ type feishuStateEntry struct {
 	userID    int64
 	preset    string
 	verifier  string
+	// bind also makes the proven identity a sign-in of the account
+	// (purpose connect with 「同时用于登录」, or purpose bind).
+	bind bool
 }
 
 const (
 	feishuPurposeLogin   = ""
 	feishuPurposeConnect = "connect"
+	feishuPurposeBind    = "bind"
 )
 
 // feishuStateStore remembers the in-flight OAuth states of one server. A state
@@ -443,7 +447,7 @@ func (h *authHandlers) feishuCallback(c *gin.Context) {
 		feishuErrorPage(c, http.StatusBadRequest, "登录已失效", "登录链接已过期或被使用过，请回到登录页重新发起飞书登录。")
 		return
 	}
-	if entry.purpose == feishuPurposeConnect {
+	if entry.purpose != feishuPurposeLogin {
 		h.users.feishuConnectCallback(c, cfg, entry)
 		return
 	}
