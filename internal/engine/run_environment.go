@@ -244,6 +244,9 @@ func (e *Engine) resolveRunCredentials(run domain.Run) runtime.RunCredentials {
 		ExtraCredentials:   credentials.Extra,
 	})
 	credentials.MCPServers = scriptAssets.MCPServers
+	if e.FeishuCredential != nil {
+		credentials.Feishu = e.FeishuCredential(context.Background(), userID)
+	}
 	return credentials
 }
 

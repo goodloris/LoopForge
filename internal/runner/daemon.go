@@ -1158,6 +1158,9 @@ func bindInvocationCredentials(inv *domain.RunnerInvocation, bindings []runtime.
 			continue
 		}
 	}
+	for key, value := range runtime.FeishuEnvironment(runtime.FeishuCredential{AppID: inv.FeishuAppID, TenantToken: inv.FeishuTenantToken, UserToken: inv.FeishuUserToken}) {
+		env[key] = value
+	}
 	return argv, env, nil
 }
 
@@ -1444,7 +1447,7 @@ func (d *Daemon) defaultWorkspace(taskID string) string {
 }
 
 // runnerVersion is reported at registration; it matches the module build.
-var runnerVersion = domain.RunnerVersionCodeBuddyBaseURL
+var runnerVersion = domain.RunnerVersionFeishu
 
 // Version returns the runner build version reported at registration.
 func Version() string { return runnerVersion }

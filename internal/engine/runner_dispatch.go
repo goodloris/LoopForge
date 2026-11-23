@@ -249,6 +249,14 @@ func (e *Engine) dispatchRunnerTask(ctx context.Context, runnerID string, run do
 			}
 		}
 	}
+	if feishu := sb.credentialSnapshot().Feishu; feishu.AppID != "" {
+		if runner.SupportsFeishu() {
+			invocation.FeishuAppID, invocation.FeishuTenantToken, invocation.FeishuUserToken = feishu.AppID, feishu.TenantToken, feishu.UserToken
+		} else if sink != nil {
+			sink(domain.TelemetryEvent{Category: "credential", Name: "feishu.unavailable", Phase: "start", Level: "warn",
+				Message: fmt.Sprintf("执行机器需升级至 %s 才能使用飞书身份，本节点没有飞书凭据", domain.RunnerVersionFeishu)})
+		}
+	}
 	bindRunnerRepositories(invocation, run, sb.credentialSnapshot().GitUserName, sb.credentialSnapshot().GitUserEmail)
 	reported := sb.reportedOutputs(node.ID)
 	if reported != nil {

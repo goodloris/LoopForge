@@ -809,6 +809,9 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 			if warning := knowledgeSkippedWarning(agent, assets); warning != "" {
 				warnMCPSkipped(warning)
 			}
+			if notice := feishuBotOnlyNotice(sb.credentialSnapshot().Feishu); notice != "" {
+				sink(domain.TelemetryEvent{Category: "credential", Name: "feishu.bot_only", Phase: "start", Level: "warn", Message: notice})
+			}
 			options := runtime.InvocationOptions{RunID: runID, NodeID: node.ID, ResumeSessionID: resumeSessionID, Repositories: current.RepositoryContexts()}
 			if requiresSubmit {
 				options.GateResultPath = gateResultPath(nodeControlKey(current, node.ID), attempt)
