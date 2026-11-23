@@ -78,17 +78,17 @@ var feishuRefreshRejectedCodes = map[int]bool{
 	20048: true, 20064: true, 20066: true, 20069: true, 20073: true,
 }
 
-// Authorization-code errors on the v3 token endpoint: not found, expired,
+// Authorization-code errors on the v2 token endpoint: not found, expired,
 // PKCE failure, already used.
 var feishuCodeRejectedCodes = map[int]bool{20003: true, 20004: true, 20049: true, 20065: true}
 
-// ---- Feishu OAuth client (accounts.feishu.cn, OAuth 2.0 v3) ----
+// ---- Feishu OAuth client (open-apis/authen/v2/oauth/token) ----
 
 type feishuOAuthError struct{ code int }
 
 func (e *feishuOAuthError) Error() string { return fmt.Sprintf("feishu oauth failed: code %d", e.code) }
 
-// oauthToken posts a v3 token request. The error never carries the request
+// oauthToken posts a v2 token request. The error never carries the request
 // or response body, so secrets, codes and tokens stay out of logs.
 func (c *feishuClient) oauthToken(ctx context.Context, form url.Values) (repo.FeishuTokens, error) {
 	form.Set("client_id", c.appID)
@@ -101,7 +101,14 @@ func (c *feishuClient) oauthToken(ctx context.Context, form url.Values) (repo.Fe
 		RefreshExpiresIn int64  `json:"refresh_token_expires_in"`
 		Scope            string `json:"scope"`
 	}
-	status, err := c.postForm(ctx, c.accountsURL+"/oauth/v3/token", form, &out)
+	// The documented pair of /open-apis/authen/v1/authorize: a JSON POST to
+	// open.feishu.cn. accounts.feishu.cn/oauth/v3/token answers a code issued
+	// there with 20049 (PKCE check failed) even when the verifier matches.
+	body := map[string]string{}
+	for key := range form {
+		body[key] = form.Get(key)
+	}
+	status, err := c.postJSON(ctx, c.baseURL+"/open-apis/authen/v2/oauth/token", body, &out)
 	if err != nil {
 		return repo.FeishuTokens{}, err
 	}
@@ -162,6 +169,21 @@ func (c *feishuClient) revoke(ctx context.Context, refreshToken string) error {
 	return nil
 }
 
+// postJSON sends a JSON POST and decodes a JSON body of any status (the
+// token endpoint answers errors with HTTP 400 and a code).
+func (c *feishuClient) postJSON(ctx context.Context, endpoint string, body any, out any) (int, error) {
+	data, err := json.Marshal(body)
+	if err != nil {
+		return 0, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(string(data)))
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
+	return c.send(req, out)
+}
+
 // postForm sends a form POST and decodes a JSON body of any status (the v3
 // endpoints answer errors with HTTP 400 and a code). An empty body decodes
 // to nothing.
@@ -171,6 +193,10 @@ func (c *feishuClient) postForm(ctx context.Context, endpoint string, form url.V
 		return 0, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	return c.send(req, out)
+}
+
+func (c *feishuClient) send(req *http.Request, out any) (int, error) {
 	req.Header.Set("Accept", "application/json")
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -405,6 +431,7 @@ func (h *usersHandlers) feishuConnectCallback(c *gin.Context, cfg feishuConfig, 
 	if err != nil {
 		var codeErr *feishuAuthCodeError
 		if errors.As(err, &codeErr) {
+			log.Printf("[feishu] connect exchange for user %d rejected the code: %v", entry.userID, err)
 			feishuConnectPage(c, http.StatusBadRequest, "授权码无效或已过期", "请回到个人配置重新连接飞书。")
 			return
 		}

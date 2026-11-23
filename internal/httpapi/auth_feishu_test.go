@@ -81,8 +81,17 @@ func newFakeFeishu(t *testing.T) *fakeFeishu {
 			"tenant_key": f.identity.TenantKey,
 		}})
 	})
-	mux.HandleFunc("/oauth/v3/token", func(w http.ResponseWriter, r *http.Request) {
-		_ = r.ParseForm()
+	mux.HandleFunc("/open-apis/authen/v2/oauth/token", func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]string
+		if !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") || json.NewDecoder(r.Body).Decode(&body) != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 20001, "error": "invalid_request"})
+			return
+		}
+		r.PostForm = url.Values{}
+		for key, value := range body {
+			r.PostForm.Set(key, value)
+		}
 		f.mu.Lock()
 		f.tokenForms = append(f.tokenForms, r.PostForm)
 		refreshCode := f.refreshCode
