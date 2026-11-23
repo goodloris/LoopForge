@@ -129,6 +129,9 @@ func TestPublicCodeSOPsOpenMRBeforeDeliver(t *testing.T) {
 			if !strings.Contains(agent.Prompt, "{{existingMR}}") {
 				t.Errorf("%s: mr role drops the existing MR context", id)
 			}
+			if !strings.Contains(agent.Prompt, "git credential fill") || strings.Contains(agent.Prompt, "$AGENTFLOW_GIT_TOKEN") {
+				t.Errorf("%s: mr role must use per-host Git credentials", id)
+			}
 		}
 		if !found {
 			t.Errorf("%s: mr node references missing role %q", id, mrAgentID)
@@ -144,7 +147,7 @@ func TestPublicCodeSOPsOpenMRBeforeDeliver(t *testing.T) {
 // A test role that cannot run the project's tests must fail the node rather
 // than pass on manual checks, and the shared sandbox ships pip so it can
 // install Python test tools. The seeded Dockerfile must equal
-// IsolatedDockerfile, or generic-docker builds its own image.
+// a built-in isolated Dockerfile, or generic-docker builds its own image.
 func TestPublicTestRolesFailWithoutRunningTests(t *testing.T) {
 	templates := publicCatalogTemplates(t)
 	for _, id := range []string{GenericBackendDeliveryWorkflowID, GenericFrontendDeliveryWorkflowID, "issue-fix-production"} {
@@ -174,8 +177,8 @@ func TestPublicTestRolesFailWithoutRunningTests(t *testing.T) {
 	if err := json.Unmarshal([]byte(strings.NewReplacer(`\\`, `\`, `''`, `'`).Replace(string(match[1]))), &dockerfile); err != nil {
 		t.Fatal(err)
 	}
-	if dockerfile.Content != runtime.IsolatedDockerfile {
-		t.Errorf("seeded generic-backend Dockerfile differs from runtime.IsolatedDockerfile:\n%q\n%q", dockerfile.Content, runtime.IsolatedDockerfile)
+	if !runtime.IsBuiltInIsolatedDockerfile(dockerfile) {
+		t.Errorf("seeded generic-backend Dockerfile is not a built-in isolated Dockerfile:\n%q\n%q", dockerfile.Content, runtime.IsolatedDockerfile)
 	}
 	if !strings.Contains(dockerfile.Content, " python3-pip python3-venv ") {
 		t.Errorf("generic-backend Dockerfile lacks python3-pip/python3-venv: %q", dockerfile.Content)

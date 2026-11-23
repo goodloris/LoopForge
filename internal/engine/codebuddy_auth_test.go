@@ -179,18 +179,23 @@ func TestSponsoredExecutorPinsModelAndExplains(t *testing.T) {
 
 // A CodeBuddy node whose responsible user has no key fails before the run
 // sandbox is opened, so no sandbox image is built first. Kiro CLI and the
-// platform shared key pass the check. The passing cases stop at a missing
-// repository after the sandbox is opened, so no agent CLI runs.
+// platform shared key pass the check and open the sandbox. Since upstream
+// v0.4.1 a failed checkout is handed to the first repository agent, so the
+// passing cases then stop at a CLI that is not on PATH.
 func TestAgentNodeChecksKeyBeforeOpeningSandbox(t *testing.T) {
 	t.Setenv(repo.CodeBuddySponsorLoginEnv, "")
+	t.Setenv("AGENTFLOW_KIRO_BIN", filepath.Join(t.TempDir(), "kiro-cli"))
+	t.Setenv("AGENTFLOW_CODEBUDDY_BIN", filepath.Join(t.TempDir(), "codebuddy"))
+	t.Setenv("PATH", t.TempDir())
+	const passed = "sandbox opened"
 	cases := []struct {
 		name, executor string
 		sharedKey      bool
 		wantErr        string
 	}{
 		{name: "missing key", executor: "codebuddy", wantErr: "需求责任人未配置 CodeBuddy API Key，请在个人配置中配置"},
-		{name: "kiro login", executor: "kiro", wantErr: "repository checkout"},
-		{name: "shared key", executor: "codebuddy", sharedKey: true, wantErr: "repository checkout"},
+		{name: "kiro login", executor: "kiro", wantErr: passed},
+		{name: "shared key", executor: "codebuddy", sharedKey: true, wantErr: passed},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -224,10 +229,10 @@ func TestAgentNodeChecksKeyBeforeOpeningSandbox(t *testing.T) {
 			waitFor(t, s, run.ID, "failed")
 			finished, _ := s.Run(run.ID)
 			node := finished.Nodes["dev"]
-			if !strings.Contains(node.Error, tc.wantErr) || (tc.executor == "codebuddy" && !tc.sharedKey && node.Error != tc.wantErr) {
+			if tc.wantErr == passed && (node.Error == "" || strings.Contains(node.Error, "API Key")) || tc.wantErr != passed && node.Error != tc.wantErr {
 				t.Fatalf("node error = %q, want %q", node.Error, tc.wantErr)
 			}
-			if opened := finished.SandboxID != ""; opened != (tc.wantErr == "repository checkout") {
+			if opened := finished.SandboxID != ""; opened != (tc.wantErr == passed) {
 				t.Fatalf("sandbox opened = %v (%q), error %q", opened, finished.SandboxID, node.Error)
 			}
 		})

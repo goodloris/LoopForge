@@ -61,7 +61,8 @@ func prepareAssistantAgentCLIInvocation(kind string, o assistantEngineInvocation
 	command := runtime.AgentCLICommand(kind, runtime.AgentCLICommandOptions{
 		Binary: o.Bin, Model: o.Model, Effort: o.Effort, Resume: resume, Prompt: o.Prompt,
 		SystemPrompt: o.SystemPrompt, SystemPromptFile: systemFile, Chat: true, Workspace: o.Workspace, MCPOnly: o.ReviewOnly || o.MCPOnly, ReadRoots: o.ReadRoots, AgentFile: agentFile,
-		MCPServers: ids,
+		MCPServers:  ids,
+		RunnerLogin: o.RunnerLogin, ImagePaths: o.ImagePaths, ImageInput: o.ImageInput,
 	})
 	command.CredentialBindings = []runtime.CredentialBinding{runtime.BindAgentCLI}
 	translate := runtime.NewAgentCLITranslator(kind)

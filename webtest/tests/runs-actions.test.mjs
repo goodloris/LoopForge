@@ -15,6 +15,10 @@ test('run helpers merge streams and format timing, output, logs, telemetry, prev
   };
   app.router.get('/api/runs/run-x/eval', evaluation);
   app.router.post('/api/runs/run-x/eval', { ...evaluation, status: 'running' });
+  app.router.get('/api/assistant/models', {
+    engines: [{id:'codex',name:'Codex',personal:true}],
+    models: [{id:'codex:model-x',name:'Model X',engine:'codex'}],
+  });
   app.router.post('/api/runs/run-x/eval/apply', {
     ...evaluation, result: { ...evaluation.result,
       recommendations: [{ ...evaluation.result.recommendations[0], status: 'applied', appliedTargetId: 'flow-1' }] }
@@ -151,10 +155,37 @@ test('run helpers merge streams and format timing, output, logs, telemetry, prev
   const applyCall = app.router.calls.find(c => c.path.endsWith('/eval/apply'));
   assert.deepEqual(applyCall.body.recommendationIds, ['rec-1']);
   await app.evaluate(`previewArtifact(state.activeRun,'art-1')`);
-  assert.equal(app.document.querySelector('#artifactModal').classList.contains('open'), true);
+  const artifactModal = app.document.querySelector('#artifactModal');
+  assert.equal(artifactModal.open, true);
   assert.match(app.document.querySelector('#artifactPreview').textContent, /Report/);
+  Object.defineProperty(app.window, 'isSecureContext', { value: true });
+  const copyArtifact = artifactModal.querySelector('[data-copy-artifact]');
+  await copyArtifact.onclick();
+  assert.match(artifactModal.querySelector('.toast-item-msg').textContent, /产物内容已复制到剪贴板/);
+  const writeText = app.window.navigator.clipboard.writeText;
+  const execCommand = app.document.execCommand;
+  let fallbackText;
+  app.window.navigator.clipboard.writeText = async () => { throw new Error('Clipboard unavailable'); };
+  app.document.execCommand = command => {
+    fallbackText = artifactModal.querySelector('textarea')?.value;
+    return command === 'copy';
+  };
+  copyArtifact.focus();
+  try {
+    await copyArtifact.onclick();
+    assert.match(fallbackText, /# Report/);
+    assert.equal(artifactModal.querySelector('textarea'), null);
+    assert.equal(app.document.activeElement, copyArtifact);
+  } finally {
+    app.window.navigator.clipboard.writeText = writeText;
+    app.document.execCommand = execCommand;
+  }
   app.document.querySelector('#artifactPreview [data-mode="source"]')?.click();
   assert.match(app.document.querySelector('#artifactPreview .artifact-content').textContent, /console\.log/);
+  artifactModal.close();
+  assert.equal(artifactModal.querySelector('.toast-item'), null);
+  app.evaluate(`toast('Outside artifact preview')`);
+  assert.match(app.document.querySelector('#toastContainer').textContent, /Outside artifact preview/);
   app.evaluate(`
     const pane=document.createElement('div');
     pane.innerHTML='<button data-preview-download>Download</button><button data-preview-refresh></button><button data-preview-copy></button><button data-preview-open></button><button data-preview-backend-edit></button>';
@@ -225,10 +256,19 @@ test('run helpers merge streams and format timing, output, logs, telemetry, prev
   assert.equal(app.router.calls.find(c => c.path.endsWith('/logs.txt')).method, 'GET');
   app.evaluate(`
     const evalRun={id:'run-x',status:'failed',workflowId:'flow-1',nodes:{}};
-    state.activeRun=evalRun;state.selectedRun='run-x';state.currentUser.codeBuddyApiKeyConfigured=true;
+    state.activeRun=evalRun;state.selectedRun='run-x';
+    const evalHost=document.querySelector('#runDetail');
+    evalHost.innerHTML='<div data-run-pane="eval">'+runEvalPaneHTML(evalRun)+'</div>';
+    bindRunEvalPane(evalRun,evalHost);
   `);
-  await app.evaluate(`startRunEval(state.activeRun)`);
-  assert.equal(app.router.calls.find(c => c.method === 'POST' && c.path === '/api/runs/run-x/eval').body.model, 'model-x');
+  const submittingEvaluation=app.evaluate(`startRunEval(state.activeRun)`);
+  app.evaluate(`{
+    const host=document.querySelector('#runDetail');
+    host.querySelector('[data-run-pane="eval"]').innerHTML=runEvalPaneHTML(state.activeRun);
+    bindRunEvalPane(state.activeRun,host);
+  }`);
+  await submittingEvaluation;
+  assert.equal(app.router.calls.find(c => c.method === 'POST' && c.path === '/api/runs/run-x/eval')?.body.model, 'codex:model-x');
   app.evaluate(`state.runEvalStream?.close();state.runEvalStream=null;state.runEvalBusy=false`);
   app.evaluate(`
     state.data.runs=[{id:'run-select',status:'succeeded',workflowId:'flow-1',createdAt:'2026-02-01',nodes:{}}];
@@ -273,37 +313,29 @@ test('run activation waits for workspace restoration, deduplicates intent, and f
 test('run eval and Bot pickers offer Kiro CLI models; clarification names the credentials of the chosen CLI', async (t) => {
   const app = await loadApp();
   t.after(app.close);
+  // A Kiro CLI login counts as the viewer's own credential (no API key).
   app.router.get('/api/assistant/models', {
     default: 'glm-5.1',
     models: [{ id: 'glm-5.1', name: 'GLM' }, { id: 'kiro:auto', name: 'auto', engine: 'kiro' }, { id: 'codex:gpt-5.5', name: 'GPT', engine: 'codex' }],
-    engines: [{ id: 'codebuddy', configured: false }, { id: 'kiro', name: 'Kiro CLI', configured: true }]
+    engines: [{ id: 'codebuddy', name: 'CodeBuddy', configured: false }, { id: 'kiro', name: 'Kiro CLI', configured: true, personal: true }],
+    defaultExecutor: 'kiro'
   });
   app.router.post('/api/runs/run-k/eval', { id: 'eval-k', runId: 'run-k', status: 'running', model: 'kiro:auto' });
   await app.evaluate(`window.AgentFlowAssistantModels.load()`);
-  const listed = structuredClone(app.evaluate(`(() => {
-    state.currentUser.codeBuddyApiKeyConfigured=false;
-    const menu=document.createElement('div');
-    window.AgentFlowAssistantModels.renderList(menu,'',()=>{});
-    return [...menu.querySelectorAll('[data-id]')].map(b=>b.dataset.id);
+  const picked = structuredClone(await app.evaluate(`(async () => {
+    const host=document.createElement('div');
+    host.id='runEvalModelPicker';
+    host.innerHTML=window.AgentFlowAssistantModels.featurePickerHTML();
+    document.body.append(host);
+    await window.AgentFlowAssistantModels.bindFeaturePicker(host);
+    return {executors:[...host.querySelector('[data-feature-executor]').options].map(o=>o.value), model:host.querySelector('[data-feature-model]').value};
   })()`));
-  assert.ok(listed.includes('kiro:auto'), 'the eval picker lists Kiro models');
-  const botListed = structuredClone(app.evaluate(`(() => {
-    const menu=document.createElement('div');
-    window.AgentFlowAssistantModels.renderBotList(menu,'',()=>{});
-    return [...menu.querySelectorAll('[data-id]')].map(b=>b.dataset.id);
-  })()`));
-  assert.deepEqual(botListed, ['glm-5.1', 'kiro:auto'], 'Bot replies and SOP reports run on CodeBuddy or Kiro CLI');
-  // Without a CodeBuddy key and without a saved choice, clarification starts
-  // on Kiro CLI and says it uses the server's kiro-cli login.
-  app.evaluate(`localStorage.removeItem('agentflow.clarifyModel')`);
-  assert.equal(app.evaluate(`selectedClarifyModel()`), 'kiro:auto');
-  assert.match(app.evaluate(`clarifyEngineNoteHTML()`), /kiro-cli login/, 'clarification names the Kiro CLI login');
-  app.evaluate(`localStorage.setItem('agentflow.clarifyModel','glm-5.1')`);
-  assert.match(app.evaluate(`clarifyEngineNoteHTML()`), /is-warn[\s\S]*改选 Kiro CLI/, 'a CodeBuddy model without a key says what to do');
-  app.evaluate(`setRunEvalModel('glm-5.1')`);
-  assert.equal(app.evaluate(`runEvalHasKey()`), false, 'CodeBuddy still needs the personal key');
-  app.evaluate(`setRunEvalModel('kiro:auto');state.activeRun={id:'run-k',status:'succeeded',workflowId:'flow-1',nodes:{}};state.selectedRun='run-k'`);
-  assert.equal(app.evaluate(`runEvalHasKey()`), true);
+  // Upstream v0.4.1 feature pickers (run eval, Bot, clarification) list the
+  // viewer's configured CLIs; #43 starts them on the deployment's default.
+  assert.deepEqual(picked.executors, ['kiro'], 'only configured CLIs are offered');
+  assert.equal(picked.model, 'kiro:auto', 'the picker starts on the default CLI');
+  assert.match(app.evaluate(`clarifyEngineNoteHTML()`), /kiro-cli/, 'clarification names the Kiro CLI login');
+  app.evaluate(`state.activeRun={id:'run-k',status:'succeeded',workflowId:'flow-1',nodes:{}};state.selectedRun='run-k'`);
   await app.evaluate(`startRunEval(state.activeRun)`);
   assert.equal(app.router.calls.find(c => c.method === 'POST' && c.path === '/api/runs/run-k/eval').body.model, 'kiro:auto');
   app.evaluate(`state.runEvalStream?.close();state.runEvalStream=null;state.runEvalBusy=false`);

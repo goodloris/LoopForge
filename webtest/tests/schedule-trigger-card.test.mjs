@@ -24,6 +24,7 @@ test('SOP trigger card separates the summary fields and groups the actions', asy
   assert.deepEqual([...actions.querySelectorAll('button')].map(b => b.textContent), ['执行记录', '立即运行']);
 
   const css = await readFile(new URL('../../web/sync.css', import.meta.url), 'utf8');
-  assert.match(css, /:is\(#scheduleModal,#aiScheduleTriggerPanel\) \.schedule-config-runtime>div \{ display:flex;flex-direction:column/);
-  assert.match(css, /\.schedule-config-actions \{ display:flex;align-items:center;gap:6px/);
+  // Upstream #1036 restyled the card (#aiScheduleTriggerList); the summary
+  // still stacks its lines in a column.
+  assert.match(css, /:is\(#aiScheduleTriggerList, #scheduleModal\) \.schedule-config-runtime>div \{ display:flex;flex-direction:column/);
 });

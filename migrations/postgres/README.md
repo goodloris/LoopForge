@@ -5,7 +5,13 @@ PostgreSQL 是一键安装（`./start.sh`、`scripts/install.sh`、`scripts/dev.
 ```
 postgres/
   001_baseline_extensions.sql   # gorm 建不出来的结构：001 的生成列及索引
+  036_assistant_steer_on_send.sql      # 上游：可选 DDL，AutoMigrate 也会加（见下表 036）
+  036_git_http_credentials.sql         # 上游：按主机的 HTTPS Git 凭据表与回填，升级前手动执行（见下表 036）
+  037_retire_plain_git_token.sql       # 上游：清理已迁移的旧 git_token，核对 036 后手动执行（见下表 037）
   038_generic_sop_gates.sql     # 已有安装的内置 SOP 数据修补，手动执行（见下表 038）
+  038_generic_sop_host_credentials.sql # 上游：「发起 MR」角色改用 git credential fill，安装脚本自动执行（见下表 038）
+  039_platform_git_ssh_hosts.sql       # 上游：可选 DDL，AutoMigrate 也会建（见下表 039）
+  039_schedule_execution_legacy_stats.sql # 上游：定时任务历史执行补小时统计，停服后手动执行（见下表 039）
   041_builtin_roles_default_executor.sql  # 内置角色改为跟随默认执行器，手动执行（见下表 041）
   042_bagel_builtin_labels.sql  # 体验项目名与内置 SOP 作者标签改为 Bagel，手动执行（见下表 042）
   044_loopool_builtin_labels.sql  # 体验项目名与内置 SOP 作者标签改为 LooPool，手动执行（见下表 044）
@@ -52,7 +58,7 @@ CREATE DATABASE loopforge
 - 以后改动已有数据（MySQL 那边的 `0NN_*.sql` 数据修补）时，PG 版本在本目录新增同序号的 `0NN_*.sql`（第一个是 `038_generic_sop_gates.sql`），和 MySQL 脚本放在同一个提交里。新安装直接用 seed 拿到最新内容，所以 seed 也要同步改。这类脚本会改变已有 SOP 的行为，安装脚本不执行，由 `scripts/manual-migration-hints.sh` 在安装和 `./start.sh pull` 结束时提示。
 - `TestPostgresBaselineAndSeed` 在设置 `AGENTFLOW_TEST_PG_DSN` 时运行：在 gorm 建出的 schema 上按上面的顺序执行两遍，检查行数、jsonb 能否接受 payload、生成列取值、索引、体验项目负责人，最后用生产 `Open` 重新打开，确认增量 DDL 能接受这些额外结构。子用例 `payload jsonb` 先把 `run_telemetry`、`run_logs` 的 payload 改成 jsonb 再执行 baseline，确认生成列在 json 和 jsonb 上都能建成。
 
-## MySQL 001–038 在 PG 安装下的结论
+## MySQL 001–042 在 PG 安装下的结论
 
 判断依据：在 PG 17 上用 gorm 建表后，逐个比对每个脚本创建的表、列和索引名（`information_schema`、`pg_indexes`），并用 grep 确认代码是否还引用相关表。
 
@@ -100,6 +106,12 @@ CREATE DATABASE loopforge
 | 036_generic_backend_pip | Dockerfile 加 python3-pip、python3-venv | 不需要，seed 已含（`TestPublicTestRolesFailWithoutRunningTests` 断言等于 `runtime.IsolatedDockerfile`） |
 | 037_generic_test_role_requires_tests | 测试角色新 prompt | 不需要，seed 已含新 prompt |
 | 038_generic_sop_gates | 代码 SOP 的独立评审、测试验证加 `rejectTo=implement`、`maxReworks=2`；测试角色加 `.loopforge/verify` 退出码门禁；开发、评审、测试 prompt 与 SOP 描述 | 全新安装不需要，seed 已含（`TestPublicCodeSOPsReworkImplementAndGateTestsOnExitCode`）。**此前用 PG seed 建的安装需要手动执行** `038_generic_sop_gates.sql`：只改仍是出厂原文的字段，可重复执行；`manual-migration-hints.sh` 在独立评审节点仍是出厂原样时提示 |
+| 036_assistant_steer_on_send | 上游：`assistant_preferences.steer_on_send` 列 | 可选，gorm 已建（`boolean NOT NULL DEFAULT false`）。`036_assistant_steer_on_send.sql` 为等价 `ADD COLUMN IF NOT EXISTS` |
+| 036_git_http_credentials | 上游：`user_git_http_credentials` 表（主键 `(user_id, id)`，`id` 为主机的 SHA-256 十六进制）；把 `user_configs.git_token` 中的个人 GitHub Token 回填为 `github.com` 凭据；`mr_delivery_states.registered_by` 列 | **需要等价物**：`036_git_http_credentials.sql`。表与列和 gorm 定义一致，可在平台启动前或后执行；`SHA2` 换成 `encode(sha256(convert_to(...,'UTF8')),'hex')`，`UTC_TIMESTAMP(3)` 换成 `now()`，`ON DUPLICATE KEY UPDATE id=id` 换成 `ON CONFLICT DO NOTHING`。**升级到读取按主机凭据的版本前执行**，否则旧 Token 不再生效。可重复执行 |
+| 037_retire_plain_git_token | 上游：清除已有相同 `github.com` 凭据副本的 `user_configs.git_token`；删除早期的 `expose_to_workspace` 列 | **需要等价物**：`037_retire_plain_git_token.sql`。`UPDATE ... FROM` 代替 `UPDATE ... JOIN`；PG 文本比较本来按字节，不需要 `CAST AS BINARY`；`DROP COLUMN IF EXISTS` 代替 `information_schema` 判断。**核对 036 的回填后再执行**。可重复执行 |
+| 038_generic_sop_host_credentials | 上游：内置代码 SOP 的「发起 MR」角色不再读 `$AGENTFLOW_GIT_TOKEN`，改用托管平台 CLI / MCP / `git credential fill` | **需要等价物**：`038_generic_sop_host_credentials.sql`，`jsonb_array_elements ... WITH ORDINALITY` 代替 `JSON_TABLE`。只替换仍是出厂原句的 prompt，可重复执行。PG seed 已是新文本；`scripts/install-schema-extensions.sh` 在安装和 `./start.sh pull` 时执行它（与 MySQL 一致） |
+| 039_platform_git_ssh_hosts | 上游：`platform_git_ssh_hosts` 表 | 可选，gorm 已建。`039_platform_git_ssh_hosts.sql` 为等价 `CREATE TABLE IF NOT EXISTS` |
+| 039_schedule_execution_legacy_stats | 上游：用最近 30 天仍保留的已结束执行补缺失的小时统计桶，不覆盖已有桶，有部分重叠或带用量的缺失桶时整体拒绝 | **需要等价物**：`039_schedule_execution_legacy_stats.sql`，`DO` 块 `RAISE EXCEPTION` 代替 MySQL 的 CHECK 约束守卫，`date_trunc('hour', ... AT TIME ZONE 'UTC')` 代替 `DATE_FORMAT`。停服并备份后手动执行，可重复执行。fork 0.5.0 起的安装本来就逐条写桶，一般不需要 |
 | 041_builtin_roles_default_executor | 内置 SOP 角色与基线对齐执行员去掉 `executorId: codebuddy`，跟随 `AGENTFLOW_DEFAULT_EXECUTOR` | 全新安装不需要，seed 已不带 executorId。**此前用 PG seed 建的安装需要手动执行** `041_builtin_roles_default_executor.sql`：只去掉仍是 `codebuddy` 的值，可重复执行；`manual-migration-hints.sh` 在内置角色仍写 `codebuddy` 时提示 |
 | 042_bagel_builtin_labels | 体验项目名「LoopForge 体验项目」改为「Bagel 体验项目」（`name` 列与 payload），内置 SOP 的 `Workflow.owner` 由 `LoopForge` 改为 `Bagel` | 全新安装不需要，seed 已是 LooPool（见 044）。**此前用 PG seed 建的安装需要手动执行** `042_bagel_builtin_labels.sql`：只改仍是出厂值的字段，可重复执行；`manual-migration-hints.sh` 在仍有出厂旧值时提示 |
 | 044_loopool_builtin_labels | 体验项目名「LoopForge 体验项目」或「Bagel 体验项目」改为「LooPool 体验项目」（`name` 列与 payload），内置 SOP 的 `Workflow.owner` 由 `LoopForge` 或 `Bagel` 改为 `LooPool` | 全新安装不需要，seed 已是 LooPool（`web/brand_test.go` 的 `TestSeedLabelsSayLooPool`）。**此前用 PG seed 建的安装需要手动执行** `044_loopool_builtin_labels.sql`：只改仍是出厂值的字段，可重复执行，不必先执行 042；`manual-migration-hints.sh` 在仍有出厂旧值时提示 |

@@ -32,10 +32,14 @@ func TestScheduleJobRunPullsGitHubThenDispatches(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(st.Close)
-	if err := st.PutUser(domain.User{LoginName: "shop-owner", GitToken: "owner-token"}); err != nil {
+	if err := st.PutUser(domain.User{LoginName: "shop-owner"}); err != nil {
 		t.Fatal(err)
 	}
 	owner, _ := st.UserByLoginName("shop-owner")
+	// Since upstream v0.4.1 the owner's GitHub token is a github.com HTTPS credential.
+	if err := st.SaveGitHTTPCredential(owner.ID, "", domain.GitHTTPCredentialSecret{GitHTTPCredential: domain.GitHTTPCredential{Name: "GitHub", Platform: domain.GitPlatformGitHub, Host: "github.com", Username: "x-access-token"}, Token: "owner-token"}); err != nil {
+		t.Fatal(err)
+	}
 	for _, wf := range []domain.WorkflowDefinition{
 		{ID: "backend-sop", Name: "Backend", SandboxProfileID: "local", Nodes: []domain.WorkflowNode{{ID: "approval", Name: "Approval", Type: "approval", MaxAttempts: 1}}},
 		{ID: "fix-sop", Name: "Fix", SandboxProfileID: "local", Nodes: []domain.WorkflowNode{{ID: "approval", Name: "Approval", Type: "approval", MaxAttempts: 1}}},

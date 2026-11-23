@@ -146,9 +146,11 @@ func validSharedAssistantSession(s domain.AssistantSession) bool {
 
 // ProjectSharedAssistantSession reports whether an ordinary conversation is
 // shared with its project's members. SOP run sessions keep their own rules;
-// legacy per-user run discussions stay private.
+// legacy per-user run discussions stay private. A SOP designer conversation
+// stays private to its author too: it edits one person's unsaved canvas and
+// is not a project discussion.
 func ProjectSharedAssistantSession(s domain.AssistantSession) bool {
-	return !s.Shared && s.RunID == "" && strings.TrimSpace(s.ProjectID) != "" && !strings.HasPrefix(s.ID, "sop-")
+	return !s.Shared && s.RunID == "" && strings.TrimSpace(s.ProjectID) != "" && !strings.HasPrefix(s.ID, "sop-") && s.Source != domain.AssistantSourceSOPDesigner
 }
 
 // assistantSessionMetadataColumns selects a session row without its
@@ -226,6 +228,9 @@ func (r *AssistantRepo) ReplaceAssistantTurn(source domain.AssistantSession, ind
 		}
 		if active > 0 {
 			return fmt.Errorf("请先停止生成再编辑消息")
+		}
+		if old.ParentSessionID != "" && old.Executor == "" {
+			old.Executor = source.Executor
 		}
 		prefix := append([]domain.AssistantMessage(nil), old.Messages[:index]...)
 		if len(target) > 0 {

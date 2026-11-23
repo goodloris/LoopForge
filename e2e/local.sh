@@ -12,12 +12,16 @@
 # for the repository-bound scenarios, and removes all of it afterwards.
 #
 # Optional environment:
-#   AGENTFLOW_E2E_CODEBUDDY_API_KEY  enables the real-model scenarios
-#   AGENTFLOW_E2E_EXECUTOR=kiro      enables them on this machine's Kiro CLI
-#                                    subscription login (kiro-cli login)
-#                                    instead; the assistant then runs on
+#   AGENTFLOW_E2E_EXECUTOR           CLI executor ID (default codebuddy); kiro
+#                                    runs the real-model scenarios on this
+#                                    machine's Kiro CLI subscription login
+#                                    (kiro-cli login), no key needed; the
+#                                    assistant then runs on
 #                                    AGENTFLOW_E2E_ASSISTANT_MODEL (default
 #                                    kiro:claude-haiku-5.5)
+#   AGENTFLOW_E2E_CLI_KEY            enables real-model scenarios for that CLI
+#   AGENTFLOW_E2E_CLI_BASE_URL       optional custom model gateway
+#   AGENTFLOW_E2E_CODEBUDDY_API_KEY  legacy CodeBuddy credential input
 #   AGENTFLOW_E2E_CODEBUDDY_INTERNET CodeBuddy network environment (default
 #                                    empty: the international site)
 #   AGENTFLOW_E2E_LOCAL_PORT         platform port (default 18090)
@@ -29,7 +33,7 @@
 #                                    agentflow-e2e-local-postgres / -mysql); set
 #                                    it when several checkouts run the suite at once
 #   AGENTFLOW_E2E_MODEL_SANDBOX      sandbox for model scenarios (default local:
-#                                    the seeded Docker image has no CodeBuddy CLI)
+#                                    the seeded Docker image has no model CLI)
 #   AGENTFLOW_E2E_KEEP=1             keep the platform, database and files; the
 #                                    exports needed to rerun single files against
 #                                    it are written to $WORK/env (mode 600)
@@ -144,11 +148,47 @@ INSERT INTO api_tokens (id, user_id, name, prefix, token_hash, expires_at, creat
   VALUES ('tok-e2e-local', 900001, 'e2e-local', '${TOKEN:0:12}', '$HASH', $TOMORROW, $NOW),
          ('tok-e2e-local-b', 900002, 'e2e-local-b', '${TOKEN_B:0:12}', '$HASH_B', $TOMORROW, $NOW);
 SQL
-if [ -n "${AGENTFLOW_E2E_CODEBUDDY_API_KEY:-}" ]; then
-  # Passed through stdin so the key never shows up in a process listing.
-  printf "INSERT INTO user_configs (user_id, codebuddy_api_key, codebuddy_internet_environment, created_at, updated_at) VALUES (900001, '%s', '%s', $NOW, $NOW);\n" \
-    "${AGENTFLOW_E2E_CODEBUDDY_API_KEY//\'/}" "${AGENTFLOW_E2E_CODEBUDDY_INTERNET:-}" | db_exec || exit 1
+export AGENTFLOW_E2E_EXECUTOR=${AGENTFLOW_E2E_EXECUTOR:-codebuddy}
+if [ "$AGENTFLOW_E2E_EXECUTOR" = kiro ]; then
+  # Kiro CLI signs in with this machine's kiro-cli login; nothing to seed.
+  export AGENTFLOW_E2E_MODEL=${AGENTFLOW_E2E_MODEL:-1}
+  export AGENTFLOW_E2E_ASSISTANT_MODEL=${AGENTFLOW_E2E_ASSISTANT_MODEL:-kiro:claude-haiku-5.5}
+elif [ -n "${AGENTFLOW_E2E_CLI_KEY:-}" ] || { [ "$AGENTFLOW_E2E_EXECUTOR" = codebuddy ] && [ -n "${AGENTFLOW_E2E_CODEBUDDY_API_KEY:-}" ]; }; then
+  # Seed disposable credentials over stdin. Hex literals preserve the exact
+  # key and URL without passing either to the database client as an argument.
+  if ! DATABASE="$DATABASE" NOW="$NOW" python3 - <<'PY_CLI' | db_exec >/dev/null 2>&1
+import json
+import os
+
+executor = os.environ["AGENTFLOW_E2E_EXECUTOR"]
+key = os.environ.get("AGENTFLOW_E2E_CLI_KEY", "") or os.environ.get("AGENTFLOW_E2E_CODEBUDDY_API_KEY", "")
+base = os.environ.get("AGENTFLOW_E2E_CLI_BASE_URL", "")
+if executor == "codebuddy":
+    fields = {"codebuddy_api_key": key, "codebuddy_internet_environment": os.environ.get("AGENTFLOW_E2E_CODEBUDDY_INTERNET", "")}
+elif executor in ("codex", "claude"):
+    prefix = "codex" if executor == "codex" else "claude_code"
+    fields = {prefix + "_api_key": key, prefix + "_base_url": base}
+elif executor in ("opencode", "cursor", "agy", "kimi", "pi", "dsh", "zcode"):
+    fields = {"agent_cli_credentials": json.dumps({executor: {"apiKey": key, "baseUrl": base}})}
+else:
+    raise SystemExit("Unsupported model executor")
+postgres = os.environ["DATABASE"] == "postgres"
+def literal(value):
+    raw = value.encode().hex()
+    return f"convert_from('\\x{raw}'::bytea, 'UTF8')" if postgres else f"X'{raw}'"
+columns = ", ".join(fields)
+values = ", ".join(literal(value) for value in fields.values())
+now = os.environ["NOW"]
+print(f"INSERT INTO user_configs (user_id, {columns}, created_at, updated_at) VALUES (900001, {values}, {now}, {now});")
+PY_CLI
+  then
+    echo "Seeding the selected CLI credential failed." >&2
+    exit 1
+  fi
+else
+  export AGENTFLOW_E2E_MODEL=0
 fi
+unset AGENTFLOW_E2E_CODEBUDDY_API_KEY AGENTFLOW_E2E_CLI_KEY
 
 api() {
   local code
@@ -173,16 +213,9 @@ export AGENTFLOW_E2E_REPO_CLONE_URL="$REPO/remote.git" AGENTFLOW_E2E_REPO_BRANCH
 export AGENTFLOW_E2E_MODEL_SANDBOX=${AGENTFLOW_E2E_MODEL_SANDBOX:-local}
 # A fresh database has no data-rich project to tour; tour the e2e project.
 export AGENTFLOW_E2E_VIEW_PROJECT=${AGENTFLOW_E2E_VIEW_PROJECT:-e2e-auto}
-if [ "${AGENTFLOW_E2E_EXECUTOR:-}" = kiro ]; then
-  export AGENTFLOW_E2E_MODEL=${AGENTFLOW_E2E_MODEL:-1}
-  export AGENTFLOW_E2E_ASSISTANT_MODEL=${AGENTFLOW_E2E_ASSISTANT_MODEL:-kiro:claude-haiku-5.5}
-elif [ -z "${AGENTFLOW_E2E_CODEBUDDY_API_KEY:-}" ]; then
-  export AGENTFLOW_E2E_MODEL=0
-fi
-unset AGENTFLOW_E2E_CODEBUDDY_API_KEY
 if [ "${AGENTFLOW_E2E_KEEP:-0}" = 1 ]; then
-  (umask 077 && printf 'export AGENTFLOW_E2E_BASE=%q AGENTFLOW_E2E_TOKEN=%q AGENTFLOW_E2E_TOKEN_B=%q AGENTFLOW_E2E_REPO_CLONE_URL=%q AGENTFLOW_E2E_REPO_BRANCH=main AGENTFLOW_E2E_MODEL_SANDBOX=%q AGENTFLOW_E2E_MODEL=%q AGENTFLOW_E2E_VIEW_PROJECT=%q\n' \
-    "$BASE" "$TOKEN" "$TOKEN_B" "$AGENTFLOW_E2E_REPO_CLONE_URL" "$AGENTFLOW_E2E_MODEL_SANDBOX" "${AGENTFLOW_E2E_MODEL:-1}" "$AGENTFLOW_E2E_VIEW_PROJECT" >"$WORK/env")
+  (umask 077 && printf 'export AGENTFLOW_E2E_BASE=%q AGENTFLOW_E2E_TOKEN=%q AGENTFLOW_E2E_TOKEN_B=%q AGENTFLOW_E2E_REPO_CLONE_URL=%q AGENTFLOW_E2E_REPO_BRANCH=main AGENTFLOW_E2E_MODEL_SANDBOX=%q AGENTFLOW_E2E_MODEL=%q AGENTFLOW_E2E_VIEW_PROJECT=%q AGENTFLOW_E2E_EXECUTOR=%q AGENTFLOW_E2E_MODEL_ID=%q\n' \
+    "$BASE" "$TOKEN" "$TOKEN_B" "$AGENTFLOW_E2E_REPO_CLONE_URL" "$AGENTFLOW_E2E_MODEL_SANDBOX" "${AGENTFLOW_E2E_MODEL:-1}" "$AGENTFLOW_E2E_VIEW_PROJECT" "$AGENTFLOW_E2E_EXECUTOR" "${AGENTFLOW_E2E_MODEL_ID:-}" >"$WORK/env")
 fi
 
 status=0

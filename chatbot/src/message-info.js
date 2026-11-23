@@ -1,5 +1,5 @@
 import { elapsedSeconds, formatElapsed } from "./api.js";
-import { engineLabel, engineOfModel } from "./engines.js";
+import { engineLabel, replyEngineLabel } from "./engines.js";
 
 // Labels of the confirmation modes (see PermissionPicker).
 export const APPROVAL_LABELS = { confirm: "请求批准", assisted: "帮我批准", auto: "完全权限" };
@@ -74,9 +74,10 @@ const tokenParts = [
 ];
 
 /** Card fields for one saved assistant reply; missing data reads 「未上报」. */
-export function messageInfo(message = {}) {
+export function messageInfo(message = {}, sessionExecutor = "") {
   const seconds = elapsedSeconds(message.startedAt, message.createdAt);
   const model = String(message.model || "").trim();
+  const tool = replyEngineLabel(model, sessionExecutor, message.speakerAgentId);
   const rows = [
     {
       key: "time",
@@ -88,7 +89,7 @@ export function messageInfo(message = {}) {
       label: "Agent",
       value: String(message.speakerName || "").trim() || "主 Bot",
     },
-    { key: "tool", label: "编码工具", value: engineLabel(engineOfModel(model)) },
+    { key: "tool", label: "编码工具", value: tool || NOT_REPORTED },
     { key: "model", label: "模型", value: model || NOT_REPORTED },
     ...(APPROVAL_LABELS[message.approvalMode]
       ? [{ key: "approval", label: "确认方式", value: APPROVAL_LABELS[message.approvalMode] }]

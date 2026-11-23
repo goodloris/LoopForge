@@ -4,9 +4,8 @@ import (
 	"agentflow/internal/domain"
 	"agentflow/internal/notification"
 	"context"
-	"os"
+	"errors"
 	"path/filepath"
-	"strings"
 )
 
 func (h *assistantHandlers) generateSOPReport(ctx context.Context, run domain.Run, model, prompt string) (domain.AINotificationContent, error) {
@@ -14,19 +13,21 @@ func (h *assistantHandlers) generateSOPReport(ctx context.Context, run domain.Ru
 }
 func (h *assistantHandlers) generateReport(ctx context.Context, run domain.Run, model, prompt, system string) (domain.AINotificationContent, error) {
 	user, ok := h.repo.User(run.ExecutionContext.ResponsibleUserID)
+	if !ok {
+		return domain.AINotificationContent{}, notification.ErrReportCredentials
+	}
+	requestedKiro := botKiroModel(model)
+	model, err := resolveFeatureModel(user, model)
 	kiro := botKiroModel(model)
 	switch {
-	case !ok:
-		return domain.AINotificationContent{}, notification.ErrReportCredentials
-	case kiro && !validBotModel(model):
+	case errors.Is(err, errFeatureModel):
 		return domain.AINotificationContent{}, notification.ErrReportModel
-	case kiro && !kiroCLIInstalled():
-		// Reports run on this server: Kiro CLI needs kiro-cli and its login here.
+	case (kiro || requestedKiro && err != nil) && !kiroCLIInstalled():
+		// Reports run on this server: Kiro CLI needs kiro-cli and its login
+		// here; a login on one of the user's execution machines does not help.
 		return domain.AINotificationContent{}, notification.ErrReportKiro
-	case !kiro && strings.TrimSpace(user.CodeBuddyAPIKey) == "":
+	case err != nil:
 		return domain.AINotificationContent{}, notification.ErrReportCredentials
-	case !kiro && assistantAllowedModel(model, loadAssistantModels(ctx, user.CodeBuddyInternetEnvironment)) != model:
-		return domain.AINotificationContent{}, notification.ErrReportModel
 	}
 
 	modelCtx, cancel := context.WithCancel(ctx)
@@ -46,15 +47,6 @@ func (h *assistantHandlers) generateReport(ctx context.Context, run domain.Run, 
 	if generate == nil {
 		generate = func(callCtx context.Context, input string, u domain.User) (string, error) {
 			call := assistantCLIRequest{Prompt: input, Model: model, UserID: u.ID, ReportOnly: true, Native: true, MCPConfig: files.MCPConfig, Settings: files.Settings, SystemPrompt: system}
-			if kiro {
-				// Kiro CLI keeps its HOME in the session root; not the user's chats'.
-				root, err := os.MkdirTemp("", "agentflow-sop-report-kiro-")
-				if err != nil {
-					return "", err
-				}
-				defer os.RemoveAll(root)
-				call.SessionRoot = root
-			}
 			raw, _, err := runAssistantCLI(callCtx, call, u, nil)
 			return raw, err
 		}
@@ -67,9 +59,9 @@ func (h *assistantHandlers) generateReport(ctx context.Context, run domain.Run, 
 		_, cliErr := generate(modelCtx, input, user)
 		if result, ok := session.takeFinal(); ok && result.Report != nil {
 			report := *result.Report
-			report.Title = redactAssistantSecrets(strings.ReplaceAll(report.Title, user.CodeBuddyAPIKey, "[redacted]"), user)
-			report.Summary = redactAssistantSecrets(strings.ReplaceAll(report.Summary, user.CodeBuddyAPIKey, "[redacted]"), user)
-			report.Body = redactAssistantSecrets(strings.ReplaceAll(report.Body, user.CodeBuddyAPIKey, "[redacted]"), user)
+			report.Title = redactAssistantSecrets(report.Title, user)
+			report.Summary = redactAssistantSecrets(report.Summary, user)
+			report.Body = redactAssistantSecrets(report.Body, user)
 			return report, nil
 		}
 		if ctx.Err() != nil {

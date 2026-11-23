@@ -214,7 +214,7 @@ func (h *agentToolGateway) approveNativeTool(ctx context.Context, s *AgentToolSe
 		return nativeToolApprovalResult{Allow: true}
 	}
 	switch strings.ToLower(action.Name) {
-	case "skill", "read", "read_file", "readfile", "glob", "grep", "list", "ls", "list_directory", "list_resources", "view_image", "todowrite", "todo_read", "todoread",
+	case "skill", "read", "read_file", "readfile", "glob", "grep", "list", "ls", "list_directory", "list_resources", "view_image", "readmediafile", "todowrite", "todo_read", "todoread",
 		// Kiro CLI: schema/skill loading, and a sub-agent dispatch whose own
 		// calls come back through this hook.
 		"tool_load", "disclose_context", "invoke_sub_agent":

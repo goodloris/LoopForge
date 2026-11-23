@@ -354,3 +354,73 @@ func TestPostgresGormBuildsUpstream034And035(t *testing.T) {
 		}
 	}
 }
+
+// The PostgreSQL counterparts of upstream v0.4.1 migrations 036–039 run twice
+// on the AutoMigrate schema: 036 backfills plain GitHub tokens with the same
+// host id the platform computes, 037 then clears only identical copies, and
+// the others are no-ops the second time.
+func TestPostgresUpstream041Migrations(t *testing.T) {
+	if strings.TrimSpace(os.Getenv("AGENTFLOW_TEST_PG_DSN")) == "" {
+		t.Skip("AGENTFLOW_TEST_PG_DSN not set")
+	}
+	s, err := OpenTest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	db, err := s.DB.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	exec := func(query string) {
+		t.Helper()
+		if _, err := db.Exec(query); err != nil {
+			t.Fatalf("%v\n%.200s", err, query)
+		}
+	}
+	exec(`DELETE FROM user_git_http_credentials; DELETE FROM user_configs WHERE user_id BETWEEN 9101 AND 9104;
+INSERT INTO users (id, login_name) VALUES (9101,'pg-plain'),(9102,'pg-oauth'),(9103,'pg-rotated'),(9104,'pg-gongfeng') ON CONFLICT DO NOTHING;
+INSERT INTO user_configs (user_id, git_token, gongfeng_refresh_token) VALUES (9101,' ghp_Plain ',NULL),(9102,'oauth2:x',NULL),(9103,'ghp_Old',NULL),(9104,'gf','refresh')`)
+	run := func(name string) {
+		t.Helper()
+		raw, err := os.ReadFile(pgMigrations + name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for range 2 {
+			exec(string(raw))
+		}
+	}
+	run("036_assistant_steer_on_send.sql")
+	run("036_git_http_credentials.sql")
+	if secret, ok := s.GitHTTPCredentialForHost(t.Context(), 9101, "github.com"); !ok || secret.Token != "ghp_Plain" {
+		t.Fatalf("036 backfill = %+v %v", secret, ok)
+	}
+	for _, id := range []int64{9102, 9104} {
+		if _, ok := s.GitHTTPCredentialForHost(t.Context(), id, "github.com"); ok {
+			t.Fatalf("managed token of %d copied", id)
+		}
+	}
+	exec(`UPDATE user_git_http_credentials SET token='ghp_New' WHERE user_id=9103`)
+	run("037_retire_plain_git_token.sql")
+	tokens := map[int64]sql.NullString{}
+	rows, err := db.Query(`SELECT user_id, git_token FROM user_configs WHERE user_id BETWEEN 9101 AND 9104`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var id int64
+		var token sql.NullString
+		if err := rows.Scan(&id, &token); err != nil {
+			t.Fatal(err)
+		}
+		tokens[id] = token
+	}
+	rows.Close()
+	if tokens[9101].Valid || tokens[9102].String != "oauth2:x" || tokens[9103].String != "ghp_Old" || tokens[9104].String != "gf" {
+		t.Fatalf("037 cleared the wrong tokens: %+v", tokens)
+	}
+	run("038_generic_sop_host_credentials.sql")
+	run("039_platform_git_ssh_hosts.sql")
+	run("039_schedule_execution_legacy_stats.sql")
+}

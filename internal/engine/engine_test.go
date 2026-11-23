@@ -20,7 +20,7 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	if runtime.RunMCPCallCLI(os.Args[1:]) {
+	if runtime.RunMCPCallCLI(os.Args[1:]) || runtime.RunGitHelperCLI(os.Args[1:]) {
 		return
 	}
 	code := m.Run()
