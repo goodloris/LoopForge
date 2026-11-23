@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -23,6 +24,14 @@ type fakeFeishu struct {
 	server   *httptest.Server
 	identity feishuUserInfo
 	appCalls int
+	// OAuth v3 (feishu_connect.go): the last token form, the refresh
+	// error code to answer (0 = success), revoked tokens and tenant token
+	// fetches.
+	mu          sync.Mutex
+	tokenForms  []url.Values
+	refreshCode int
+	revoked     []string
+	tenantCalls int
 }
 
 func newFakeFeishu(t *testing.T) *fakeFeishu {
@@ -72,6 +81,49 @@ func newFakeFeishu(t *testing.T) *fakeFeishu {
 			"tenant_key": f.identity.TenantKey,
 		}})
 	})
+	mux.HandleFunc("/oauth/v3/token", func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		f.mu.Lock()
+		f.tokenForms = append(f.tokenForms, r.PostForm)
+		refreshCode := f.refreshCode
+		f.mu.Unlock()
+		if r.PostForm.Get("client_id") != "app-id" || r.PostForm.Get("client_secret") != "app-secret" {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 20002, "error": "invalid_client"})
+			return
+		}
+		grant := r.PostForm.Get("grant_type")
+		if grant == "refresh_token" && refreshCode != 0 {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": refreshCode, "error": "invalid_grant"})
+			return
+		}
+		seed := r.PostForm.Get("code")
+		if grant == "refresh_token" {
+			seed = "refreshed-" + r.PostForm.Get("refresh_token")
+		} else if seed == "expired" || r.PostForm.Get("code_verifier") == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 20004, "error": "invalid_grant"})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code": 0, "access_token": "user-" + seed, "expires_in": 7200,
+			"refresh_token": "refresh-" + seed, "refresh_token_expires_in": 604800,
+			"scope": "offline_access docx:document:readonly", "token_type": "Bearer",
+		})
+	})
+	mux.HandleFunc("/oauth/v1/revoke", func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		f.mu.Lock()
+		f.revoked = append(f.revoked, r.PostForm.Get("token"))
+		f.mu.Unlock()
+	})
+	mux.HandleFunc("/open-apis/auth/v3/tenant_access_token/internal", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		f.tenantCalls++
+		f.mu.Unlock()
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "tenant_access_token": "t-xyz", "expire": 7200})
+	})
 	f.server = httptest.NewServer(mux)
 	t.Cleanup(f.server.Close)
 	return f
@@ -92,7 +144,8 @@ func newFeishuTestHandler(t *testing.T, base string) (*authHandlers, *repo.Store
 	}
 	t.Cleanup(s.Close)
 	client := auth.NewClient(auth.Config{SessionSecret: "feishu-test-secret"})
-	return &authHandlers{deps: &deps{repo: s, authClient: client, feishuStates: newFeishuStateStore()}}, s, client
+	d := &deps{repo: s, authClient: client, feishuStates: newFeishuStateStore()}
+	return &authHandlers{deps: d, users: &usersHandlers{deps: d}}, s, client
 }
 
 func feishuStartFlow(t *testing.T, h *authHandlers) (state, cookie string) {

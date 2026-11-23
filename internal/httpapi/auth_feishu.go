@@ -46,6 +46,8 @@ const (
 	feishuStateTTL        = 10 * time.Minute
 	feishuHTTPTimeout     = 10 * time.Second
 	defaultFeishuBaseURL  = "https://open.feishu.cn"
+	// defaultFeishuAccountsURL serves the OAuth 2.0 endpoints.
+	defaultFeishuAccountsURL = "https://accounts.feishu.cn"
 	// Feishu's authorization page ("Obtain the OAuth code"), China domain.
 	feishuAuthorizeURL = "https://accounts.feishu.cn/open-apis/authen/v1/authorize"
 	stateRandomBytes   = 32
@@ -66,6 +68,10 @@ type feishuConfig struct {
 	RedirectURI    string
 	AllowedTenants map[string]bool
 	BaseURL        string
+	// AccountsURL hosts the OAuth endpoints (authorize, v3 token, revoke).
+	// It follows LOOPFORGE_FEISHU_BASE_URL when that is overridden, so a
+	// stand-in Feishu (tests, a private gateway) serves both.
+	AccountsURL string
 }
 
 func feishuConfigFromEnv() feishuConfig {
@@ -78,8 +84,9 @@ func feishuConfigFromEnv() feishuConfig {
 		}
 	}
 	base := strings.TrimRight(strings.TrimSpace(os.Getenv("LOOPFORGE_FEISHU_BASE_URL")), "/")
+	accounts := base
 	if base == "" {
-		base = defaultFeishuBaseURL
+		base, accounts = defaultFeishuBaseURL, defaultFeishuAccountsURL
 	}
 	return feishuConfig{
 		AppID:          strings.TrimSpace(os.Getenv("LOOPFORGE_FEISHU_APP_ID")),
@@ -87,6 +94,7 @@ func feishuConfigFromEnv() feishuConfig {
 		RedirectURI:    strings.TrimSpace(os.Getenv("LOOPFORGE_FEISHU_REDIRECT_URI")),
 		AllowedTenants: tenants,
 		BaseURL:        base,
+		AccountsURL:    accounts,
 	}
 }
 
@@ -128,10 +136,23 @@ func isAbsoluteHTTPURL(raw string) bool {
 
 // ---- one-time OAuth state ----
 
+// feishuStateEntry is one in-flight authorization. purpose tells the shared
+// callback whether it is a sign-in or a member connecting their Feishu grant
+// (feishu_connect.go), which also carries the member, the chosen scope preset
+// and the PKCE verifier.
 type feishuStateEntry struct {
 	expiresAt time.Time
 	returnURL string
+	purpose   string
+	userID    int64
+	preset    string
+	verifier  string
 }
+
+const (
+	feishuPurposeLogin   = ""
+	feishuPurposeConnect = "connect"
+)
 
 // feishuStateStore remembers the in-flight OAuth states of one server. A state
 // is single use: consume deletes it, so a replayed callback is rejected even
@@ -146,7 +167,7 @@ func newFeishuStateStore() *feishuStateStore {
 	return &feishuStateStore{entries: map[string]feishuStateEntry{}, now: time.Now}
 }
 
-func (s *feishuStateStore) issue(returnURL string, ttl time.Duration) (string, error) {
+func (s *feishuStateStore) issue(entry feishuStateEntry, ttl time.Duration) (string, error) {
 	buf := make([]byte, stateRandomBytes)
 	if _, err := rand.Read(buf); err != nil {
 		return "", err
@@ -155,7 +176,8 @@ func (s *feishuStateStore) issue(returnURL string, ttl time.Duration) (string, e
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.pruneLocked()
-	s.entries[state] = feishuStateEntry{expiresAt: s.now().Add(ttl), returnURL: returnURL}
+	entry.expiresAt = s.now().Add(ttl)
+	s.entries[state] = entry
 	return state, nil
 }
 
@@ -220,18 +242,20 @@ func (e *feishuAuthCodeError) Error() string {
 }
 
 type feishuClient struct {
-	baseURL   string
-	appID     string
-	appSecret string
-	http      *http.Client
+	baseURL     string
+	accountsURL string
+	appID       string
+	appSecret   string
+	http        *http.Client
 }
 
 func newFeishuClient(cfg feishuConfig) *feishuClient {
 	return &feishuClient{
-		baseURL:   cfg.BaseURL,
-		appID:     cfg.AppID,
-		appSecret: cfg.AppSecret,
-		http:      &http.Client{Timeout: feishuHTTPTimeout},
+		baseURL:     cfg.BaseURL,
+		accountsURL: cfg.AccountsURL,
+		appID:       cfg.AppID,
+		appSecret:   cfg.AppSecret,
+		http:        &http.Client{Timeout: feishuHTTPTimeout},
 	}
 }
 
@@ -384,12 +408,12 @@ func (h *authHandlers) feishuStart(c *gin.Context) {
 		return
 	}
 	returnURL := h.feishuReturnURL(c.Request)
-	state, err := h.feishuStateStoreOrInit().issue(returnURL, feishuStateTTL)
+	state, err := h.feishuStateStoreOrInit().issue(feishuStateEntry{returnURL: returnURL}, feishuStateTTL)
 	if err != nil {
 		feishuErrorPage(c, http.StatusInternalServerError, "无法开始飞书登录", "生成校验值失败，请重试。")
 		return
 	}
-	h.setFeishuStateCookie(c, state)
+	setFeishuStateCookie(c, state)
 	authorize := feishuAuthorizeURL + "?" + url.Values{
 		"client_id":     {cfg.AppID},
 		"redirect_uri":  {cfg.redirectURI(c.Request)},
@@ -407,7 +431,7 @@ func (h *authHandlers) feishuCallback(c *gin.Context) {
 	}
 	state := strings.TrimSpace(c.Query("state"))
 	cookie, _ := c.Request.Cookie(feishuStateCookieName)
-	h.clearFeishuStateCookie(c)
+	clearFeishuStateCookie(c)
 	// The state must be present in both the query and the HttpOnly cookie and
 	// the two must be equal, before the server-side single-use check runs.
 	if state == "" || cookie == nil || subtle.ConstantTimeCompare([]byte(state), []byte(cookie.Value)) != 1 {
@@ -417,6 +441,10 @@ func (h *authHandlers) feishuCallback(c *gin.Context) {
 	entry, ok := h.feishuStateStoreOrInit().consume(state)
 	if !ok {
 		feishuErrorPage(c, http.StatusBadRequest, "登录已失效", "登录链接已过期或被使用过，请回到登录页重新发起飞书登录。")
+		return
+	}
+	if entry.purpose == feishuPurposeConnect {
+		h.users.feishuConnectCallback(c, cfg, entry)
 		return
 	}
 	if reason := strings.TrimSpace(c.Query("error")); reason != "" {
@@ -529,7 +557,7 @@ func (h *authHandlers) resolveFeishuUser(subject string, info feishuUserInfo) (d
 
 // ---- cookies & error page ----
 
-func (h *authHandlers) setFeishuStateCookie(c *gin.Context, state string) {
+func setFeishuStateCookie(c *gin.Context, state string) {
 	http.SetCookie(c.Writer, &http.Cookie{
 		Name:     feishuStateCookieName,
 		Value:    state,
@@ -541,7 +569,7 @@ func (h *authHandlers) setFeishuStateCookie(c *gin.Context, state string) {
 	})
 }
 
-func (h *authHandlers) clearFeishuStateCookie(c *gin.Context) {
+func clearFeishuStateCookie(c *gin.Context) {
 	http.SetCookie(c.Writer, &http.Cookie{
 		Name:     feishuStateCookieName,
 		Value:    "",
