@@ -19,8 +19,8 @@ func TestFeishuIdentityProvisionAndLookup(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	id := FeishuIdentity{Subject: "union-1", TenantKey: "tenantA", Name: "张三", AvatarURL: "https://feishu.example/a.png"}
-	created, err := s.CreateFeishuAccount(id, false)
+	id := ExternalIdentity{Provider: IdentityProviderFeishu, Tenant: "tenantA", Subject: "union-1", Name: "张三", AvatarURL: "https://feishu.example/a.png"}
+	created, err := s.CreateIdentityAccount(id, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,19 +35,19 @@ func TestFeishuIdentityProvisionAndLookup(t *testing.T) {
 	}
 
 	// Lookup by the exact (subject, tenant) pair.
-	found, ok := s.UserByFeishuIdentity("union-1", "tenantA")
+	found, ok := s.UserByIdentity(IdentityProviderFeishu, "tenantA", "union-1")
 	if !ok || found.ID != created.ID {
 		t.Fatalf("lookup by identity: %+v %v", found, ok)
 	}
 	// Same subject, different tenant must not match.
-	if _, ok := s.UserByFeishuIdentity("union-1", "tenantB"); ok {
+	if _, ok := s.UserByIdentity(IdentityProviderFeishu, "tenantB", "union-1"); ok {
 		t.Fatal("identity matched across tenants")
 	}
-	// Empty subject or tenant never matches.
-	if _, ok := s.UserByFeishuIdentity("", "tenantA"); ok {
+	// An empty subject never matches; an empty tenant is a different tenant.
+	if _, ok := s.UserByIdentity(IdentityProviderFeishu, "tenantA", ""); ok {
 		t.Fatal("empty subject matched")
 	}
-	if _, ok := s.UserByFeishuIdentity("union-1", ""); ok {
+	if _, ok := s.UserByIdentity(IdentityProviderFeishu, "", "union-1"); ok {
 		t.Fatal("empty tenant matched")
 	}
 
@@ -57,7 +57,7 @@ func TestFeishuIdentityProvisionAndLookup(t *testing.T) {
 	}
 
 	// A second member provisions a distinct account.
-	second, err := s.CreateFeishuAccount(FeishuIdentity{Subject: "open-2", TenantKey: "tenantA", Name: "李四"}, false)
+	second, err := s.CreateIdentityAccount(ExternalIdentity{Provider: IdentityProviderFeishu, Tenant: "tenantA", Subject: "open-2", Name: "李四"}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,13 +66,13 @@ func TestFeishuIdentityProvisionAndLookup(t *testing.T) {
 	}
 
 	// Re-provisioning the same identity returns the existing account.
-	again, err := s.CreateFeishuAccount(id, false)
+	again, err := s.CreateIdentityAccount(id, false)
 	if err != nil || again.ID != created.ID {
 		t.Fatalf("re-provision returned a new account: %+v %v", again, err)
 	}
 
 	// A refresh updates the stored name and avatar without rebinding.
-	if err := s.RefreshFeishuProfile(created.ID, "张三丰", "https://feishu.example/b.png"); err != nil {
+	if err := s.RecordIdentitySignIn(ExternalIdentity{Provider: IdentityProviderFeishu, Tenant: "tenantA", Subject: "union-1", Name: "张三丰", AvatarURL: "https://feishu.example/b.png"}); err != nil {
 		t.Fatal(err)
 	}
 	if refreshed, _ := s.User(created.ID); refreshed.ChineseName != "张三丰" {
@@ -87,12 +87,42 @@ func TestFeishuFirstAccountBecomesAdmin(t *testing.T) {
 	}
 	t.Cleanup(s.Close)
 
-	admin, err := s.CreateFeishuAccount(FeishuIdentity{Subject: "boss", TenantKey: "tenantA", Name: "老板"}, true)
+	admin, err := s.CreateIdentityAccount(ExternalIdentity{Provider: IdentityProviderFeishu, Tenant: "tenantA", Subject: "boss", Name: "老板"}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	stored, ok := s.User(admin.ID)
 	if !ok || !domain.IsPlatformAdmin(stored) {
 		t.Fatalf("first feishu account should be platform admin: %+v %v", stored, ok)
+	}
+}
+
+func TestIdentityKeyIsProviderTenantSubject(t *testing.T) {
+	s, err := OpenTest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(s.Close)
+
+	feishu, err := s.CreateIdentityAccount(ExternalIdentity{Provider: IdentityProviderFeishu, Tenant: "t1", Subject: "same"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The same subject from another provider, with no tenant, is another member.
+	other, err := s.CreateIdentityAccount(ExternalIdentity{Provider: "gitlab", Subject: "same"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if other.ID == feishu.ID || !strings.HasPrefix(other.LoginName, "gitlab-") {
+		t.Fatalf("providers share an identity: feishu=%+v other=%+v", feishu, other)
+	}
+	if got, ok := s.UserByIdentity("gitlab", "", "same"); !ok || got.ID != other.ID {
+		t.Fatalf("tenant-less lookup: %+v %v", got, ok)
+	}
+	if _, ok := s.UserByIdentity("", "t1", "same"); ok {
+		t.Fatal("empty provider matched")
+	}
+	if err := s.RecordIdentitySignIn(ExternalIdentity{Provider: IdentityProviderFeishu, Tenant: "t2", Subject: "same"}); err == nil {
+		t.Fatal("recording an unbound identity should fail")
 	}
 }

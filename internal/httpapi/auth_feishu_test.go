@@ -179,7 +179,7 @@ func TestFeishuLoginProvisionsAndRebinds(t *testing.T) {
 	if got := s.UserCount(); got != before+1 {
 		t.Fatalf("user count = %d want %d", got, before+1)
 	}
-	bound, ok := s.UserByFeishuIdentity("union-1", "tenantA")
+	bound, ok := s.UserByIdentity(repo.IdentityProviderFeishu, "tenantA", "union-1")
 	if !ok || bound.ID != user.ID {
 		t.Fatalf("identity not bound: %+v %v", bound, ok)
 	}
@@ -298,7 +298,7 @@ func TestFeishuLoginDoesNotTakeOverPasswordAccount(t *testing.T) {
 	if !s.CheckLocalPassword(admin.ID, "pw-secret") {
 		t.Fatal("password account changed")
 	}
-	if _, ok := s.UserByFeishuIdentity("union-1", "tenantA"); !ok {
+	if _, ok := s.UserByIdentity(repo.IdentityProviderFeishu, "tenantA", "union-1"); !ok {
 		t.Fatal("feishu identity should bind to the new account")
 	}
 }
@@ -318,7 +318,7 @@ func TestFeishuLoginSignupDisabled(t *testing.T) {
 	}
 
 	// An already-bound member can still sign in when signup is disabled.
-	bound, err := s.CreateFeishuAccount(repo.FeishuIdentity{Subject: "union-1", TenantKey: "tenantA", Name: "张三"}, false)
+	bound, err := s.CreateIdentityAccount(repo.ExternalIdentity{Provider: repo.IdentityProviderFeishu, Tenant: "tenantA", Subject: "union-1", Name: "张三"}, false)
 	if err != nil {
 		t.Fatal(err)
 	}

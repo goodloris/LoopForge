@@ -489,11 +489,17 @@ var errFeishuSignupDisabled = errors.New("feishu self-service signup is disabled
 
 // resolveFeishuUser binds the sign-in to an existing Feishu account or, when
 // permitted, provisions a new one. It never matches a password account: lookup
-// and creation go only through the feishu_* identity columns.
+// and creation go only through the (feishu, tenant_key, subject) identity.
 func (h *authHandlers) resolveFeishuUser(subject string, info feishuUserInfo) (domain.User, error) {
-	tenantKey := info.TenantKey
-	if existing, ok := h.repo.UserByFeishuIdentity(subject, tenantKey); ok {
-		if err := h.repo.RefreshFeishuProfile(existing.ID, info.Name, info.AvatarURL); err != nil {
+	identity := repo.ExternalIdentity{
+		Provider:  repo.IdentityProviderFeishu,
+		Tenant:    info.TenantKey,
+		Subject:   subject,
+		Name:      info.Name,
+		AvatarURL: info.AvatarURL,
+	}
+	if existing, ok := h.repo.UserByIdentity(identity.Provider, identity.Tenant, identity.Subject); ok {
+		if err := h.repo.RecordIdentitySignIn(identity); err != nil {
 			log.Printf("[feishu] refresh profile for user %d failed: %v", existing.ID, err)
 		} else if refreshed, ok := h.repo.User(existing.ID); ok {
 			existing = refreshed
@@ -504,19 +510,14 @@ func (h *authHandlers) resolveFeishuUser(subject string, info feishuUserInfo) (d
 	// admin decision and login-name allocation stay race-free.
 	registerMu.Lock()
 	defer registerMu.Unlock()
-	if existing, ok := h.repo.UserByFeishuIdentity(subject, tenantKey); ok {
+	if existing, ok := h.repo.UserByIdentity(identity.Provider, identity.Tenant, identity.Subject); ok {
 		return existing, nil
 	}
 	first := h.repo.UserCount() == 0
 	if !first && !signupEnabled() {
 		return domain.User{}, errFeishuSignupDisabled
 	}
-	created, err := h.repo.CreateFeishuAccount(repo.FeishuIdentity{
-		Subject:   subject,
-		TenantKey: tenantKey,
-		Name:      info.Name,
-		AvatarURL: info.AvatarURL,
-	}, first)
+	created, err := h.repo.CreateIdentityAccount(identity, first)
 	if err != nil {
 		return domain.User{}, err
 	}

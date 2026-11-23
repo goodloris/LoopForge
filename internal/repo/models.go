@@ -19,24 +19,15 @@ const (
 )
 
 type userRow struct {
-	ID           int64  `gorm:"column:id;primaryKey;autoIncrement"`
-	StaffID      int    `gorm:"column:staff_id"`
-	LoginName    string `gorm:"column:login_name;uniqueIndex:uq_users_login;size:64"`
-	ChineseName  string `gorm:"column:chinese_name;size:128"`
-	DeptID       int    `gorm:"column:dept_id"`
-	DeptName     string `gorm:"column:dept_name;size:128"`
-	PlatformRole string `gorm:"column:platform_role;size:32"`
-	// Feishu web-login identity. FeishuSubject is the union_id (or the open_id
-	// when the app has no union id), scoped by FeishuTenantKey; together they
-	// are the only key a Feishu sign-in matches a user by, never the login
-	// name. All three are NULL for accounts that never signed in through
-	// Feishu, so the unique index below tolerates many such rows (SQL treats
-	// NULLs as distinct). FeishuAvatarURL caches the Feishu avatar for display.
-	FeishuSubject   *string    `gorm:"column:feishu_subject;size:128;uniqueIndex:uq_users_feishu,priority:2"`
-	FeishuTenantKey *string    `gorm:"column:feishu_tenant_key;size:128;uniqueIndex:uq_users_feishu,priority:1"`
-	FeishuAvatarURL *string    `gorm:"column:feishu_avatar_url;type:text"`
-	Created         *time.Time `gorm:"column:created_at"`
-	Updated         *time.Time `gorm:"column:updated_at"`
+	ID           int64      `gorm:"column:id;primaryKey;autoIncrement"`
+	StaffID      int        `gorm:"column:staff_id"`
+	LoginName    string     `gorm:"column:login_name;uniqueIndex:uq_users_login;size:64"`
+	ChineseName  string     `gorm:"column:chinese_name;size:128"`
+	DeptID       int        `gorm:"column:dept_id"`
+	DeptName     string     `gorm:"column:dept_name;size:128"`
+	PlatformRole string     `gorm:"column:platform_role;size:32"`
+	Created      *time.Time `gorm:"column:created_at"`
+	Updated      *time.Time `gorm:"column:updated_at"`
 }
 
 func (userRow) TableName() string { return "users" }
@@ -744,7 +735,7 @@ func (knowledgeSubmissionRow) TableName() string { return "knowledge_submissions
 // allModels lists every table for the sqlite test schema (AutoMigrate).
 func allModels() []any {
 	return []any{domain.BotUserBinding{}, domain.BotBindingChallenge{}, domain.BotConnection{}, domain.BotConversation{}, domain.BotInteraction{}, notificationBotRow{}, botCredentialRow{}, domain.NotificationDelivery{},
-		userRow{}, localAccountRow{}, userConfigRow{}, gitSSHKeyRow{}, authIntegrationRow{}, platformCodeBuddyKeyRow{}, apiTokenRow{}, genericTemplateRow{},
+		userRow{}, userIdentityRow{}, localAccountRow{}, userConfigRow{}, gitSSHKeyRow{}, authIntegrationRow{}, platformCodeBuddyKeyRow{}, apiTokenRow{}, genericTemplateRow{},
 		insightSourceRow{}, insightExecutionRow{},
 		projectRow{}, projectMemberRow{}, repositoryRow{}, businessDomainRow{}, businessDomainAssignmentRow{},
 		agentRow{}, ruleRow{}, skillRow{}, skillFileRow{}, mcpServerRow{}, mcpFileRow{}, executorRow{},
