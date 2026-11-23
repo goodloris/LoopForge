@@ -1222,6 +1222,7 @@ async function renderPersonalSettings(){
   const panel=host.querySelector('#credentialPanel');
   bindCredentialPanel(panel);
   renderCredentialPanel();
+  if(typeof mountFeishuConnect==='function')mountFeishuConnect(host);
   hydrateCredentialIcons(host);
   setTimeout(()=>panel.classList.remove('is-entering'),900);
   // Offer the OAuth shortcut only when the server has a Gongfeng application.

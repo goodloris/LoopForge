@@ -48,6 +48,18 @@ test('auth edges: code exchange needs a code, unconfigured OAuth and photo answe
   await status('GET', '/api/auth/photo', undefined, [200, 404, 502]);
 });
 
+test('Feishu grant: status never carries a token, connect and disconnect answer cleanly', async () => {
+  const state = await get('/api/users/me/feishu');
+  assert.equal(typeof state.enabled, 'boolean');
+  assert.ok(!JSON.stringify(state).includes('token'), 'status exposes no token');
+  const res = await fetch(cfg.base + '/api/users/me/feishu/connect?preset=readonly', { redirect: 'manual', headers: { Authorization: `Bearer ${cfg.token}` } });
+  await res.body?.cancel();
+  assert.ok([302, 503].includes(res.status), `connect -> ${res.status}`);
+  if (res.status === 302) assert.match(res.headers.get('location'), /code_challenge_method=S256/);
+  // Disconnecting without a grant is a no-op; never drop a real one here.
+  if (!state.connected) assert.equal((await api('DELETE', '/api/users/me/feishu')).connected, false);
+});
+
 test('clarification endpoints validate the project and the issue', async () => {
   assert.match((await status('POST', '/api/chat-clarify', {}, [400])).data.error, /projectId/);
   assert.equal((await post('/api/chat-clarify/cancel', {})).cancelled, true);
