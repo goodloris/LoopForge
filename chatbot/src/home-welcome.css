@@ -30,10 +30,11 @@
 
 .chat-shell.home-shell .home-welcome-lockup {
   --home-intro-tempo: .45;
-  --home-logo-cyan: #008dcc;
-  --home-logo-blue: #526ce8;
-  --home-logo-violet: #8a4ed9;
-  --home-logo-highlight: #a8efff;
+  /* The sweep lights take the ring's baked crust, not a separate palette. */
+  --home-crust-light: #f0a043;
+  --home-crust: #d9782a;
+  --home-crust-deep: #b4561c;
+  --home-crust-highlight: #fff1d2;
   --wordmark-orbit-size: 48px;
   --wordmark-orbit-start-x: -34px;
   --wordmark-orbit-start-y: 28px;
@@ -48,10 +49,10 @@
 }
 
 [data-theme="dark"] .chat-shell.home-shell .home-welcome-lockup {
-  --home-logo-cyan: #5bd9ff;
-  --home-logo-blue: #94a5ff;
-  --home-logo-violet: #c29aff;
-  --home-logo-highlight: #f0fbff;
+  --home-crust-light: #ffd592;
+  --home-crust: #f0a043;
+  --home-crust-deep: #e08a45;
+  --home-crust-highlight: #fff6e2;
 }
 
 .chat-shell.home-shell .home-welcome-lockup > .home-logo {
@@ -88,7 +89,7 @@
 .home-welcome-title-light {
   position: absolute;
   inset: 0;
-  background: linear-gradient(100deg, var(--home-logo-cyan), var(--home-logo-blue) 56%, var(--home-logo-violet));
+  background: linear-gradient(100deg, var(--home-crust-light), var(--home-crust) 56%, var(--home-crust-deep));
   background-clip: text;
   -webkit-background-clip: text;
   color: transparent;

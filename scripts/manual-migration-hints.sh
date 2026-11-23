@@ -8,9 +8,10 @@
 # rewrites (an edited prompt is left alone and is not reported); 038 while a
 # built-in code SOP still has the shipped 独立评审 node without rejectTo; 041
 # while a built-in role still names executorId codebuddy; 042 while the welcome
-# project is still 「LoopForge 体验项目」 or a built-in SOP's owner is LoopForge.
+# project is still 「LoopForge 体验项目」 or a built-in SOP's owner is LoopForge;
+# 044 while either still holds the LoopForge or Bagel label.
 # PostgreSQL installations started from a seed that already holds 033 and 037,
-# so only 038, 041 and 042 can be pending there.
+# so only 038, 041, 042 and 044 can be pending there.
 cd "$(dirname "$0")/.." || exit 0
 source scripts/docker-access.sh
 source scripts/database.sh
@@ -31,6 +32,10 @@ SELECT '042_bagel_builtin_labels.sql'
 WHERE EXISTS (SELECT 1 FROM projects WHERE id = 'welcome' AND name = 'LoopForge 体验项目')
    OR EXISTS (SELECT 1 FROM generic_templates WHERE id IN ('generic-backend-delivery', 'generic-frontend-delivery', 'issue-fix-production', 'generic-product-delivery')
      AND payload::jsonb #>> '{Workflow,owner}' = 'LoopForge');
+SELECT '044_loopool_builtin_labels.sql'
+WHERE EXISTS (SELECT 1 FROM projects WHERE id = 'welcome' AND name IN ('LoopForge 体验项目', 'Bagel 体验项目'))
+   OR EXISTS (SELECT 1 FROM generic_templates WHERE id IN ('generic-backend-delivery', 'generic-frontend-delivery', 'issue-fix-production', 'generic-product-delivery')
+     AND payload::jsonb #>> '{Workflow,owner}' IN ('LoopForge', 'Bagel'));
 SQL
   ) || exit 0
   for name in $pending; do
@@ -67,6 +72,10 @@ SELECT '042_bagel_builtin_labels.sql' FROM DUAL
 WHERE EXISTS (SELECT 1 FROM projects WHERE id = 'welcome' AND name = 'LoopForge 体验项目')
    OR EXISTS (SELECT 1 FROM generic_templates WHERE id IN ('generic-backend-delivery', 'generic-frontend-delivery', 'issue-fix-production', 'generic-product-delivery')
      AND JSON_UNQUOTE(JSON_EXTRACT(payload, '$.Workflow.owner')) = 'LoopForge');
+SELECT '044_loopool_builtin_labels.sql' FROM DUAL
+WHERE EXISTS (SELECT 1 FROM projects WHERE id = 'welcome' AND name IN ('LoopForge 体验项目', 'Bagel 体验项目'))
+   OR EXISTS (SELECT 1 FROM generic_templates WHERE id IN ('generic-backend-delivery', 'generic-frontend-delivery', 'issue-fix-production', 'generic-product-delivery')
+     AND JSON_UNQUOTE(JSON_EXTRACT(payload, '$.Workflow.owner')) IN ('LoopForge', 'Bagel'));
 SQL
 ) || exit 0
 
