@@ -30,7 +30,6 @@ func TestBlobColumnTypesPerDialect(t *testing.T) {
 		{workspaceCheckpointChunk{}, "data", "mediumblob", "bytea"},
 		{WorkspaceCheckpoint{}, "archive", "mediumblob", "bytea"},
 		{previewBlobRow{}, "content", "longblob", "bytea"},
-		{pageFeedbackImageRow{}, "data", "longblob", "bytea"},
 	} {
 		for _, d := range []struct {
 			db   *gorm.DB

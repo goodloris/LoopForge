@@ -3,10 +3,10 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -97,18 +97,24 @@ func (h *runsHandlers) startRunEval(c *gin.Context) {
 	}
 	user, ok := h.repo.User(current.ID)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, map[string]string{"error": "请先登录后评测"})
+		c.JSON(http.StatusBadRequest, map[string]string{"error": "当前用户不可用"})
 		return
 	}
 	var req struct {
 		Model string `json:"model"`
 	}
-	if c.Request.ContentLength > 0 && !decode(c, &req) {
+	if c.Request.ContentLength != 0 && !decode(c, &req) {
 		return
 	}
-	engine, engineModel := assistantModelEngine(req.Model)
-	if refusal := runEvalEngineRefusal(user, engine, engineModel); refusal != "" {
-		c.JSON(http.StatusBadRequest, map[string]string{"error": refusal})
+	requested, _ := assistantModelEngine(req.Model)
+	model, err := resolveFeatureModel(user, req.Model)
+	if engine, _ := assistantModelEngine(model); (engine == runtime.AgentCLIKiro || requested == runtime.AgentCLIKiro && err != nil && !errors.Is(err, errFeatureModel)) && !kiroCLIInstalled() {
+		// Evals run on this server: a Kiro login on an execution machine does not help.
+		c.JSON(http.StatusBadRequest, map[string]string{"error": runEvalKiroUnavailable})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 	if rec, busy := h.repo.ActiveRunEval(id); busy {
@@ -122,12 +128,6 @@ func (h *runsHandlers) startRunEval(c *gin.Context) {
 		}
 		// The row was saved as running, then startup failed before a job existed.
 		h.failRunEval(rec, "上次评测没有真正启动")
-	}
-	// A "kiro:…" or other CLI id runs on that CLI as is; only CodeBuddy ids
-	// resolve against its catalog.
-	model := strings.TrimSpace(req.Model)
-	if engine == assistantEngineCodeBuddy {
-		model = assistantAllowedModel(req.Model, loadAssistantModels(c.Request.Context(), user.CodeBuddyInternetEnvironment))
 	}
 	project, _ := h.repo.Project(run.ExecutionContext.ProjectID)
 	rec := domain.RunEvalRecord{
@@ -147,29 +147,8 @@ func (h *runsHandlers) startRunEval(c *gin.Context) {
 	c.JSON(http.StatusAccepted, rec)
 }
 
-// runEvalEngineRefusal reports why an eval cannot run on engine. Evals run
-// on this server, not on an execution machine, so Kiro CLI needs kiro-cli and
-// its login here; the other CLIs need the user's own key.
-func runEvalEngineRefusal(user domain.User, engine, model string) string {
-	switch {
-	case engine == assistantEngineCodeBuddy:
-		if strings.TrimSpace(user.CodeBuddyAPIKey) == "" {
-			return "请先在个人配置中配置自己的 CodeBuddy API Key"
-		}
-		return ""
-	case model != "" && !assistantValidEngineModel(model):
-		return "评测模型无效"
-	case engine == runtime.AgentCLIKiro:
-		if !kiroCLIInstalled() {
-			return "评测在平台服务器上运行：请在平台上安装 kiro-cli 并完成 kiro-cli login（订阅登录），或改选其他模型"
-		}
-		return ""
-	}
-	if key, _ := assistantEngineCredential(user, engine); key == "" {
-		return assistantEngineMissingKey(engine)
-	}
-	return ""
-}
+// runEvalKiroUnavailable refuses a Kiro CLI eval this server cannot run.
+const runEvalKiroUnavailable = "评测在平台服务器上运行：请在平台上安装 kiro-cli 并完成 kiro-cli login（订阅登录），或改选其他模型"
 
 func (h *runsHandlers) getRunEval(c *gin.Context) {
 	id := c.Param("id")
@@ -516,18 +495,7 @@ func (h *runsHandlers) executeRunEval(ctx context.Context, rec domain.RunEvalRec
 	_ = h.repo.PutRunEval(rec)
 	emit("thought", map[string]string{"kind": "thinking", "text": "正在用 " + rec.Model + " 评测…"})
 	system, prompt := runeval.BuildPrompt(rec.Policy, facts)
-	call := assistantCLIRequest{Prompt: prompt, Model: rec.Model, SystemPrompt: system, UserID: user.ID}
-	if !assistantCodeBuddyModel(rec.Model) {
-		// Other CLIs judge the facts in a tool-free one-shot process with its
-		// own private HOME, outside the user's chat sessions.
-		root, err := os.MkdirTemp("", "agentflow-run-eval-")
-		if err != nil {
-			return domain.RunEvalResult{}, err
-		}
-		defer os.RemoveAll(root)
-		call.SessionRoot, call.ReviewOnly = root, true
-	}
-	raw, _, err := runAssistantCLI(ctx, call, user, func(ev assistantStreamEvent) {
+	raw, _, err := runAssistantCLI(ctx, assistantCLIRequest{Prompt: prompt, Model: rec.Model, SystemPrompt: system, UserID: user.ID, ReviewOnly: true}, user, func(ev assistantStreamEvent) {
 		if emit == nil {
 			return
 		}

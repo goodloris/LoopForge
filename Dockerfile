@@ -44,9 +44,12 @@ FROM node:22-bookworm
 # registry so the published image is unchanged. It is not persisted, so runtime
 # npm (sandbox CLI installs) still uses the default unless overridden there.
 ARG NPM_CONFIG_REGISTRY=https://registry.npmjs.org/
+ARG CODEBUDDY_PACKAGE=@tencent-ai/codebuddy-code@2.167.0
 RUN --mount=type=cache,target=/root/.npm apt-get update && apt-get install -y --no-install-recommends ca-certificates git openssh-client bash curl python3 python3-pip python3-venv ripgrep \
  && rm -rf /var/lib/apt/lists/* \
- && NPM_CONFIG_REGISTRY="${NPM_CONFIG_REGISTRY}" npm install -g @openai/codex@0.162.1 @tencent-ai/codebuddy-code@2.167.0 @deepseek-ai/dsh@0.2.2-rc.1
+ && NPM_CONFIG_REGISTRY="${NPM_CONFIG_REGISTRY}" npm install -g @openai/codex@0.162.1 @deepseek-ai/dsh@0.2.2-rc.1 @wecom/cli@1.3.4 \
+ && wecom-cli --version \
+ && if [ -n "$CODEBUDDY_PACKAGE" ]; then NPM_CONFIG_REGISTRY="${NPM_CONFIG_REGISTRY}" npm install -g "$CODEBUDDY_PACKAGE"; fi
 # A relocatable Python that sandboxes of images without python3 mount for the
 # native CLI hooks (internal/runtime/toolchain.go). Its terminfo database has
 # names differing only in case, which a case-insensitive data directory (macOS)
@@ -101,6 +104,8 @@ ENV PATH="/app/bin:${PATH}"
 # An explicit LOOPFORGE_COMMIT wins. Otherwise read HEAD from the build context
 # so `docker build` stamps the same corner label as the release workflow.
 ARG LOOPFORGE_COMMIT=
+ARG LOOPFORGE_RELEASE_VERSION=
+ENV LOOPFORGE_RELEASE_VERSION=${LOOPFORGE_RELEASE_VERSION}
 RUN --mount=type=bind,source=.,target=/ctx,ro \
     sh /ctx/scripts/image-commit.sh /ctx /app/loopforge-commit
 EXPOSE 8080

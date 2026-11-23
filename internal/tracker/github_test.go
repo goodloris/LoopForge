@@ -21,6 +21,9 @@ func TestGitHubImportPreservesLocalWorkAndMergeChecksConfirmation(t *testing.T) 
 		t.Fatal(err)
 	}
 	u, _ := st.UserByLoginName("github-owner")
+	if err := st.SaveGitHTTPCredential(u.ID, "", domain.GitHTTPCredentialSecret{GitHTTPCredential: domain.GitHTTPCredential{Name: "GitHub", Host: "github.com", Platform: domain.GitPlatformGitHub}, Token: "project-owner-token"}); err != nil {
+		t.Fatal(err)
+	}
 	if err := st.PutProject(domain.Project{ID: "public", Name: "Public", OwnerID: u.ID}); err != nil {
 		t.Fatal(err)
 	}
@@ -122,6 +125,9 @@ func TestGitHubMergeBranchShortCircuitsMergedPullAndReopensClosed(t *testing.T) 
 		t.Fatal(err)
 	}
 	u, _ := st.UserByLoginName("github-owner")
+	if err := st.SaveGitHTTPCredential(u.ID, "", domain.GitHTTPCredentialSecret{GitHTTPCredential: domain.GitHTTPCredential{Name: "GitHub", Host: "github.com", Platform: domain.GitPlatformGitHub}, Token: "project-owner-token"}); err != nil {
+		t.Fatal(err)
+	}
 	if err := st.PutProject(domain.Project{ID: "public", Name: "Public", OwnerID: u.ID}); err != nil {
 		t.Fatal(err)
 	}

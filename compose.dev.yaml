@@ -15,5 +15,6 @@ services:
         # (e.g. GOPROXY=https://goproxy.cn,direct) where they are unreachable.
         GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
         NPM_CONFIG_REGISTRY: ${NPM_CONFIG_REGISTRY:-https://registry.npmjs.org/}
+        CODEBUDDY_PACKAGE: ${CODEBUDDY_PACKAGE-@tencent-ai/codebuddy-code@2.167.0}
     environment:
       AGENTFLOW_ISOLATED_IMAGE: loopforge-platform:local

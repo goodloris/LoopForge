@@ -43,6 +43,8 @@ test('schedule form switches job kind and timing and sends validated assistant a
     f.elements.scheduleMode.value='cron';syncScheduleJobTiming();
   })()`);
   const form = app.document.querySelector('#scheduleJobForm');
+  assert.equal(form.elements.timeoutMinutes.placeholder, '30');
+  assert.equal(form.elements.timeoutMinutes.disabled, false);
   assert.equal(form.elements.workflowId.required, false);
   assert.equal(form.elements.assistantPrompt.required, true);
   assert.equal(form.elements.intervalSec.hidden, true);
@@ -53,6 +55,10 @@ test('schedule form switches job kind and timing and sends validated assistant a
   form.elements.assistantPrompt.value = 'Summarize failures';
   form.elements.assistantModel.value = 'glm-test';
   form.elements.cron.value = '0 9 * * 1-5';
+  form.elements.timeoutMinutes.value = '241';
+  form.dispatchEvent(new app.window.Event('submit', { bubbles: true, cancelable: true }));
+  assert.equal(app.router.calls.some(c => c.method === 'POST' && c.path === '/api/schedule-jobs'), false);
+  form.elements.timeoutMinutes.value = '75';
   form.dispatchEvent(new app.window.Event('submit', { bubbles: true, cancelable: true }));
   await settle(4);
   const aiCall = app.router.calls.find(c => c.method === 'POST' && c.path === '/api/schedule-jobs');
@@ -60,6 +66,9 @@ test('schedule form switches job kind and timing and sends validated assistant a
   assert.equal(aiCall.body.assistantPrompt, 'Summarize failures');
   assert.equal(aiCall.body.cron, '0 9 * * 1-5');
   assert.equal(aiCall.body.workflowId, '');
+  assert.equal(aiCall.body.timeoutMinutes, 75);
+  app.evaluate(`fillScheduleJobForm(state.data.scheduleJobs.find(j => j.id==='new-ai'))`);
+  assert.equal(form.elements.timeoutMinutes.value, '75');
 
   app.evaluate(`(() => {
     fillScheduleJobForm({});
@@ -80,6 +89,8 @@ test('schedule form switches job kind and timing and sends validated assistant a
   assert.equal(calls[1].body.intervalSec, 3600);
   assert.deepEqual(calls[1].body.issueStatuses, ['todo']);
   assert.equal(calls[1].body.maxDispatch, 3);
+  assert.equal(form.elements.timeoutMinutes.disabled, true);
+  assert.equal(calls[1].body.timeoutMinutes, undefined);
   assert.match(app.document.querySelector('#scheduleJobList').textContent, /每小时/);
 });
 
@@ -541,7 +552,7 @@ test('AI schedule model picker includes account login CLI models and keeps a sav
   const app = await loadApp();
   t.after(app.close);
   app.router.get('/api/assistant/models', call => ({
-    default: 'glm-test',
+    default: 'default',
     models: [
       { id: 'glm-test', name: 'GLM Test', family: 'glm' },
       { id: 'claude-test', name: 'Claude Test', family: 'claude' },
@@ -562,9 +573,9 @@ test('AI schedule model picker includes account login CLI models and keeps a sav
   const doc = app.document;
   const form = doc.querySelector('#scheduleJobForm');
   const engine = doc.querySelector('#scheduleEngine');
-  assert.deepEqual([...engine.options].map(o => [o.value, o.disabled]), [['codebuddy', false], ['codex', false], ['claude-code', true]]);
-  assert.match(engine.options[2].textContent, /缺少凭据/);
+  assert.deepEqual([...engine.options].map(o => [o.value, o.disabled]), [['codebuddy', false], ['codex', false]]);
   assert.equal(engine.value, 'codebuddy');
+  assert.equal(form.elements.assistantModel.value, 'glm-test');
 
   const toggle = doc.querySelector('#scheduleModelPicker [data-model-toggle]');
   const menu = doc.querySelector('#scheduleModelPicker .ai-model-menu');
@@ -593,10 +604,21 @@ test('AI schedule model picker includes account login CLI models and keeps a sav
   assert.equal(engine.value, 'claude-code');
   assert.equal(engine.selectedOptions[0].disabled, false);
   assert.equal(form.elements.assistantModel.value, 'claude-code:opus');
-  assert.match(doc.querySelector('#scheduleModelHint').textContent, /默认执行机器的账号登录.*离线时改用个人 API Key.*Key 缺失或不可用时任务失败.*平台共享 Key/);
+
+  app.router.get('/api/assistant/models', {
+    default: 'default',
+    models: [{ id: 'codex:gpt-6-sol', name: 'GPT-6-Sol', engine: 'codex' }],
+    engines: [
+      { id: 'codebuddy', name: 'CodeBuddy', configured: false },
+      { id: 'codex', name: 'Codex', configured: true },
+    ],
+  });
+  await app.evaluate("openScheduleJobModal('assistant')");
+  assert.equal(engine.value, 'codex');
+  assert.equal(form.elements.assistantModel.value, 'codex:gpt-6-sol');
 });
 
-test('a new AI schedule and the AI orchestrator start on the server\'s default CLI', async (t) => {
+test('a new AI schedule starts on the server\'s default CLI', async (t) => {
   for (const defaultExecutor of ['kiro', 'codebuddy', undefined]) {
     const app = await loadApp();
     t.after(app.close);
@@ -623,16 +645,16 @@ test('a new AI schedule and the AI orchestrator start on the server\'s default C
       return JSON.stringify({
         executor: window.AgentFlowAssistantModels.defaultExecutor(),
         model: window.AgentFlowAssistantModels.defaultModel(),
-        orchestrator: selectedAIOrchestratorModel(),
         schedule: f.elements.assistantModel.value,
         engine: $('#scheduleEngine').value,
       });
     })()`).then(JSON.parse);
     if (defaultExecutor === 'kiro') {
-      assert.deepEqual(picked, { executor: 'kiro', model: 'kiro:default', orchestrator: 'kiro:default', schedule: 'kiro:default', engine: 'kiro' });
+      assert.deepEqual(picked, { executor: 'kiro', model: 'kiro:default', schedule: 'kiro:default', engine: 'kiro' });
     } else {
       // CodeBuddy as default, or an older server: exactly the previous picks.
-      assert.deepEqual(picked, { executor: 'codebuddy', model: 'glm-test', orchestrator: 'glm-test', schedule: 'default', engine: 'codebuddy' }, String(defaultExecutor));
+      // Upstream v0.4.1 starts a new task on the first configured CLI's model.
+      assert.deepEqual(picked, { executor: 'codebuddy', model: 'glm-test', schedule: 'glm-test', engine: 'codebuddy' }, String(defaultExecutor));
     }
     // A saved job keeps its own model whatever the default.
     app.evaluate(`fillScheduleJobForm({id:'job-1',assistantModel:'glm-test'});paintScheduleModel($('#scheduleJobForm').elements.assistantModel.value)`);

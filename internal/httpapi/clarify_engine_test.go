@@ -30,6 +30,17 @@ func TestClarifyEngineRefusal(t *testing.T) {
 	kiroCLIInstalled = func() bool { return false }
 	none := domain.User{ID: 7}
 	keyed := domain.User{ID: 8, CodeBuddyAPIKey: "cb", CodexAPIKey: "cx"}
+	clarifyEngineRefusal := func(u domain.User, model string) error {
+		_, err := clarifyModelFor(model, u)
+		return err
+	}
+	modelFor := func(id string, u domain.User) string {
+		model, err := clarifyModelFor(id, u)
+		if err != nil {
+			t.Fatalf("clarifyModelFor(%q) = %v", id, err)
+		}
+		return model
+	}
 	if err := clarifyEngineRefusal(none, "glm-5.1"); err != errClarifyResponsibleKey {
 		t.Fatalf("CodeBuddy without key = %v", err)
 	}
@@ -53,13 +64,13 @@ func TestClarifyEngineRefusal(t *testing.T) {
 		t.Fatal("invalid Kiro model accepted")
 	}
 	// No choice: CodeBuddy with a key, else Kiro CLI when it can run here.
-	if got := clarifyModelFor("", keyed); got != clarifyDefaultModel {
+	if got := modelFor("", keyed); got != featureDefaultModel(keyed, assistantEngineCodeBuddy) {
 		t.Fatalf("default with CodeBuddy key = %q", got)
 	}
-	if got := clarifyModelFor("", none); got != "kiro:auto" {
+	if got := modelFor("", none); got != "kiro:auto" {
 		t.Fatalf("default without CodeBuddy key = %q", got)
 	}
-	if got := clarifyModelFor("kiro:claude-haiku-5.5", keyed); got != "kiro:claude-haiku-5.5" {
+	if got := modelFor("kiro:claude-haiku-5.5", keyed); got != "kiro:claude-haiku-5.5" {
 		t.Fatalf("Kiro choice = %q", got)
 	}
 }
@@ -399,5 +410,49 @@ printf '%s\n' '{"type":"result","result":"{\"summary\":\"ok\",\"ready\":true,\"q
 	}
 	if !slices.Contains(settings.Permissions.Deny, "Bash") {
 		t.Fatalf("native tool denials lost: %s", data)
+	}
+}
+
+func TestChatClarifyRejectsInvalidModel(t *testing.T) {
+	called := false
+	setClarifyExecForTest(func(context.Context, domain.Issue, chatClarifyRequest, func(string, any)) (any, string, map[string]any, error) {
+		called = true
+		return map[string]any{}, "{}", map[string]any{}, nil
+	})
+	t.Cleanup(func() { setClarifyExecForTest(nil) })
+
+	_, h := clarifyTestServer(t)
+	body, _ := json.Marshal(map[string]any{"projectId": "platform", "message": "加个徽章", "model": "codex:"})
+	req := httptest.NewRequest(http.MethodPost, "/api/chat-clarify", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "请选择有效的 CLI 模型") {
+		t.Fatalf("error does not explain invalid model: %s", rec.Body.String())
+	}
+	if called {
+		t.Fatal("clarification started with an invalid model")
+	}
+}
+
+func TestRunEvalRequiresSelectedCLICredentials(t *testing.T) {
+	f := cvBNewHTTPFixture(t)
+	if _, err := f.s.UpdateUserCredentials(f.user.ID, repo.UserCredentialUpdate{CodeBuddyAPIKey: "eval-key"}); err != nil {
+		t.Fatal(err)
+	}
+	done := domain.Run{ID: "eval-codex-run", Status: "succeeded", WorkflowID: "missing",
+		ExecutionContext: domain.TelemetryContext{ProjectID: "platform"}, Nodes: map[string]*domain.NodeRun{}}
+	if err := f.s.PutRun(done); err != nil {
+		t.Fatal(err)
+	}
+	rec := cvBRequest(t, f, http.MethodPost, "/api/runs/eval-codex-run/eval", map[string]any{"model": "codex:gpt-5.5"}, true)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "Codex API Key") {
+		t.Fatalf("status = %d body = %s, want 400 asking for the selected CLI credential", rec.Code, rec.Body.String())
+	}
+	if _, busy := f.s.ActiveRunEval(done.ID); busy {
+		t.Fatal("a model without matching credentials must not start an eval")
 	}
 }

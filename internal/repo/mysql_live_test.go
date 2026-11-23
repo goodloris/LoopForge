@@ -1,6 +1,7 @@
 package repo
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -189,10 +190,11 @@ func TestMySQLGitSSHCredentialLifecycle(t *testing.T) {
 	}
 	defer func() {
 		_ = s.DB.Exec(`DELETE FROM user_git_ssh_keys WHERE user_id=?`, user.ID).Error
+		_ = s.DB.Exec(`DELETE FROM user_git_http_credentials WHERE user_id=?`, user.ID).Error
 		_ = s.DB.Exec(`DELETE FROM user_configs WHERE user_id=?`, user.ID).Error
 		_ = s.DB.Exec(`DELETE FROM users WHERE id=?`, user.ID).Error
 	}()
-	if _, err := s.UpdateUserCredentials(user.ID, UserCredentialUpdate{GitToken: "test-only token"}); err != nil {
+	if err := s.SaveGitHTTPCredential(user.ID, "", domain.GitHTTPCredentialSecret{GitHTTPCredential: domain.GitHTTPCredential{Host: "github.com", Name: "GitHub", Platform: domain.GitPlatformGitHub}, Token: "test-only-token"}); err != nil {
 		t.Fatal(err)
 	}
 	const first = "git@gitlab.example.org:team/app.git"
@@ -234,7 +236,11 @@ func TestMySQLGitSSHCredentialLifecycle(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if user, _ := s.User(user.ID); user.GitSSHKeyConfigured || user.GitToken != "test-only token" {
+	// Upstream v0.4.1 keeps the GitHub token as a github.com HTTPS credential.
+	if user, _ := s.User(user.ID); user.GitSSHKeyConfigured {
+		t.Fatal("deleting SSH keys left the configured flag set")
+	}
+	if secret, ok := s.GitHTTPCredentialForHost(context.Background(), user.ID, "github.com"); !ok || secret.Token != "test-only-token" {
 		t.Fatal("deleting SSH keys changed the token or left the configured flag set")
 	}
 }

@@ -67,15 +67,16 @@ test('run detail hides stale stage times, links requirements, and states the inp
       running:range({a:{status:'running',startedAt:'2026-10-21T10:00:00Z'}}),
       done:range({a:{status:'succeeded',startedAt:'2026-10-21T10:00:00Z',finishedAt:'2026-10-21T10:01:00Z'},
         b:{status:'pending',startedAt:'2026-10-21T09:00:00Z'}}),
-      desc:[runHeaderDescription('修复登录','修复登录\\n\\n密码错误时提示'),runHeaderDescription('修复登录','修复登录\\n\\n修复登录接口的报错'),
-        runHeaderDescription('修复登录','修复登录'),runHeaderDescription('SOP','另一段输入'),runHeaderDescription('SOP','')],
+      // Upstream v0.4.1 header: (input, title) -> HTML without the repeated title line.
+      desc:[runHeaderDescription('修复登录\\n\\n密码错误时提示','修复登录'),runHeaderDescription('修复登录','修复登录'),
+        runHeaderDescription('另一段输入','SOP'),runHeaderDescription('','SOP')].map(html=>html.replace(/<[^>]+>/g,'')),
     };
   })()`);
   assert.equal(r.reset, null, 'a node sent back to pending has not started this round');
   assert.equal(r.running.running, true);
   assert.equal(r.done.running, false);
   assert.equal(r.done.start, Date.parse('2026-10-21T10:00:00Z'), 'stale startedAt of a pending node is ignored');
-  assert.equal(JSON.stringify(r.desc), JSON.stringify(['密码错误时提示', null, null, '另一段输入', '']));
+  assert.equal(JSON.stringify(r.desc), JSON.stringify(['密码错误时提示', '', '另一段输入', '']));
 
   const workflow = app.evaluate('structuredClone(state.data.workflows[0])');
   const run = {

@@ -550,7 +550,7 @@ func TestApplyKiroLoginDockerUsesCachedCLI(t *testing.T) {
 // A conversation workspace links the machine's cached kiro-cli; the
 // in-container download is only the fallback.
 func TestConversationKiroSetupFallsBackToDownload(t *testing.T) {
-	setup, err := conversationCLISetup(AgentCLIKiro, "kiro-cli")
+	setup, err := dockerCLISetup(AgentCLIKiro, "kiro-cli")
 	if err != nil || !strings.Contains(setup, kiroInstallScript("/opt/loopforge/conversation-cli/bin")) {
 		t.Fatalf("setup must carry the installer the cache replaces: %v", err)
 	}
