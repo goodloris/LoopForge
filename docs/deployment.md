@@ -242,6 +242,22 @@ Credentials are needed to test end to end. Once you have them:
 4. To find your `tenant_key`, attempt a sign-in once with an empty allowlist and read it from the error page or the platform log, then add it to `LOOPFORGE_FEISHU_ALLOWED_TENANTS` and restart.
 5. Check that password login and existing accounts are unaffected, and that a member from a tenant not on the allowlist is refused.
 
+### Connecting Feishu for agents (personal settings → 飞书)
+
+The same app lets each member connect their own Feishu identity in **个人配置 → 飞书**, so agents in conversation workspaces can call `lark-cli` (the lark-* skills) as the member who sent the round. The card appears only when `LOOPFORGE_FEISHU_APP_ID` and `LOOPFORGE_FEISHU_APP_SECRET` are set; there is no new environment variable.
+
+- **Redirect URL.** Connecting reuses `/api/auth/feishu/callback` (the callback tells sign-in and connection apart by the one-time state), so nothing new is registered.
+- **Permissions to enable in the Feishu console.** Under 权限管理, enable these **user-identity** (用户身份) scopes and publish a version. Feishu refuses the whole authorization page with error 20027 if any requested scope is not enabled.
+  - Always: `offline_access` (without it Feishu returns no refresh token and the connection is refused).
+  - 只读 (default): `docx:document:readonly wiki:wiki:readonly drive:drive:readonly sheets:spreadsheet:readonly calendar:calendar:readonly im:chat:readonly im:message:readonly search:docs:read search:message contact:user.base:readonly`.
+  - 读写 (also): `docx:document wiki:wiki drive:drive sheets:spreadsheet calendar:calendar im:message im:message.send_as_user`.
+- **Flow.** `GET /api/users/me/feishu/connect?preset=readonly|readwrite` sends the signed-in member to Feishu with PKCE (S256), the chosen scopes plus `offline_access`, and a one-time state bound to that member. The callback requires the same member to be signed in, exchanges the code on the OAuth 2.0 v3 token endpoint (`accounts.feishu.cn/oauth/v3/token`), reads the identity from `authen/v1/user_info`, applies the tenant allowlist, and stores the grant. The granted scopes shown in settings are the ones Feishu returned.
+- **Identity rules.** A connection is not a sign-in: a password account may connect, but the Feishu identity is kept on the grant only and never added to `user_identities`, so it gives the account no Feishu login. An account that signs in with Feishu may only connect that same identity (「请用登录本平台的飞书账号授权」), and an identity another account signs in with is refused.
+- **Storage and refresh.** Grants live in `user_feishu_grants` (one row per account, `UsersRepo`). Feishu's refresh token works once, so a refresh runs under a row lock and writes the new pair back in the same transaction; concurrent rounds on any instance wait and reuse the refreshed token. A refresh Feishu rejects for good (expired, revoked, already used, user or app no longer valid) marks the grant 已过期 and the member authorizes again; a network or Feishu server error keeps the grant. Tokens are stored in plaintext like the other personal credentials (column encryption is tracked in #47) and `GET /api/users/me/feishu` never returns them.
+- **Disconnect.** `DELETE /api/users/me/feishu` deletes the tokens at once and then revokes the refresh token at Feishu (`oauth/v1/revoke`) on a best-effort basis.
+- **Migration.** Startup AutoMigrate creates the table; existing installs can apply `migrations/043_user_feishu_grants.sql` (MySQL) or `migrations/postgres/043_user_feishu_grants.sql` (PostgreSQL) by hand. Both are idempotent.
+- **Read-write risk.** In 请求批准 mode, shell commands in a conversation workspace run without asking, and `lark-cli` is a shell command; with the 读写 level an agent can send messages or edit documents as the member without a per-command confirmation. That is why 只读 is the default.
+
 ## Default executor
 
 `AGENTFLOW_DEFAULT_EXECUTOR` names the CLI that AI chat uses when nothing else names one. Leave it unset to keep CodeBuddy, the historical default.

@@ -34,6 +34,9 @@ func authSessionExpired(user *auth.User) bool {
 
 type authHandlers struct {
 	*deps
+	// users finishes a Feishu grant connection, which shares the Feishu
+	// sign-in callback (feishuCallback dispatches on the state's purpose).
+	users *usersHandlers
 }
 
 func trustGatewayIdentityHeaders() bool {

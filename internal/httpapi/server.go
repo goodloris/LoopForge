@@ -187,6 +187,7 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 	}
 	e.WorkspaceActive = func(run domain.Run) bool { return api.runs.terminals.HasRunScope(run.ID) }
 	api.catalog.notifications = api.notifications
+	api.auth.users = api.users
 	api.schedule.notifications = api.notifications
 	if syncSvc != nil {
 		e.MergeIntoBranch = syncSvc.EnsureAndMergeBranchMR
@@ -312,6 +313,9 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 	g.DELETE("/api/users/:id/git-http-credentials/:credID", api.users.gitHTTPCredentials)
 	g.POST("/api/users/:id/git-http-credentials/:credID/verify", api.users.verifyGitHTTPCredential)
 	g.POST("/api/users/:id/cli-models/probe", api.users.probeCLIModels)
+	g.GET("/api/users/me/feishu", api.users.feishuStatus)
+	g.DELETE("/api/users/me/feishu", api.users.feishuDisconnect)
+	g.GET("/api/users/me/feishu/connect", api.users.feishuConnectStart)
 	g.Any("/api/users/:id", func(c *gin.Context) {
 		c.JSON(http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 	})

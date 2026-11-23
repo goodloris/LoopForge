@@ -14,6 +14,7 @@ postgres/
   039_schedule_execution_legacy_stats.sql # 上游：定时任务历史执行补小时统计，停服后手动执行（见下表 039）
   041_builtin_roles_default_executor.sql  # 内置角色改为跟随默认执行器，手动执行（见下表 041）
   042_bagel_builtin_labels.sql  # 体验项目名与内置 SOP 作者标签改为 Bagel，手动执行（见下表 042）
+  044_loopool_builtin_labels.sql  # 体验项目名与内置 SOP 作者标签改为 LooPool，手动执行（见下表 044）
   seed/
     001_public_catalog.sql      # 公共目录，等价于 ../seed/001_public_catalog.sql
     002_welcome_project.sql     # 体验项目，等价于 ../seed/002_welcome_project.sql
@@ -112,7 +113,8 @@ CREATE DATABASE loopforge
 | 039_platform_git_ssh_hosts | 上游：`platform_git_ssh_hosts` 表 | 可选，gorm 已建。`039_platform_git_ssh_hosts.sql` 为等价 `CREATE TABLE IF NOT EXISTS` |
 | 039_schedule_execution_legacy_stats | 上游：用最近 30 天仍保留的已结束执行补缺失的小时统计桶，不覆盖已有桶，有部分重叠或带用量的缺失桶时整体拒绝 | **需要等价物**：`039_schedule_execution_legacy_stats.sql`，`DO` 块 `RAISE EXCEPTION` 代替 MySQL 的 CHECK 约束守卫，`date_trunc('hour', ... AT TIME ZONE 'UTC')` 代替 `DATE_FORMAT`。停服并备份后手动执行，可重复执行。fork 0.5.0 起的安装本来就逐条写桶，一般不需要 |
 | 041_builtin_roles_default_executor | 内置 SOP 角色与基线对齐执行员去掉 `executorId: codebuddy`，跟随 `AGENTFLOW_DEFAULT_EXECUTOR` | 全新安装不需要，seed 已不带 executorId。**此前用 PG seed 建的安装需要手动执行** `041_builtin_roles_default_executor.sql`：只去掉仍是 `codebuddy` 的值，可重复执行；`manual-migration-hints.sh` 在内置角色仍写 `codebuddy` 时提示 |
-| 042_bagel_builtin_labels | 体验项目名「LoopForge 体验项目」改为「Bagel 体验项目」（`name` 列与 payload），内置 SOP 的 `Workflow.owner` 由 `LoopForge` 改为 `Bagel` | 全新安装不需要，seed 已是 Bagel（`web/brand_test.go` 的 `TestSeedLabelsSayBagel`）。**此前用 PG seed 建的安装需要手动执行** `042_bagel_builtin_labels.sql`：只改仍是出厂值的字段，可重复执行；`manual-migration-hints.sh` 在仍有出厂旧值时提示 |
+| 042_bagel_builtin_labels | 体验项目名「LoopForge 体验项目」改为「Bagel 体验项目」（`name` 列与 payload），内置 SOP 的 `Workflow.owner` 由 `LoopForge` 改为 `Bagel` | 全新安装不需要，seed 已是 LooPool（见 044）。**此前用 PG seed 建的安装需要手动执行** `042_bagel_builtin_labels.sql`：只改仍是出厂值的字段，可重复执行；`manual-migration-hints.sh` 在仍有出厂旧值时提示 |
+| 044_loopool_builtin_labels | 体验项目名「LoopForge 体验项目」或「Bagel 体验项目」改为「LooPool 体验项目」（`name` 列与 payload），内置 SOP 的 `Workflow.owner` 由 `LoopForge` 或 `Bagel` 改为 `LooPool` | 全新安装不需要，seed 已是 LooPool（`web/brand_test.go` 的 `TestSeedLabelsSayLooPool`）。**此前用 PG seed 建的安装需要手动执行** `044_loopool_builtin_labels.sql`：只改仍是出厂值的字段，可重复执行，不必先执行 042；`manual-migration-hints.sh` 在仍有出厂旧值时提示 |
 
 MySQL 脚本里有些列是 `NOT NULL DEFAULT ''` / `DEFAULT 0`（如 005 的 `source_id`、018 的 `thread_id`、011 的 `workspace_editor_id`），gorm 在 PG 上建成可空、无默认值。MySQL 全新安装同样只执行 001 和 seed（见 `scripts/install-schema-extensions.sh`），这些列在 MySQL 新库上也是 gorm 的定义，所以 PG 不需要补。
 

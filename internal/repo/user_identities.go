@@ -73,6 +73,19 @@ func (r *UsersRepo) UserByIdentity(provider, tenant, subject string) (domain.Use
 	return r.User(row.UserID)
 }
 
+// IdentitiesOf lists the account's sign-in identities for provider.
+func (r *UsersRepo) IdentitiesOf(userID int64, provider string) []ExternalIdentity {
+	var rows []userIdentityRow
+	if err := r.DB.Where("user_id = ? AND provider = ?", userID, strings.ToLower(strings.TrimSpace(provider))).Find(&rows).Error; err != nil {
+		return nil
+	}
+	out := make([]ExternalIdentity, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, ExternalIdentity{Provider: row.Provider, Tenant: row.Tenant, Subject: row.Subject, Name: row.DisplayName})
+	}
+	return out
+}
+
 // UserCount is the total number of user rows, across every identity adapter.
 // An external sign-in uses it to decide the first-ever account is the admin,
 // the same bootstrap rule password registration applies with LocalAccountCount.

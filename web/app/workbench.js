@@ -1641,6 +1641,7 @@ async function renderPersonalSettings(){
   bindCredentialPanel(panel);
   renderCredentialPanel();
   loadCredentialEffortCatalogs().then(()=>panel.querySelectorAll('[data-credential-catalog]').forEach(refreshCredentialCatalogEfforts));
+  if(typeof mountFeishuConnect==='function')mountFeishuConnect(host);
   hydrateCredentialIcons(host);
   setTimeout(()=>panel.classList.remove('is-entering'),900);
   // Offer the OAuth shortcut only when the server has a Gongfeng application.
@@ -2369,7 +2370,7 @@ function renderUserProfilePopover() {
         </div>
         <div class="upp-info-item">
           <span class="upp-label">认证方式</span>
-          <span class="upp-value">Bagel 本地账号</span>
+          <span class="upp-value">LooPool 本地账号</span>
         </div>
       </div>
       <div class="upp-divider"></div>

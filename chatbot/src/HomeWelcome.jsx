@@ -20,20 +20,20 @@ function TitleSweep() {
             <svg viewBox="0 0 48 48" fill="none" focusable="false">
               <defs>
                 <linearGradient id={gradient} x1="7" y1="5" x2="38" y2="45" gradientUnits="userSpaceOnUse">
-                  <stop stopColor="var(--home-logo-cyan)" />
-                  <stop offset=".5" stopColor="var(--home-logo-blue)" />
-                  <stop offset="1" stopColor="var(--home-logo-violet)" />
+                  <stop stopColor="var(--home-crust-light)" />
+                  <stop offset=".5" stopColor="var(--home-crust)" />
+                  <stop offset="1" stopColor="var(--home-crust-deep)" />
                 </linearGradient>
                 {!trail ? <radialGradient id={light}>
-                  <stop stopColor="var(--home-logo-highlight)" stopOpacity=".04" />
-                  <stop offset=".56" stopColor="var(--home-logo-cyan)" stopOpacity=".14" />
-                  <stop offset="1" stopColor="var(--home-logo-cyan)" stopOpacity=".025" />
+                  <stop stopColor="var(--home-crust-highlight)" stopOpacity=".04" />
+                  <stop offset=".56" stopColor="var(--home-crust-light)" stopOpacity=".14" />
+                  <stop offset="1" stopColor="var(--home-crust-light)" stopOpacity=".025" />
                 </radialGradient> : null}
               </defs>
               <circle cx="24" cy="24" r="21.5" stroke={`url(#${gradient})`}
                 strokeWidth={trail ? ".7" : "1.5"} fill={trail ? "none" : `url(#${light})`} />
               {!trail ? <g className="home-welcome-orbit-satellite">
-                <circle cx="40" cy="10" r="2.1" fill="var(--surface)" stroke="var(--home-logo-violet)" strokeWidth="1.2" />
+                <circle cx="40" cy="10" r="2.1" fill="var(--surface)" stroke="var(--home-crust-deep)" strokeWidth="1.2" />
               </g> : null}
             </svg>
           </span>
@@ -50,8 +50,8 @@ export default function HomeWelcome() {
         <HomeLogo />
         <div className="home-welcome-copy">
           <h1 className="home-welcome-title">
-            <span className="home-welcome-title-ink">Bagel</span>
-            <span className="home-welcome-title-light" aria-hidden="true">Bagel</span>
+            <span className="home-welcome-title-ink">LooPool</span>
+            <span className="home-welcome-title-light" aria-hidden="true">LooPool</span>
             <TitleSweep />
           </h1>
           <p className="home-welcome-subtitle">
