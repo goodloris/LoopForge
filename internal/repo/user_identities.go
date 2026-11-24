@@ -207,3 +207,95 @@ func generateIdentityLoginName(provider string) (string, error) {
 	}
 	return provider + "-" + hex.EncodeToString(buf), nil
 }
+
+// Binding errors. A binding is never merged into or taken from another
+// account: the caller tells the member what an administrator has to do.
+var (
+	ErrIdentityTaken    = errors.New("this identity signs in to another account")
+	ErrIdentityConflict = errors.New("the account already signs in with another identity of this provider")
+	ErrLastSignInMethod = errors.New("the account would have no sign-in method left")
+	ErrIdentityNotBound = errors.New("the account has no identity of this provider")
+)
+
+// BindIdentity adds id as a sign-in identity of an existing account, after
+// the caller proved the member controls it. Binding the same identity again
+// is a no-op. An identity another account signs in with returns
+// ErrIdentityTaken; an account that already has a different identity of the
+// same provider returns ErrIdentityConflict.
+func (r *UsersRepo) BindIdentity(userID int64, id ExternalIdentity) error {
+	id, err := id.normalized()
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	err = r.DB.Transaction(func(tx *gorm.DB) error {
+		var rows []userIdentityRow
+		if err := tx.Where("(provider = ? AND tenant = ? AND subject = ?) OR (provider = ? AND user_id = ?)",
+			id.Provider, id.Tenant, id.Subject, id.Provider, userID).Find(&rows).Error; err != nil {
+			return err
+		}
+		for _, row := range rows {
+			same := row.Tenant == id.Tenant && row.Subject == id.Subject
+			switch {
+			case same && row.UserID == userID:
+				return errIdentityAlreadyBound
+			case same:
+				return ErrIdentityTaken
+			default:
+				return ErrIdentityConflict
+			}
+		}
+		return tx.Create(&userIdentityRow{
+			UserID: userID, Provider: id.Provider, Tenant: id.Tenant, Subject: id.Subject,
+			DisplayName: id.Name, AvatarURL: nullableIdentityString(id.AvatarURL), Created: &now,
+		}).Error
+	})
+	if errors.Is(err, errIdentityAlreadyBound) {
+		return nil
+	}
+	if err != nil {
+		// A concurrent bind of the same identity loses on the unique key.
+		if owner, ok := r.UserByIdentity(id.Provider, id.Tenant, id.Subject); ok {
+			if owner.ID == userID {
+				return nil
+			}
+			return ErrIdentityTaken
+		}
+	}
+	return err
+}
+
+var errIdentityAlreadyBound = errors.New("identity already bound to this account")
+
+// UnbindIdentity removes the account's sign-in identities of provider. It
+// refuses with ErrLastSignInMethod when the account would be left with no
+// local password and no identity of another provider.
+func (r *UsersRepo) UnbindIdentity(userID int64, provider string) error {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	return r.DB.Transaction(func(tx *gorm.DB) error {
+		var bound int64
+		if err := tx.Model(&userIdentityRow{}).Where("user_id = ? AND provider = ?", userID, provider).Count(&bound).Error; err != nil {
+			return err
+		}
+		if bound == 0 {
+			return ErrIdentityNotBound
+		}
+		if !r.hasOtherSignIn(tx, userID, provider) {
+			return ErrLastSignInMethod
+		}
+		return tx.Where("user_id = ? AND provider = ?", userID, provider).Delete(&userIdentityRow{}).Error
+	})
+}
+
+// HasOtherSignIn reports whether the account can still sign in without its
+// identities of provider: a local password or an identity of another provider.
+func (r *UsersRepo) HasOtherSignIn(userID int64, provider string) bool {
+	return r.hasOtherSignIn(r.DB, userID, strings.ToLower(strings.TrimSpace(provider)))
+}
+
+func (r *UsersRepo) hasOtherSignIn(db *gorm.DB, userID int64, provider string) bool {
+	var local, others int64
+	db.Model(&localAccountRow{}).Where("user_id = ?", userID).Count(&local)
+	db.Model(&userIdentityRow{}).Where("user_id = ? AND provider <> ?", userID, provider).Count(&others)
+	return local+others > 0
+}

@@ -334,3 +334,14 @@ Object.assign(window.LF_I18N_EN, {
   "选择周": "Select week",
 });
 Object.assign(window.LF_I18N_EN,{"飞书":"Feishu","连接后，对话工作区里的 Agent 以你的飞书身份读取文档、日历和消息；不连接时只有应用（bot）身份。":"Once connected, agents in conversation workspaces read docs, calendars and messages as you on Feishu; without it they only have the app (bot) identity.","正在读取飞书授权…":"Loading Feishu authorization…","已连接":"Connected","未连接":"Not connected","权限档位":"Permission level","只读（推荐）":"Read-only (recommended)","读文档、知识库、云空间、表格、日历和消息记录。":"Read docs, wikis, Drive, sheets, calendars and message history.","另可创建和编辑文档、建日程、以你的名义发消息。对话工作区里的命令会自动执行，不会逐条请你确认。":"Also create and edit docs, create events and send messages as you. Commands in conversation workspaces run automatically, without asking you each time.","已授权：":"Granted: ","授权已失效，请重新授权。":"The authorization has expired. Authorize again.","重新授权":"Authorize again","连接飞书":"Connect Feishu","断开":"Disconnect","断开飞书":"Disconnect Feishu","断开后，下一轮对话起 Agent 不再使用你的飞书身份。平台会删除保存的授权并通知飞书撤销。":"From the next round on, agents stop using your Feishu identity. The platform deletes the saved authorization and asks Feishu to revoke it.","已断开飞书":"Feishu disconnected","飞书已连接":"Feishu connected"});
+Object.assign(window.LF_I18N_EN,{"飞书登录":"Feishu sign-in","已用于登录":"Used for sign-in","解绑登录":"Unbind sign-in","飞书是这个账号唯一的登录方式，不能解绑。":"Feishu is this account's only sign-in method, so it can't be unbound.","还没用于登录。绑定后可以在登录页用飞书登录这个账号。":"Not used for sign-in yet. Once bound, you can sign in to this account with Feishu on the login page.","同时用于登录":"Also use for sign-in","同时用于登录（之后可以在登录页用飞书登录这个账号）":"Also use for sign-in (sign in to this account with Feishu on the login page)","解绑飞书登录":"Unbind Feishu sign-in","解绑后不能再用飞书登录这个账号；Agent 使用的飞书授权不受影响。":"You can no longer sign in to this account with Feishu; the Feishu authorization agents use is not affected.","解绑":"Unbind","已解绑飞书登录":"Feishu sign-in unbound","已绑定飞书登录":"Feishu sign-in bound","飞书已连接，并已用于登录":"Feishu connected and used for sign-in"});
+// Kiro CLI login row in 个人配置 and the SOP card executor badge.
+Object.assign(window.LF_I18N_EN, {
+  "Claude Code、Codex、Antigravity 和 Kiro CLI 可用账号登录": "Account login for Claude Code, Codex, Antigravity and Kiro CLI",
+  "Kiro CLI · 本机登录": "Kiro CLI · machine login",
+  "不需要 API Key：使用平台或执行机器上 kiro-cli login 的订阅登录": "No API key: uses the kiro-cli login subscription on the platform or an execution machine",
+  "检查中": "Checking",
+  "已登录": "Signed in",
+  "未登录": "Not signed in",
+  "Kiro CLI 本机登录": "Kiro CLI machine login"
+});

@@ -215,7 +215,7 @@ func TestFeishuConnectIdentityConsistency(t *testing.T) {
 	// A password account cannot connect an identity another account signs in with.
 	alice, _ := s.CreateLocalAccount("alice", "pw-secret-1", false)
 	_, state, _ = feishuConnectStartAs(t, h, sessionCookie(t, client, alice), "readonly")
-	if rec := feishuConnectCallbackAs(t, h, sessionCookie(t, client, alice), state, "good"); rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "已被占用") {
+	if rec := feishuConnectCallbackAs(t, h, sessionCookie(t, client, alice), state, "good"); rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "已被其他账号使用") {
 		t.Fatalf("taken identity = %d %s", rec.Code, rec.Body.String())
 	}
 	if _, ok := s.FeishuGrant(alice.ID); ok {
