@@ -2,7 +2,23 @@
 
 Platform releases use `vX.Y.Z` tags. This fork (goodloris/LoopForge) publishes `ghcr.io/goodloris/loopforge` from 0.5.0 on; 0.4.0 and earlier were published upstream as `ghcr.io/tencent/loopforge`. LoopForge Local packages use `local-vX.Y.Z` tags and are published by manually running the `release-local` workflow.
 
-## Unreleased
+## 0.8.0 — LooPool, Feishu identities and upstream v0.4.1
+
+**Upgrading an existing installation (from 0.7.0)** — order matters:
+1. `docker compose stop platform` (keep the database running) and back up the database.
+2. **Before** starting 0.8.0, copy plain GitHub tokens to per-host credentials with `036_git_http_credentials.sql`. 0.8.0 no longer reads `user_configs.git_token`; skipping this step loses GitHub access. Repeatable.
+   - MySQL: `docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" mysql -u loopforge loopforge' < migrations/036_git_http_credentials.sql`
+   - PostgreSQL: `docker compose exec -T postgres psql -X -v ON_ERROR_STOP=1 -U loopforge -d loopforge < migrations/postgres/036_git_http_credentials.sql`
+3. `git checkout v0.8.0 && ./start.sh pull`. Startup AutoMigrate creates the new `user_identities` (039) and `user_feishu_grants` (043) tables; `039_user_identities.sql` / `043_user_feishu_grants.sql` are only for operators who manage DDL by hand.
+4. Run `044_loopool_builtin_labels.sql` (repeatable): the welcome project becomes 「LooPool 体验项目」 and built-in SOPs' owner LooPool (also covers installs that never ran 042).
+   - MySQL: `docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" mysql -u loopforge loopforge' < migrations/044_loopool_builtin_labels.sql`
+   - PostgreSQL: `docker compose exec -T postgres psql -X -v ON_ERROR_STOP=1 -U loopforge -d loopforge < migrations/postgres/044_loopool_builtin_labels.sql`
+5. After checking 个人配置 › Git shows a `github.com` entry for every user who had a token, **and after your rollback window**, run `037_retire_plain_git_token.sql` (repeatable; same commands with `037_retire_plain_git_token.sql`).
+6. Execution machines: upgrade the Runner to 0.11.3 or later to pass Feishu credentials to agents.
+
+`./start.sh pull` prints any of these that is still pending. Details of each step are in the upstream-sync section below.
+
+### Changes
 
 - The platform image bundles the Feishu/Lark CLI `@larksuite/cli@1.0.100` (`lark-cli`, MIT), installed with the other npm CLIs through `NPM_CONFIG_REGISTRY`, so the default Docker sandbox, which reuses the platform image, can run the lark-* skills with the speaker's injected Feishu identity without an install step. The image sets `LARKSUITE_CLI_NO_UPDATE_NOTIFIER=1` and `LARKSUITE_CLI_NO_SKILLS_NOTIFIER=1` so no upgrade banner reaches a conversation. Custom sandbox images and native installations still install it themselves.
 - A custom sandbox Dockerfile built `FROM` the platform image (`ghcr.io/goodloris/loopforge:…`, `loopforge-platform:local`) no longer needs `ENTRYPOINT []`. It inherited the platform's `ENTRYPOINT ["/app/bin/agentflow"]`, which took the sandbox keep-alive command as platform arguments and exited at once, so opening the workspace failed with 「container … is not running」. Docker sandboxes (SOP runs and conversation workspaces share this start path) now read the image's `Config.Entrypoint` and run it with `--entrypoint sh` when it is the platform's (the configured `AGENTFLOW_ISOLATED_IMAGE` entrypoint or `/app/bin/agentflow`); other images, such as node's `docker-entrypoint.sh`, keep their own entrypoint.
