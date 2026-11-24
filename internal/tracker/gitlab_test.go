@@ -2,6 +2,7 @@ package tracker
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -62,13 +63,23 @@ func TestGitLabMergeBranchCreatesThenMerges(t *testing.T) {
 			}
 			_, _ = w.Write([]byte(`[]`))
 		case req.Method == "POST" && req.URL.EscapedPath() == "/projects/"+gitlabEncodedPath+"/merge_requests":
+			var body map[string]any
+			_ = json.NewDecoder(req.Body).Decode(&body)
+			if body["remove_source_branch"] != false {
+				t.Errorf("create must keep the source branch: remove_source_branch=%v", body["remove_source_branch"])
+			}
 			created = true
-			_, _ = w.Write([]byte(`{"iid":7,"state":"opened","source_branch":"feature/work","target_branch":"main","diff_refs":{"head_sha":"head1"}}`))
+			_, _ = w.Write([]byte(`{"iid":7,"state":"opened","source_branch":"feature/work","target_branch":"main","detailed_merge_status":"mergeable","diff_refs":{"head_sha":"head1"}}`))
+		case req.Method == "GET" && req.URL.EscapedPath() == "/projects/"+gitlabEncodedPath+"/merge_requests/7":
+			_, _ = w.Write([]byte(`{"iid":7,"state":"opened","source_branch":"feature/work","target_branch":"main","detailed_merge_status":"mergeable","diff_refs":{"head_sha":"head1"}}`))
 		case req.Method == "PUT" && req.URL.EscapedPath() == "/projects/"+gitlabEncodedPath+"/merge_requests/7/merge":
 			var body map[string]any
 			_ = json.NewDecoder(req.Body).Decode(&body)
 			if body["sha"] != "head1" {
 				t.Errorf("merge must bind to the observed head, got %v", body["sha"])
+			}
+			if body["should_remove_source_branch"] != false {
+				t.Errorf("merge must keep the source branch: should_remove_source_branch=%v", body["should_remove_source_branch"])
 			}
 			merged = true
 			_ = json.NewEncoder(w).Encode(map[string]any{"iid": 7, "state": "merged"})
@@ -118,29 +129,26 @@ func TestGitLabMergeRetriesRace(t *testing.T) {
 	gitlabMergeRetryDelays = []time.Duration{time.Millisecond, time.Millisecond, time.Millisecond}
 	t.Cleanup(func() { gitlabMergeRetryDelays = old })
 
-	var puts []string
-	refuse := map[string]int{"after-push": 1}
+	var puts int
+	refuse := 1
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case req.Method == "GET" && req.URL.EscapedPath() == "/projects/"+gitlabEncodedPath+"/merge_requests":
-			_, _ = w.Write([]byte(`[{"iid":9,"state":"opened","source_branch":"work","target_branch":"integration","diff_refs":{"head_sha":"before-push"}}]`))
+			_, _ = w.Write([]byte(`[{"iid":9,"state":"opened","source_branch":"work","target_branch":"integration"}]`))
 		case req.Method == "GET" && req.URL.EscapedPath() == "/projects/"+gitlabEncodedPath+"/merge_requests/9":
-			_, _ = w.Write([]byte(`{"iid":9,"state":"opened","source_branch":"work","target_branch":"integration","diff_refs":{"head_sha":"after-push"}}`))
+			_, _ = w.Write([]byte(`{"iid":9,"state":"opened","source_branch":"work","target_branch":"integration","detailed_merge_status":"mergeable","diff_refs":{"head_sha":"head9"}}`))
 		case req.Method == "PUT" && req.URL.EscapedPath() == "/projects/"+gitlabEncodedPath+"/merge_requests/9/merge":
 			var body map[string]any
 			_ = json.NewDecoder(req.Body).Decode(&body)
-			sha, _ := body["sha"].(string)
-			puts = append(puts, sha)
-			if sha == "before-push" {
+			if body["should_remove_source_branch"] != false {
+				t.Errorf("merge must keep the source branch: %v", body["should_remove_source_branch"])
+			}
+			puts++
+			if refuse > 0 {
+				refuse--
 				w.WriteHeader(http.StatusConflict)
 				_, _ = w.Write([]byte(`{"message":"SHA does not match HEAD of source branch"}`))
-				return
-			}
-			if refuse[sha] > 0 {
-				refuse[sha]--
-				w.WriteHeader(http.StatusNotAcceptable)
-				_, _ = w.Write([]byte(`{"message":"Branch cannot be merged"}`))
 				return
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"iid": 9, "state": "merged"})
@@ -156,21 +164,137 @@ func TestGitLabMergeRetriesRace(t *testing.T) {
 	if err != nil || ref != "!9" {
 		t.Fatalf("merge after race: ref=%q err=%v", ref, err)
 	}
-	if want := "before-push,after-push,after-push"; strings.Join(puts, ",") != want {
-		t.Fatalf("merge attempts=%v want %v", puts, want)
+	if puts != 2 {
+		t.Fatalf("merge attempts=%d want 2 (one 409 then success)", puts)
 	}
 
-	puts = nil
-	refuse["after-push"] = 99
+	puts, refuse = 0, 99
 	_, err = s.EnsureAndMergeBranchMR(r.GongfengProjectID, "work", "integration", "Title", "")
-	if err == nil || len(puts) != len(gitlabMergeRetryDelays)+1 {
-		t.Fatalf("persistent refusal must stop after the retry budget: attempts=%d err=%v", len(puts), err)
+	if err == nil || puts != len(gitlabMergeRetryDelays)+1 {
+		t.Fatalf("persistent refusal must stop after the retry budget: attempts=%d err=%v", puts, err)
 	}
 	if strings.Contains(err.Error(), "token and repository permissions") || !strings.Contains(err.Error(), "not a token problem") {
 		t.Fatalf("merge race reported as a credential problem: %v", err)
 	}
 	if got := (&gitlabHTTPError{Status: 403, Host: "code.example.net"}).Error(); !strings.Contains(got, "access token") {
 		t.Fatalf("403 must still point at the token: %s", got)
+	}
+}
+
+// only_allow_merge_if_pipeline_succeeds: a running head pipeline queues the
+// merge (merge_when_pipeline_succeeds) instead of failing; the caller gets a
+// MergeQueuedError, not merged and not failed. Once the pipeline passes,
+// polling sees the MR merged.
+func TestGitLabMergeQueuesWhilePipelineRuns(t *testing.T) {
+	s, _, r, _ := gitlabTrackerFixture(t)
+	var queued bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case req.Method == "GET" && req.URL.EscapedPath() == "/projects/"+gitlabEncodedPath+"/merge_requests":
+			_, _ = w.Write([]byte(`[{"iid":9,"state":"opened","source_branch":"work","target_branch":"main"}]`))
+		case req.Method == "GET" && req.URL.EscapedPath() == "/projects/"+gitlabEncodedPath+"/merge_requests/9":
+			_, _ = w.Write([]byte(`{"iid":9,"state":"opened","source_branch":"work","target_branch":"main","detailed_merge_status":"ci_still_running","diff_refs":{"head_sha":"h9"},"head_pipeline":{"status":"running","web_url":"https://code.example.net/example/shop/-/pipelines/42"}}`))
+		case req.Method == "PUT" && req.URL.EscapedPath() == "/projects/"+gitlabEncodedPath+"/merge_requests/9/merge":
+			var body map[string]any
+			_ = json.NewDecoder(req.Body).Decode(&body)
+			if body["merge_when_pipeline_succeeds"] != true {
+				t.Errorf("must set merge_when_pipeline_succeeds, got %v", body["merge_when_pipeline_succeeds"])
+			}
+			if body["should_remove_source_branch"] != false {
+				t.Errorf("queued merge must keep the source branch: %v", body["should_remove_source_branch"])
+			}
+			queued = true
+			_ = json.NewEncoder(w).Encode(map[string]any{"iid": 9, "state": "opened"})
+		default:
+			t.Errorf("unexpected request %s %s", req.Method, req.URL.EscapedPath())
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+	s.gitHostAPIBase = srv.URL
+	ref, err := s.EnsureAndMergeBranchMR(r.GongfengProjectID, "work", "main", "Title", "")
+	if !queued {
+		t.Fatal("expected merge_when_pipeline_succeeds to be set")
+	}
+	if !errors.Is(err, domain.ErrMergeQueuedForPipeline) {
+		t.Fatalf("queued merge must return ErrMergeQueuedForPipeline, got err=%v", err)
+	}
+	if ref != "!9" {
+		t.Fatalf("queued merge must still report the MR ref, got %q", ref)
+	}
+	if !strings.Contains(err.Error(), "/-/pipelines/42") {
+		t.Fatalf("queued error must carry the pipeline link: %v", err)
+	}
+}
+
+func TestGitLabMergeFailsOnFailedPipeline(t *testing.T) {
+	s, _, r, _ := gitlabTrackerFixture(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case req.Method == "GET" && req.URL.EscapedPath() == "/projects/"+gitlabEncodedPath+"/merge_requests":
+			_, _ = w.Write([]byte(`[{"iid":9,"state":"opened","source_branch":"work","target_branch":"main"}]`))
+		case req.Method == "GET" && req.URL.EscapedPath() == "/projects/"+gitlabEncodedPath+"/merge_requests/9":
+			_, _ = w.Write([]byte(`{"iid":9,"state":"opened","source_branch":"work","target_branch":"main","detailed_merge_status":"ci_must_pass","diff_refs":{"head_sha":"h9"},"head_pipeline":{"status":"failed","web_url":"https://code.example.net/example/shop/-/pipelines/43"}}`))
+		default:
+			t.Errorf("unexpected request %s %s", req.Method, req.URL.EscapedPath())
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+	s.gitHostAPIBase = srv.URL
+	_, err := s.EnsureAndMergeBranchMR(r.GongfengProjectID, "work", "main", "Title", "")
+	if err == nil || errors.Is(err, domain.ErrMergeQueuedForPipeline) {
+		t.Fatalf("failed pipeline must be a clear error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "/-/pipelines/43") || !strings.Contains(err.Error(), "pipeline") {
+		t.Fatalf("error must name the failed pipeline with its link: %v", err)
+	}
+}
+
+// After the pipeline passes, the queued MR shows merged; delivery refresh
+// (project Owner credential) advances it.
+func TestGitLabRefreshSeesMergedAfterPipeline(t *testing.T) {
+	st, err := repo.OpenTest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(st.Close)
+	if err := st.PutUser(domain.User{LoginName: "gl-owner"}); err != nil {
+		t.Fatal(err)
+	}
+	u, _ := st.UserByLoginName("gl-owner")
+	if err := st.SaveGitHTTPCredential(u.ID, "", domain.GitHTTPCredentialSecret{
+		GitHTTPCredential: domain.GitHTTPCredential{Name: "GitLab", Host: "code.example.net", Platform: domain.GitPlatformGitLab},
+		Token:             "owner-pat",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutProject(domain.Project{ID: "shop", Name: "Shop", OwnerID: u.ID}); err != nil {
+		t.Fatal(err)
+	}
+	const proj = "gitlab:code.example.net/example/shop"
+	if err := st.PutRepository(domain.Repository{ID: "gl", ProjectID: "shop", Provider: domain.GitPlatformGitLab, Name: "shop", GongfengProjectID: proj, DefaultBranch: "main", WebURL: "https://code.example.net/example/shop"}); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.URL.EscapedPath() == "/projects/example%2Fshop/merge_requests/9" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"iid":9,"state":"merged","target_branch":"main","merged_at":"2026-11-18T10:00:00Z"}`))
+			return
+		}
+		w.WriteHeader(404)
+	}))
+	defer srv.Close()
+	s := NewService()
+	s.ConfigureWithStore(domain.SyncConfig{}, st)
+	s.gitHostAPIBase = srv.URL
+	if err := st.EnsureMRDeliveryState(proj, 9, domain.GongfengMRURL(proj, 9), "issue-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.refreshGitLabDelivery(st, proj, 9); err != nil {
+		t.Fatalf("refresh: %v", err)
 	}
 }
 

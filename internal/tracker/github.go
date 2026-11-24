@@ -271,7 +271,7 @@ func (s *Service) githubMergeBranch(project, branch, target, title, description 
 			return "", ErrNoOpenMR
 		}
 		if title == "" {
-			title = "LoopForge: " + branch + " → " + target
+			title = "LooPool: " + branch + " → " + target
 		}
 		if err := g.request("POST", "/pulls", map[string]any{"head": branch, "base": target, "title": title, "body": description}, &p); err != nil {
 			return "", err

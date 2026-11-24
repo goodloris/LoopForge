@@ -194,6 +194,13 @@ type gitlabMR struct {
 	SourceBranch string     `json:"source_branch"`
 	TargetBranch string     `json:"target_branch"`
 	SHA          string     `json:"sha"`
+	// DetailedMergeStatus is GitLab 15.6+ (single-MR GET): "mergeable",
+	// "ci_still_running", "ci_must_pass", "conflict", "checking", …
+	DetailedMergeStatus string `json:"detailed_merge_status"`
+	HeadPipeline        struct {
+		Status string `json:"status"`
+		WebURL string `json:"web_url"`
+	} `json:"head_pipeline"`
 	DiffRefs     struct {
 		HeadSHA string `json:"head_sha"`
 	} `json:"diff_refs"`
@@ -339,12 +346,12 @@ func (s *Service) gitlabMergeBranch(project, branch, target, title, description 
 			return "", ErrNoOpenMR
 		}
 		if title == "" {
-			title = fmt.Sprintf("LoopForge: %s → %s", branch, target)
+			title = fmt.Sprintf("LooPool: %s → %s", branch, target)
 		}
 		if description == "" {
 			description = fmt.Sprintf("定时 SOP 将 `%s` 合入 `%s`。", branch, target)
 		}
-		if err := g.do("POST", g.projectPath("/merge_requests"), map[string]any{"source_branch": branch, "target_branch": target, "title": title, "description": description}, &m); err != nil {
+		if err := g.do("POST", g.projectPath("/merge_requests"), map[string]any{"source_branch": branch, "target_branch": target, "title": title, "description": description, "remove_source_branch": false}, &m); err != nil {
 			// A create race may have left a reusable open MR; search again.
 			if again, ok, findErr := g.findMR(branch, target); findErr == nil && ok {
 				m = again
@@ -357,37 +364,47 @@ func (s *Service) gitlabMergeBranch(project, branch, target, title, description 
 		return m.ref(), nil
 	}
 	if err := g.mergeMR(m); err != nil {
+		// A queued auto-merge is not a failure: report the MR reference so the
+		// caller can record it; delivery polling advances it once CI passes.
+		if errors.Is(err, domain.ErrMergeQueuedForPipeline) {
+			return m.ref(), err
+		}
 		return "", err
 	}
 	return m.ref(), nil
 }
 
-// mergeMR merges m with a merge commit, bound to its head sha. The work branch
-// is often pushed right before this call, so GitLab may still report the
-// previous head (409) or not have computed mergeability (405/406/422). Those
-// refusals are retried against a freshly fetched MR.
+// gitlabPipelineRunning / gitlabPipelineFailed classify a head pipeline status.
+// GitLab pipeline states: created, waiting_for_resource, preparing, pending,
+// running, success, failed, canceled, canceling, skipped, manual, scheduled.
+func gitlabPipelineRunning(status string) bool {
+	switch status {
+	case "created", "waiting_for_resource", "preparing", "pending", "running", "scheduled", "manual":
+		return true
+	}
+	return false
+}
+
+func gitlabPipelineFailed(status string) bool {
+	return status == "failed" || status == "canceled" || status == "canceling"
+}
+
+// mergeMR merges m with a merge commit, keeping the source branch. The work
+// branch is often pushed right before this call, so GitLab may still report
+// the previous head (409) or not have computed mergeability (405/406/422);
+// those are retried against a freshly fetched MR. When the project requires a
+// passing pipeline (only_allow_merge_if_pipeline_succeeds) and the head
+// pipeline is still running, the MR is set to merge automatically when the
+// pipeline succeeds (merge_when_pipeline_succeeds) and a *domain.MergeQueuedError
+// is returned — neither merged nor failed. A failed head pipeline returns a
+// clear error with the pipeline link.
 func (g *gitlabClient) mergeMR(m gitlabMR) error {
 	path := g.projectPath("/merge_requests/" + strconv.Itoa(m.IID))
+	headSHA := m.headSHA()
+	var lastErr error
 	for attempt := 0; ; attempt++ {
-		args := map[string]any{"squash": false}
-		if sha := m.headSHA(); sha != "" {
-			args["sha"] = sha
-		}
-		var result gitlabMR
-		err := g.do("PUT", path+"/merge", args, &result)
-		if err == nil {
-			if !result.merged() {
-				return fmt.Errorf("GitLab did not merge merge request !%d", m.IID)
-			}
-			return nil
-		}
-		if !gitlabMergeRaceStatus(err) {
-			return err
-		}
-		if attempt >= len(gitlabMergeRetryDelays) {
-			return fmt.Errorf("merge merge request !%d failed after %d attempts: %w", m.IID, attempt+1, err)
-		}
-		time.Sleep(gitlabMergeRetryDelays[attempt])
+		// Read fresh state: list responses omit detailed_merge_status and
+		// head_pipeline, and the head may have moved since the caller fetched.
 		var fresh gitlabMR
 		if err := g.do("GET", path, nil, &fresh); err != nil {
 			return err
@@ -398,9 +415,57 @@ func (g *gitlabClient) mergeMR(m gitlabMR) error {
 		if fresh.State == "closed" {
 			return fmt.Errorf("merge request !%d was closed before it could be merged", m.IID)
 		}
-		if fresh.headSHA() != "" {
-			m.DiffRefs.HeadSHA, m.SHA = fresh.headSHA(), fresh.SHA
+		if sha := fresh.headSHA(); sha != "" {
+			headSHA = sha
 		}
+		pipelineURL := fresh.HeadPipeline.WebURL
+		ciGate := fresh.DetailedMergeStatus == "ci_still_running" || fresh.DetailedMergeStatus == "ci_must_pass"
+		if ciGate && gitlabPipelineFailed(fresh.HeadPipeline.Status) {
+			if pipelineURL == "" {
+				return fmt.Errorf("merge request !%d cannot merge: its required pipeline did not pass (%s)", m.IID, fresh.DetailedMergeStatus)
+			}
+			return fmt.Errorf("merge request !%d cannot merge: its required pipeline did not pass: %s", m.IID, pipelineURL)
+		}
+		if ciGate && gitlabPipelineRunning(fresh.HeadPipeline.Status) {
+			args := map[string]any{"merge_when_pipeline_succeeds": true, "should_remove_source_branch": false, "squash": false}
+			if headSHA != "" {
+				args["sha"] = headSHA
+			}
+			err := g.do("PUT", path+"/merge", args, nil)
+			if err == nil {
+				return &domain.MergeQueuedError{Ref: fresh.ref(), PipelineURL: pipelineURL}
+			}
+			if !gitlabMergeRaceStatus(err) {
+				return err
+			}
+			lastErr = err
+		} else {
+			args := map[string]any{"squash": false, "should_remove_source_branch": false}
+			if headSHA != "" {
+				args["sha"] = headSHA
+			}
+			var result gitlabMR
+			err := g.do("PUT", path+"/merge", args, &result)
+			if err == nil {
+				if !result.merged() {
+					return fmt.Errorf("GitLab did not merge merge request !%d", m.IID)
+				}
+				return nil
+			}
+			if !gitlabMergeRaceStatus(err) {
+				return err
+			}
+			lastErr = err
+		}
+		if attempt >= len(gitlabMergeRetryDelays) {
+			// A persistent CI gate with a still-running pipeline queues rather
+			// than failing, so the budget is only exhausted by genuine races.
+			if ciGate {
+				return fmt.Errorf("merge request !%d still cannot merge after %d attempts (%s)", m.IID, attempt+1, fresh.DetailedMergeStatus)
+			}
+			return fmt.Errorf("merge merge request !%d failed after %d attempts: %w", m.IID, attempt+1, lastErr)
+		}
+		time.Sleep(gitlabMergeRetryDelays[attempt])
 	}
 }
 
@@ -435,8 +500,8 @@ func (s *Service) EnsureBranchMR(project, sourceBranch, targetBranch string, use
 		return domain.DeliveryMR{}, false, fmt.Errorf("GitLab 仓库 %s 的工作分支 %s 没有可用目标分支，无法创建 MR", project, src)
 	}
 	var created gitlabMR
-	title := fmt.Sprintf("LoopForge: %s → %s", src, target)
-	if err := g.do("POST", g.projectPath("/merge_requests"), map[string]any{"source_branch": src, "target_branch": target, "title": title}, &created); err != nil {
+	title := fmt.Sprintf("LooPool: %s → %s", src, target)
+	if err := g.do("POST", g.projectPath("/merge_requests"), map[string]any{"source_branch": src, "target_branch": target, "title": title, "remove_source_branch": false}, &created); err != nil {
 		// A create race may have left a reusable MR; search again before failing.
 		if again, ok, findErr := g.findMR(src, target); findErr == nil && ok {
 			return again.delivery(project), true, nil

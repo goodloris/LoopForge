@@ -148,3 +148,27 @@ func TestIntegrationCallbacksRepairPatchAndCompleteness(t *testing.T) {
 		t.Fatalf("empty completeness = %v", got)
 	}
 }
+
+// A GitLab project that requires a passing pipeline queues the integration
+// merge; the engine must treat the queued result as success (not a failure)
+// and must not direct-push the integrate branch.
+func TestIntegrationQueuedAutoMergeIsNotFailure(t *testing.T) {
+	e, st := cvEEngine(t)
+	run := domain.Run{ID: "integration-queued", Status: "running", Input: "Title", WorkflowSnapshot: domain.WorkflowDefinition{
+		Nodes: []domain.WorkflowNode{{ID: "implement", Type: "agent"}},
+	}, Nodes: map[string]*domain.NodeRun{"implement": {NodeID: "implement", Status: "succeeded"}}}
+	if err := st.PutRun(run); err != nil {
+		t.Fatal(err)
+	}
+	rc := domain.RepositoryContext{RepositoryID: "repo", Name: "Repo", GongfengProjectID: "gitlab:code.example.net/g/p", WorkBranch: "work", IntegrateBranch: "integrate"}
+	e.MergeIntoBranch = func(string, string, string, string, string) (string, error) {
+		return "!9", &domain.MergeQueuedError{Ref: "!9", PipelineURL: "https://code.example.net/g/p/-/pipelines/42"}
+	}
+	pushed := false
+	if err := e.mergeWorkBranchIntoIntegrate(run.ID, run, rc, "work", "integrate", func() error { pushed = true; return nil }); err != nil {
+		t.Fatalf("queued auto-merge must not fail integration: %v", err)
+	}
+	if pushed {
+		t.Fatal("queued auto-merge must not fall back to a direct push")
+	}
+}
