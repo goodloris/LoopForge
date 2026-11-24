@@ -115,6 +115,12 @@ func newFakeFeishu(t *testing.T) *fakeFeishu {
 			_ = json.NewEncoder(w).Encode(map[string]any{"code": 20004, "error": "invalid_grant"})
 			return
 		}
+		// A code starting "noref" stands for an authorization without
+		// offline_access: no refresh token comes back.
+		if strings.HasPrefix(seed, "noref") {
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "access_token": "user-" + seed, "expires_in": 7200, "token_type": "Bearer"})
+			return
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"code": 0, "access_token": "user-" + seed, "expires_in": 7200,
 			"refresh_token": "refresh-" + seed, "refresh_token_expires_in": 604800,

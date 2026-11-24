@@ -316,6 +316,8 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 	g.GET("/api/users/me/feishu", api.users.feishuStatus)
 	g.DELETE("/api/users/me/feishu", api.users.feishuDisconnect)
 	g.GET("/api/users/me/feishu/connect", api.users.feishuConnectStart)
+	g.GET("/api/users/me/feishu/bind", api.users.feishuBindStart)
+	g.DELETE("/api/users/me/feishu/bind", api.users.feishuUnbind)
 	g.Any("/api/users/:id", func(c *gin.Context) {
 		c.JSON(http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 	})
