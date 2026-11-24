@@ -499,6 +499,21 @@ func (s *Service) EnsureBranchMR(project, sourceBranch, targetBranch string, use
 	if target == "" || domain.SameGitBranch(src, target) {
 		return domain.DeliveryMR{}, false, fmt.Errorf("GitLab 仓库 %s 的工作分支 %s 没有可用目标分支，无法创建 MR", project, src)
 	}
+	// GitLab lets you open an MR from a source branch that does not exist or
+	// carries no commits, producing an empty MR (no head SHA, 0 changes). A
+	// pure-script SOP whose work branch was never pushed must not get one.
+	// Confirm the branch is on the remote and is ahead of the target first;
+	// otherwise skip without creating and let the caller record a run event.
+	if exists, err := g.branchExists(src); err != nil {
+		return domain.DeliveryMR{}, false, err
+	} else if !exists {
+		return domain.DeliveryMR{}, false, &domain.BranchNotDeliverableError{Project: project, Branch: src, Target: target, Reason: "工作分支未推送到远端"}
+	}
+	if ahead, err := g.branchAhead(target, src); err != nil {
+		return domain.DeliveryMR{}, false, err
+	} else if !ahead {
+		return domain.DeliveryMR{}, false, &domain.BranchNotDeliverableError{Project: project, Branch: src, Target: target, Reason: "相对目标分支没有新提交"}
+	}
 	var created gitlabMR
 	title := fmt.Sprintf("LooPool: %s → %s", src, target)
 	if err := g.do("POST", g.projectPath("/merge_requests"), map[string]any{"source_branch": src, "target_branch": target, "title": title, "remove_source_branch": false}, &created); err != nil {
@@ -509,6 +524,37 @@ func (s *Service) EnsureBranchMR(project, sourceBranch, targetBranch string, use
 		return domain.DeliveryMR{}, false, err
 	}
 	return created.delivery(project), true, nil
+}
+
+// branchExists reports whether branch is present on the remote. A 404 is a
+// definite "no"; any other transport error is surfaced so a flaky lookup does
+// not masquerade as a missing branch.
+func (g *gitlabClient) branchExists(branch string) (bool, error) {
+	err := g.do("GET", g.projectPath("/repository/branches/"+url.PathEscape(branch)), nil, nil)
+	if err == nil {
+		return true, nil
+	}
+	var he *gitlabHTTPError
+	if errors.As(err, &he) && he.Status == http.StatusNotFound {
+		return false, nil
+	}
+	return false, err
+}
+
+// branchAhead reports whether source carries commits that target does not,
+// i.e. opening source→target would have a non-empty diff. GitLab's compare
+// endpoint lists exactly those commits (from=target, to=source).
+func (g *gitlabClient) branchAhead(target, source string) (bool, error) {
+	suffix := g.projectPath("/repository/compare?from=" + url.QueryEscape(target) + "&to=" + url.QueryEscape(source))
+	var cmp struct {
+		Commits []struct {
+			ID string `json:"id"`
+		} `json:"commits"`
+	}
+	if err := g.do("GET", suffix, nil, &cmp); err != nil {
+		return false, err
+	}
+	return len(cmp.Commits) > 0, nil
 }
 
 // refreshGitLabDelivery refreshes one MR's state with the project Owner's

@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"errors"
+	"fmt"
 	"log"
 	"strings"
 	"time"
@@ -185,7 +187,13 @@ func (e *Engine) deliveryMRsFromRun(run domain.Run) []domain.DeliveryMR {
 					target = strings.TrimSpace(rc.DefaultBranch)
 				}
 				created, ok, cerr := e.EnsureBranchMR(rc.GongfengProjectID, rc.WorkBranch, target, run.ExecutionContext.ResponsibleUserID)
-				if cerr != nil {
+				var notDeliverable *domain.BranchNotDeliverableError
+				if errors.As(cerr, &notDeliverable) {
+					// Not a failure: the work branch was never pushed or has no
+					// changes, so there is nothing to open an MR from. Record a
+					// readable event and leave the delivery unresolved.
+					e.AppendRunEvent(run.ID, "mr.delivery_skipped", fmt.Sprintf("仓库 %s 未开出交付 MR：%s", rc.Name, notDeliverable.Reason))
+				} else if cerr != nil {
 					log.Printf("open delivery MR run=%s project=%s branch=%s: %v", run.ID, rc.GongfengProjectID, rc.WorkBranch, cerr)
 				} else if ok {
 					return created, true

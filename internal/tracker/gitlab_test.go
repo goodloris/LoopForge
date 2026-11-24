@@ -330,6 +330,13 @@ func TestGitLabEnsureBranchMRCreatesReusesAndErrors(t *testing.T) {
 		switch {
 		case req.Method == "GET" && req.URL.EscapedPath() == "/projects/"+gitlabEncodedPath+"/merge_requests":
 			_, _ = w.Write([]byte(existing))
+		case req.Method == "GET" && req.URL.EscapedPath() == "/projects/"+gitlabEncodedPath+"/repository/branches/feature%2Fx":
+			_, _ = w.Write([]byte(`{"name":"feature/x"}`))
+		case req.Method == "GET" && req.URL.EscapedPath() == "/projects/"+gitlabEncodedPath+"/repository/compare":
+			if req.URL.Query().Get("from") != "main" || req.URL.Query().Get("to") != "feature/x" {
+				t.Errorf("compare query: %s", req.URL.RawQuery)
+			}
+			_, _ = w.Write([]byte(`{"commits":[{"id":"abc"}]}`))
 		case req.Method == "POST" && req.URL.EscapedPath() == "/projects/"+gitlabEncodedPath+"/merge_requests":
 			var body map[string]any
 			_ = json.NewDecoder(req.Body).Decode(&body)
@@ -369,6 +376,62 @@ func TestGitLabEnsureBranchMRCreatesReusesAndErrors(t *testing.T) {
 	// keep their find-only behaviour.
 	if mr, ok, err := s.EnsureBranchMR("github:example/repo", "feature/x", "main", 0); ok || err != nil || mr.IID != 0 {
 		t.Fatalf("non-gitlab must pass through: mr=%+v ok=%v err=%v", mr, ok, err)
+	}
+}
+
+// A pure-script SOP whose work branch was never pushed (or has no commits
+// ahead of the target) must not get an empty MR: EnsureBranchMR returns a
+// BranchNotDeliverableError and never POSTs merge_requests.
+func TestGitLabEnsureBranchMRSkipsEmptyBranch(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		branchStatus  int
+		compareBody   string
+		wantReasonSub string
+	}{
+		{"missing branch", 404, "", "未推送"},
+		{"no commits ahead", 200, `{"commits":[]}`, "没有新提交"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, _, r, _ := gitlabTrackerFixture(t)
+			var posts int
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch {
+				case req.Method == "GET" && req.URL.EscapedPath() == "/projects/"+gitlabEncodedPath+"/merge_requests":
+					_, _ = w.Write([]byte("[]"))
+				case req.Method == "GET" && req.URL.EscapedPath() == "/projects/"+gitlabEncodedPath+"/repository/branches/feature%2Fx":
+					if tc.branchStatus != 200 {
+						w.WriteHeader(tc.branchStatus)
+						_, _ = w.Write([]byte(`{"message":"404 Branch Not Found"}`))
+						return
+					}
+					_, _ = w.Write([]byte(`{"name":"feature/x"}`))
+				case req.Method == "GET" && req.URL.EscapedPath() == "/projects/"+gitlabEncodedPath+"/repository/compare":
+					_, _ = w.Write([]byte(tc.compareBody))
+				case req.Method == "POST" && req.URL.EscapedPath() == "/projects/"+gitlabEncodedPath+"/merge_requests":
+					posts++
+					_, _ = w.Write([]byte(`{"iid":99}`))
+				default:
+					t.Errorf("unexpected %s %s", req.Method, req.URL.EscapedPath())
+					w.WriteHeader(404)
+				}
+			}))
+			defer srv.Close()
+			s.gitHostAPIBase = srv.URL
+
+			mr, ok, err := s.EnsureBranchMR(r.GongfengProjectID, "feature/x", "main", 0)
+			var notDeliverable *domain.BranchNotDeliverableError
+			if ok || mr.IID != 0 || !errors.As(err, &notDeliverable) {
+				t.Fatalf("expected BranchNotDeliverableError, got mr=%+v ok=%v err=%v", mr, ok, err)
+			}
+			if !strings.Contains(notDeliverable.Reason, tc.wantReasonSub) {
+				t.Fatalf("reason %q should mention %q", notDeliverable.Reason, tc.wantReasonSub)
+			}
+			if posts != 0 {
+				t.Fatalf("must not create an MR: posts=%d", posts)
+			}
+		})
 	}
 }
 
