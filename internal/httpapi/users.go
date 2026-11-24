@@ -10,6 +10,7 @@ import (
 
 	"agentflow/internal/domain"
 	"agentflow/internal/repo"
+	"agentflow/internal/runtime"
 
 	"github.com/gin-gonic/gin"
 )
@@ -81,6 +82,14 @@ func (h *usersHandlers) user(c *gin.Context) {
 			user, _ := h.repo.User(id)
 			if err := validateAssistantEffort(c.Request.Context(), user, defaults.Executor+":"+defaults.Model, defaults.Effort); err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
+		}
+		// Kiro CLI has no key: it can be the personal default only where this
+		// account can run it, on the platform's or one of its machines' login.
+		if defaults.Executor == runtime.AgentCLIKiro {
+			if key, _ := assistantEngineCredential(domain.User{ID: id}, runtime.AgentCLIKiro); key == "" {
+				c.JSON(http.StatusBadRequest, gin.H{"error": repo.ErrAssistantDefaultExecutorUnavailable.Error()})
 				return
 			}
 		}
