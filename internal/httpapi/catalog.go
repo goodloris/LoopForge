@@ -118,7 +118,7 @@ func (h *catalogHandlers) repositories(c *gin.Context) {
 	}
 	// An explicitly supplied SSH clone address keeps SSH transport.
 	githubShorthand := primary != "" && strings.HasPrefix(strings.TrimPrefix(primary, "git clone "), "github:")
-	if v.Provider == domain.RepositoryProviderSSH || (gitwork.IsSSHReference(sshReference) && !githubShorthand) {
+	if v.Provider == domain.RepositoryProviderSSH || (gitwork.IsSSHReference(sshReference) && !githubShorthand && v.Provider != domain.GitPlatformGitLab) {
 		remote, err := gitwork.ParseSSHRemote(sshReference)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -144,6 +144,45 @@ func (h *catalogHandlers) repositories(c *gin.Context) {
 			v.DefaultBranch = "main"
 		}
 		h.saveRepository(c, v)
+		return
+	}
+	// A repository on an administrator-authorized GitLab host is registered as
+	// a first-class gitlab repo (provider=gitlab, identity gitlab:<host>/<path>)
+	// so SOP delivery, the merge-request gate, integration merge and status
+	// polling all key off the same MR project key the conversation workspace
+	// and status refresh already use. Clone/push use the per-host HTTPS Git
+	// credential. An unauthorized host falls through to the generic HTTPS Git
+	// transport below. The host authorization expresses "this host is GitLab",
+	// so no deployment-wide GitLab URL is needed.
+	if info, platform, ok := h.authorizedExternalRepo(c, primary); ok {
+		if platform != domain.GitPlatformGitLab {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "该主机的托管平台暂不支持自动交付，请用 HTTPS 或 SSH 方式添加"})
+			return
+		}
+		for _, candidate := range []string{body.RepoURL, body.URL} {
+			if candidate == "" || candidate == primary {
+				continue
+			}
+			if other, _, ok := h.authorizedExternalRepo(c, candidate); !ok || other.Project != info.Project {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "repoUrl 与 url 指向不同仓库"})
+				return
+			}
+		}
+		v.Provider = domain.GitPlatformGitLab
+		v.GongfengProjectID = info.Project
+		v.WebURL = info.WebURL
+		v.CloneURL = info.CloneURL
+		if v.Name == "" {
+			v.Name = info.Name
+		}
+		if v.DefaultBranch == "" {
+			v.DefaultBranch = "main"
+		}
+		h.saveRepository(c, v)
+		return
+	}
+	if v.Provider == domain.GitPlatformGitLab {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "该仓库主机未被授权为 GitLab：请管理员先在「平台管理 → Git HTTPS 主机授权」里把该主机登记为 GitLab，再添加仓库"})
 		return
 	}
 	// One pasted repository reference (web / SSH / clone / git clone)
@@ -289,6 +328,28 @@ func (h *catalogHandlers) repositories(c *gin.Context) {
 		}
 	}
 	h.saveRepository(c, v)
+}
+
+// authorizedExternalRepo resolves a pasted repository URL to an administrator-
+// authorized self-hosted Git host (GitLab or GitHub Enterprise). It returns
+// the repository identity and the host's platform. An explicit provider of
+// "gitlab" requires the host to be authorized; otherwise an unauthorized host
+// returns ok=false so the caller falls back to the generic HTTPS transport.
+func (h *catalogHandlers) authorizedExternalRepo(c *gin.Context, rawURL string) (domain.GongfengRepoInfo, string, bool) {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return domain.GongfengRepoInfo{}, "", false
+	}
+	choices, err := h.repo.GitHTTPSHostChoices(c.Request.Context())
+	if err != nil {
+		return domain.GongfengRepoInfo{}, "", false
+	}
+	for _, choice := range choices {
+		if info, ok := domain.ExternalRepoInfo(choice.Platform, choice.Host, rawURL); ok {
+			return info, choice.Platform, true
+		}
+	}
+	return domain.GongfengRepoInfo{}, "", false
 }
 
 func (h *catalogHandlers) saveRepository(c *gin.Context, v domain.Repository) {
