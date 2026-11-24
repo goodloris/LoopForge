@@ -794,6 +794,13 @@ func (s *Server) bootstrap(c *gin.Context) {
 		respond(c, err)
 		return
 	}
+	// Administrator-authorized HTTPS Git hosts (host + platform only, never
+	// addresses), so the add-repository UI can recognize a GitLab host and
+	// adapt its labels. Reuses the same GitHTTPSHostChoices as /api/git-https-hosts.
+	gitHTTPSHosts, _ := s.repo.GitHTTPSHostChoices(c.Request.Context())
+	if gitHTTPSHosts == nil {
+		gitHTTPSHosts = []repo.GitHTTPSHostChoice{}
+	}
 	var currentUserID int64
 	if current, ok := s.requestUser(c.Request, true); ok {
 		currentUserID = current.ID
@@ -826,6 +833,7 @@ func (s *Server) bootstrap(c *gin.Context) {
 		"sponsoredModels":   sharedModels,
 		"assistantDefaults": assistantDefaults,
 		"gongfengHost":      config.GongfengHost(),
+		"gitHttpsHosts":     gitHTTPSHosts,
 		// The built-in executor a role without one runs on
 		// (AGENTFLOW_DEFAULT_EXECUTOR). The web hides CodeBuddy-only
 		// setup when it is not codebuddy.

@@ -152,6 +152,7 @@ export function sampleBootstrap() {
     syncLogs: [{ id: 'log-1', status: 'success', message: 'Synced', createdAt: '2026-10-20T10:00:00Z' }],
     bots: [{ id: 'bot-1', name: 'Helper', type: 'wecom', enabled: true }],
     businessDomains: [{ id: 'domain-1', name: 'Commerce', description: 'Commerce systems' }],
+    gitHttpsHosts: [],
   };
 }
 

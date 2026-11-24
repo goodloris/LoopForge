@@ -99,3 +99,36 @@ test('without a TAPD integration the wizard goes from members straight to done',
   assert.equal(host().querySelector('.pw-dialog').dataset.pwStep, 'done');
   assert.equal(host().querySelector('[data-pw-summary="tapd"]'), null);
 });
+
+test('an authorized GitLab host makes the repository step recognize GitLab links', async (t) => {
+  const app = await loadApp();
+  t.after(app.close);
+  app.router.post('/api/repositories', (call) => ({ ...call.body, id: 'repo-gl' }));
+  app.evaluate(`
+    state.currentUser={id:1,loginName:'owner'};
+    state.data.gitHttpsHosts=[{host:'code.example.net',platform:'gitlab'}];
+    state.data.workflows.push({id:'generic-backend-delivery',name:'Generic',generic:true});
+    openProjectWizard();
+    projectWizard.step='repos';projectWizard.projectId='project-1';renderProjectWizard();
+  `);
+  const host = () => app.document.querySelector('#projectWizard');
+  // The field label and the empty-state hint both mention GitLab.
+  assert.match(host().textContent, /GitHub \/ GitLab/);
+  // A pasted GitLab link on the authorized host is recognized as GitLab with
+  // the host/path identity (not a generic HTTPS repo).
+  const parsed = await app.evaluate(`JSON.stringify(parseGongfengRepoURL('https://code.example.net/group/sub/repo'))`);
+  const info = JSON.parse(parsed);
+  assert.equal(info.provider, 'gitlab');
+  assert.equal(info.project, 'gitlab:code.example.net/group/sub/repo');
+  // The recognized hint names GitLab and reminds about the per-host token.
+  const hint = await app.evaluate(`projectWizardRepoHint('https://code.example.net/group/sub/repo')`);
+  assert.match(hint, /识别为 GitLab/);
+  assert.match(hint, /GitLab 访问令牌/);
+  // Re-pasting an already-bound GitLab repo is detected via the gitlab: id.
+  app.evaluate(`
+    state.data.repositories=[{id:'repo-gl',projectId:'project-1',provider:'gitlab',gongfengProjectId:'gitlab:code.example.net/group/sub/repo',webUrl:'https://code.example.net/group/sub/repo',cloneUrl:'https://code.example.net/group/sub/repo.git',defaultBranch:'main'}];
+    projectWizard.repo.url='https://code.example.net/group/sub/repo';
+  `);
+  await app.evaluate(`projectWizardAddRepo()`);
+  assert.match(host().querySelector('[role="alert"]').textContent, /已经绑定/);
+});

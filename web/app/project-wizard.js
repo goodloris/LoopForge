@@ -8,7 +8,19 @@ const PROJECT_WIZARD_STEPS=[
   {id:'tapd',title:'TAPD 集成',desc:'可选，导入 TAPD 需求'},
   {id:'done',title:'完成',desc:'开始使用新项目'},
 ];
-function projectWizardSteps(){return PROJECT_WIZARD_STEPS.filter(s=>s.id!=='tapd'||tapdIntegrationAvailable(projectWizardProject()))}
+function projectWizardSteps(){return PROJECT_WIZARD_STEPS.filter(s=>s.id!=='tapd'||tapdIntegrationAvailable(projectWizardProject())).map(s=>s.id==='repos'?{...s,desc:projectWizardGitLabOn()?'绑定 GitHub / GitLab 仓库':'绑定 GitHub 仓库'}:s)}
+// Administrator-authorized GitLab hosts (from bootstrap gitHttpsHosts). When
+// any exists, the add-repository step also offers GitLab; otherwise it stays
+// GitHub-only. Only host + platform are exposed, never addresses.
+function projectWizardGitLabHosts(){return (state.data?.gitHttpsHosts||[]).filter(h=>h&&h.platform==='gitlab')}
+function projectWizardGitLabOn(){return projectWizardGitLabHosts().length>0}
+function projectWizardRepoExample(){
+  if(!projectWizardGitLabOn())return '例如 https://github.com/owner/repo 或 git@gitlab.com:group/repo.git';
+  const host=projectWizardGitLabHosts()[0].host;
+  return `例如 https://github.com/owner/repo 或 https://${escapeHTML(host)}/group/repo`;
+}
+function projectWizardRepoFieldLabel(){return projectWizardGitLabOn()?'GitHub / GitLab 链接或 Git SSH 地址':'GitHub 链接或 Git SSH 地址'}
+function projectWizardRepoFailHint(){return projectWizardGitLabOn()?'请输入 GitHub 或 GitLab 链接，或有效的 Git SSH 地址':'请输入 GitHub 链接或有效的 Git SSH 地址'}
 const PW_ICON_PATHS={
   check:'<path d="M5 12.5 10 17 19 7"/>',
   x:'<path d="M18 6 6 18M6 6l12 12"/>',
@@ -104,7 +116,7 @@ async function projectWizardCreate(){
 async function projectWizardAddRepo(){
   const w=projectWizard,project=projectWizardProject();if(!w||w.saving||!project)return false;
   const url=String(w.repo.url||'').trim(),info=parseGongfengRepoURL(url);
-  if(!info)return projectWizardFail(url?'请输入 GitHub 链接或有效的 Git SSH 地址。CNB 只支持 HTTPS + 访问令牌。':'请先粘贴 GitHub 链接或 Git SSH 地址','repoUrl');
+  if(!info)return projectWizardFail(url?projectWizardRepoFailHint()+'。CNB 只支持 HTTPS + 访问令牌。':(projectWizardGitLabOn()?'请先粘贴 GitHub / GitLab 链接或 Git SSH 地址':'请先粘贴 GitHub 链接或 Git SSH 地址'),'repoUrl');
   if(projectWizardRepos().some(r=>info.provider==='ssh'?r.cloneUrl===info.cloneUrl:r.gongfengProjectId===info.project))return projectWizardFail(`仓库 ${info.project} 已经绑定到这个项目`,'repoUrl');
   const payload={projectId:project.id,provider:info.provider||'gongfeng',name:info.name,gongfengProjectId:info.project,webUrl:info.webUrl,cloneUrl:info.cloneUrl,defaultBranch:String(w.repo.branch||'').trim()||'main',integrateBranch:String(w.repo.integrate||'').trim(),localPath:'',repoUrl:url};
   const makeDefault=projectNeedsDefaultRepository(project);
@@ -244,16 +256,17 @@ function projectWizardBasicHTML(w){
 }
 function projectWizardRepoHint(url){
   const raw=String(url||'').trim(),info=raw?parseGongfengRepoURL(raw):null;
-  if(!raw)return '例如 https://github.com/owner/repo 或 git@gitlab.com:group/repo.git';
+  if(!raw)return projectWizardRepoExample();
   if(info?.provider==='ssh')return `识别为 Git SSH · <b>${escapeHTML(info.name)}</b>。请平台管理员在「平台管理 → Git 主机信任」登记主机公钥，并在个人配置中添加 Git SSH 密钥。`;
-  return info?`识别为 <b>${escapeHTML(info.name)}</b> · ${escapeHTML(repoDisplayPath(info,info.project))}`:'请输入 GitHub 链接或 Git SSH 地址';
+  if(info?.provider==='gitlab')return `识别为 GitLab · <b>${escapeHTML(repoDisplayPath(info,info.project))}</b>。请在个人配置中为该主机添加 GitLab 访问令牌（需 api 权限）后才能克隆、推送与开 MR。`;
+  return info?`识别为 <b>${escapeHTML(info.name)}</b> · ${escapeHTML(repoDisplayPath(info,info.project))}`:projectWizardRepoFailHint();
 }
 function projectWizardReposHTML(w){
   const project=projectWizardProject()||{},repos=projectWizardRepos();
   const list=repos.map(r=>{const path=r.cloneUrl||r.gongfengProjectId||'',name=r.name||path||r.id,shown=repoDisplayPath(parseGongfengRepoURL(r.provider==='ssh'?r.cloneUrl:r.webUrl||path),path);return `<div class="pw-repo" data-pw-repo="${escapeHTML(r.id)}"><span class="pw-repo-ic">${pwIcon('repo',14,1.9)}</span><b title="${escapeHTML(name)}">${escapeHTML(name)}</b><code title="${escapeHTML(shown)}">${escapeHTML(shown)}</code><small>${escapeHTML(r.defaultBranch||'main')}</small>${r.integrateBranch?`<small title="集成分支">${escapeHTML(r.integrateBranch)}</small>`:''}${r.id===project.defaultRepositoryId?'<small class="is-def">默认</small>':''}<button type="button" class="pw-repo-rm" data-pw-repo-remove="${escapeHTML(r.id)}" title="移除" aria-label="移除仓库 ${escapeHTML(name)}">${pwIcon('x',14)}</button></div>`}).join('');
   const body=(list?`<div class="pw-repo-list">${list}</div>`:'')
     +'<div data-github-repositories></div>'
-    +pwField('GitHub 链接或 Git SSH 地址',`<input class="pw-input pw-mono" id="pwRepoUrl" name="repoUrl" value="${escapeHTML(w.repo.url)}" placeholder="https://github.com/owner/repo" spellcheck="false" autocomplete="off">`,{for:'pwRepoUrl',hint:projectWizardRepoHint(w.repo.url),hintAttrs:' data-pw-repo-hint'})
+    +pwField(projectWizardRepoFieldLabel(),`<input class="pw-input pw-mono" id="pwRepoUrl" name="repoUrl" value="${escapeHTML(w.repo.url)}" placeholder="${escapeHTML(projectWizardGitLabOn()?'https://github.com/owner/repo 或 https://'+projectWizardGitLabHosts()[0].host+'/group/repo':'https://github.com/owner/repo')}" spellcheck="false" autocomplete="off">`,{for:'pwRepoUrl',hint:projectWizardRepoHint(w.repo.url),hintAttrs:' data-pw-repo-hint'})
     +`<div class="pw-row2">${pwField('主分支',`<input class="pw-input pw-mono" id="pwRepoBranch" name="repoBranch" value="${escapeHTML(w.repo.branch)}" placeholder="main" spellcheck="false">`,{for:'pwRepoBranch'})}${pwField('集成分支',`<input class="pw-input pw-mono" id="pwRepoIntegrate" name="repoIntegrate" value="${escapeHTML(w.repo.integrate)}" placeholder="可选" spellcheck="false">`,{for:'pwRepoIntegrate'})}</div>`
     +`<div><button type="button" class="pw-btn pw-btn-outline pw-btn-sm" data-pw-action="add-repo"${w.saving?' disabled':''}>＋ 添加仓库</button></div>`;
   return projectWizardHeadHTML(w,'代码仓库','Agent 执行 SOP 时会克隆这些仓库并在工作分支上提交。第一个仓库会自动设为默认。')
