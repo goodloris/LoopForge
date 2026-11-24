@@ -98,4 +98,5 @@ func accumulateSessionUsage(out *domain.AnalyticsSessionUsage, usage *domain.Tok
 	out.OutputTokens += usage.OutputTokens
 	out.CacheReadTokens += usage.CacheReadTokens
 	out.CacheWriteTokens += usage.CacheWriteTokens
+	out.Credits += usage.Credits
 }

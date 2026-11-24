@@ -345,3 +345,15 @@ Object.assign(window.LF_I18N_EN, {
   "未登录": "Not signed in",
   "Kiro CLI 本机登录": "Kiro CLI machine login"
 });
+// Kiro CLI subscription credits: run, node, requirement and insights usage.
+Object.assign(window.LF_I18N_EN, {
+  "按 credits 计量，未上报 tokens": "Metered in credits; no tokens reported",
+  "订阅计量 · 不折算金额": "Subscription meter · not priced",
+  "Credits 去向": "Where credits go",
+  "订阅计量 · 不折算金额；按 SOP、节点、项目拆分": "Subscription meter · not priced; split by SOP, node and project",
+  "暂无 credits": "No credits",
+  "该维度没有 credits 数据": "No credits in this dimension",
+  "对话改代码": "Code changes in chat",
+  "其中对话改代码": "Of which code changes in chat",
+  "Kiro CLI 等按订阅 credits 计量的执行器上报，不折算人民币，不计入成本。": "Reported by executors metered in subscription credits, such as Kiro CLI. Never converted to CNY and not part of cost."
+});

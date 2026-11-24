@@ -109,18 +109,19 @@ func splitNestedRuns(runs []domain.Run) ([]domain.Run, map[string][]domain.Run) 
 	return top, nested
 }
 
-func nestedRunUsage(runID string, nested map[string][]domain.Run, depth int) (int64, float64) {
+// nestedRunUsage sums the tokens, cost and credits of every child run below runID.
+func nestedRunUsage(runID string, nested map[string][]domain.Run, depth int) domain.TokenUsage {
+	var out domain.TokenUsage
 	if depth > maxNestedStageDepth {
-		return 0, 0
+		return out
 	}
-	var tokens int64
-	var cost float64
 	for _, child := range nested[runID] {
-		t, c := nestedRunUsage(child.ID, nested, depth+1)
-		tokens += child.Usage.TotalTokens + t
-		cost += child.Usage.CostUSD + c
+		sub := nestedRunUsage(child.ID, nested, depth+1)
+		out.TotalTokens += child.Usage.TotalTokens + sub.TotalTokens
+		out.CostUSD += child.Usage.CostUSD + sub.CostUSD
+		out.Credits += child.Usage.Credits + sub.Credits
 	}
-	return tokens, cost
+	return out
 }
 
 // withSOPBinding copies the binding-owned fields of an issue SOP binding onto
@@ -166,9 +167,10 @@ func buildRequirementLanes(issue domain.Issue, project domain.Project, runs []do
 		}
 		acc.lane.Started = true
 		acc.lane.RunCount++
-		childTokens, childCost := nestedRunUsage(run.ID, nested, 0)
-		acc.lane.Tokens += run.Usage.TotalTokens + childTokens
-		acc.lane.CostUSD += run.Usage.CostUSD + childCost
+		child := nestedRunUsage(run.ID, nested, 0)
+		acc.lane.Tokens += run.Usage.TotalTokens + child.TotalTokens
+		acc.lane.CostUSD += run.Usage.CostUSD + child.CostUSD
+		acc.lane.Credits += run.Usage.Credits + child.Credits
 		acc.lane.ExecutionDurationMs += runExecutionDuration(run)
 		if run.Status == "failed" {
 			acc.lane.FailedRuns++
@@ -521,6 +523,7 @@ func requirementOverall(issue domain.Issue, lanes []domain.RequirementLane, runs
 		for _, child := range children {
 			out.Tokens += child.Usage.TotalTokens
 			out.CostUSD += child.Usage.CostUSD
+			out.Credits += child.Usage.Credits
 			if usageCostKnown(child.Usage) {
 				out.CostKnown = true
 			}
@@ -531,6 +534,7 @@ func requirementOverall(issue domain.Issue, lanes []domain.RequirementLane, runs
 		out.RunCount++
 		out.Tokens += run.Usage.TotalTokens
 		out.CostUSD += run.Usage.CostUSD
+		out.Credits += run.Usage.Credits
 		if usageCostKnown(run.Usage) {
 			out.CostKnown = true
 		}

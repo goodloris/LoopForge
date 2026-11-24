@@ -143,3 +143,33 @@ test("replies and running turns show the CLI and confirmation mode they ran with
   assert.equal(turnModeCaption(running, 2), "");
   assert.equal(turnModeCaption({ ...running, status: "completed" }, 3), "");
 });
+
+test("token-only replies carry no credits and keep the token block", () => {
+  const info = messageInfo({
+    model: "claude-opus-4-5",
+    usage: { inputTokens: 4, outputTokens: 6, totalTokens: 10 },
+  });
+  assert.equal(info.total, 10);
+  assert.equal(info.totalText, "10");
+  assert.equal(info.credits, null);
+  assert.equal(info.creditsText, "");
+  assert.equal(info.showTokens, true);
+  const legacy = messageInfo({ createdAt: "2026-10-31T03:52:48" });
+  assert.equal(legacy.credits, null);
+  assert.equal(legacy.showTokens, true);
+});
+
+test("Kiro replies show the turn's credits instead of zero tokens", () => {
+  const info = messageInfo({ model: "kiro:auto", usage: { credits: 1.5 } });
+  assert.equal(info.credits, 1.5);
+  assert.equal(info.creditsText, "1.50");
+  assert.equal(info.showTokens, false);
+  const mixed = messageInfo({
+    usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120, credits: 0.25 },
+  });
+  assert.equal(mixed.total, 120);
+  assert.equal(mixed.credits, 0.25);
+  assert.equal(mixed.creditsText, "0.25");
+  assert.equal(mixed.showTokens, true);
+  assert.equal(messageInfo({ usage: { credits: -2 } }).credits, null);
+});
