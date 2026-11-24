@@ -30,5 +30,7 @@ case "${LOOPFORGE_EXPECT_CODEBUDDY:-optional}" in
 esac
 dsh --version
 wecom-cli --version
+case "$(lark-cli --version)" in *1.0.100*) ;; *) printf 'lark-cli 1.0.100 must be bundled.\n' >&2; exit 1 ;; esac
+[ "$LARKSUITE_CLI_NO_UPDATE_NOTIFIER" = 1 ] && [ "$LARKSUITE_CLI_NO_SKILLS_NOTIFIER" = 1 ] || { printf 'lark-cli notifiers must be off.\n' >&2; exit 1; }
 printf 'Runtime image compatibility checks passed.\n'
 CHECK
