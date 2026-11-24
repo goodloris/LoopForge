@@ -42,6 +42,13 @@ func externalMRHostScope(host string) (string, bool) {
 	return host, host != "github.com" && externalMRHost.MatchString(host)
 }
 
+// IsGitLabMRProject reports whether a project key is a GitLab MR key
+// ("gitlab:<host>/<path>").
+func IsGitLabMRProject(project string) bool {
+	platform, _, _, ok := ExternalMRProject(project)
+	return ok && platform == GitPlatformGitLab
+}
+
 // ExternalMRProject splits a ghe: or gitlab: MR project key into its
 // platform, host and repository path.
 func ExternalMRProject(project string) (platform, host, path string, ok bool) {

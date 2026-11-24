@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/netip"
 	"net/url"
@@ -399,6 +400,169 @@ func (g *gitlabClient) mergeMR(m gitlabMR) error {
 		}
 		if fresh.headSHA() != "" {
 			m.DiffRefs.HeadSHA, m.SHA = fresh.headSHA(), fresh.SHA
+		}
+	}
+}
+
+// EnsureBranchMR is the SOP delivery fallback: for a GitLab repository it
+// returns the MR from sourceBranch, or opens one into targetBranch with the
+// responsible user's (or project Owner's) per-host credential. Non-GitLab
+// projects pass through with ok=false so the engine keeps GitHub/Gongfeng
+// find-only behaviour. A missing credential is a clear error.
+func (s *Service) EnsureBranchMR(project, sourceBranch, targetBranch string, userID int64) (domain.DeliveryMR, bool, error) {
+	if !strings.HasPrefix(project, domain.MRProjectGitLab) {
+		return domain.DeliveryMR{}, false, nil
+	}
+	project, src, target := strings.TrimSpace(project), strings.TrimSpace(sourceBranch), strings.TrimSpace(targetBranch)
+	if src == "" {
+		return domain.DeliveryMR{}, false, nil
+	}
+	cred, _, path, ok := s.gitlabCredentialForUser(project, userID)
+	if !ok {
+		cred, _, path, ok = s.gitlabCredentialForProject(project)
+	}
+	if !ok {
+		return domain.DeliveryMR{}, false, fmt.Errorf("GitLab 仓库 %s 未找到可用的访问令牌（请登记人/负责人或项目 Owner 为该主机配置 Git 访问令牌）", project)
+	}
+	g := s.newGitLabClient(project, cred, path)
+	// A usable (open or merged) MR for the work branch is reused, not duplicated.
+	if list, err := g.listMRs(src, ""); err != nil {
+		return domain.DeliveryMR{}, false, err
+	} else if m, ok := gitlabPickBranchMR(list, src); ok && normalizeMRState(m.State) != "closed" {
+		return m.delivery(project), true, nil
+	}
+	if target == "" || domain.SameGitBranch(src, target) {
+		return domain.DeliveryMR{}, false, fmt.Errorf("GitLab 仓库 %s 的工作分支 %s 没有可用目标分支，无法创建 MR", project, src)
+	}
+	var created gitlabMR
+	title := fmt.Sprintf("LoopForge: %s → %s", src, target)
+	if err := g.do("POST", g.projectPath("/merge_requests"), map[string]any{"source_branch": src, "target_branch": target, "title": title}, &created); err != nil {
+		// A create race may have left a reusable MR; search again before failing.
+		if again, ok, findErr := g.findMR(src, target); findErr == nil && ok {
+			return again.delivery(project), true, nil
+		}
+		return domain.DeliveryMR{}, false, err
+	}
+	return created.delivery(project), true, nil
+}
+
+// refreshGitLabDelivery refreshes one MR's state with the project Owner's
+// per-host credential. It is the fallback used when refreshExternalDelivery
+// cannot (an SOP-delivered MR has no registering user), mirroring
+// refreshGitHubDelivery for GitHub.
+func (s *Service) refreshGitLabDelivery(store MRDeliveryStore, project string, iid int) error {
+	cred, _, path, ok := s.gitlabCredentialForProject(project)
+	if !ok {
+		return fmt.Errorf("GitLab 仓库 %s 未找到项目 Owner 的访问令牌", project)
+	}
+	g := s.newGitLabClient(project, cred, path)
+	var m gitlabMR
+	if err := g.do("GET", g.projectPath("/merge_requests/"+strconv.Itoa(iid)), nil, &m); err != nil {
+		return err
+	}
+	d := m.delivery(project)
+	return store.UpdateMRDeliveryState(project, iid, d.GongfengState, d.TargetBranch, m.mergedAt(), time.Now().UTC())
+}
+
+// mrOnBranch reports whether the merge request's source head commit is
+// contained in branch (the GitLab equivalent of githubClient.pullOnBranch).
+func (g *gitlabClient) mrOnBranch(iid int, branch string) (onBranch, ok bool) {
+	var m gitlabMR
+	if err := g.do("GET", g.projectPath("/merge_requests/"+strconv.Itoa(iid)), nil, &m); err != nil {
+		return false, false
+	}
+	sha := m.headSHA()
+	if sha == "" {
+		return false, false
+	}
+	const pageSize = 100
+	for page := 1; page <= 20; page++ {
+		var refs []struct {
+			Name string `json:"name"`
+			Type string `json:"type"`
+		}
+		suffix := g.projectPath("/repository/commits/" + url.PathEscape(sha) + "/refs?type=branch&per_page=" + strconv.Itoa(pageSize) + "&page=" + strconv.Itoa(page))
+		if err := g.do("GET", suffix, nil, &refs); err != nil {
+			return false, false
+		}
+		names := make([]string, 0, len(refs))
+		for _, ref := range refs {
+			names = append(names, ref.Name)
+		}
+		if domain.BranchListed(names, branch) {
+			return true, true
+		}
+		if len(refs) < pageSize {
+			return false, true
+		}
+	}
+	return false, false
+}
+
+// recordGitLabPromoteMRs stores merged integrate → default MRs as baseline
+// promote rows, like recordGitHubPromotePulls does for GitHub.
+func (s *Service) recordGitLabPromoteMRs(store MRDeliveryStore, g *gitlabClient, project, integ, def string) {
+	if integ == "" || domain.SameGitBranch(integ, def) {
+		return
+	}
+	list, err := g.listMRs(integ, def)
+	if err != nil {
+		log.Printf("mr-delivery discover promote %s: %v", project, err)
+		return
+	}
+	now := time.Now().UTC()
+	for _, m := range list {
+		if !m.merged() || !domain.SameGitBranch(m.SourceBranch, integ) || !domain.SameGitBranch(m.TargetBranch, def) {
+			continue
+		}
+		if err := store.EnsureMRDeliveryState(project, m.IID, domain.GongfengMRURL(project, m.IID), domain.BaselinePromoteIssueID); err != nil {
+			log.Printf("mr-delivery ensure promote %s!%d: %v", project, m.IID, err)
+			continue
+		}
+		if err := store.UpdateMRDeliveryState(project, m.IID, "merged", def, m.mergedAt(), now); err != nil {
+			log.Printf("mr-delivery update promote %s!%d: %v", project, m.IID, err)
+		}
+	}
+}
+
+// syncGitLabWorkCommitsOnDefaultBranch is the GitLab side of
+// syncWorkCommitsOnDefaultBranch: a merge request merged into the integrate
+// branch counts as delivered once its head commit is contained in the default
+// branch (the integrate branch was promoted). Promote MRs date the landing.
+func (s *Service) syncGitLabWorkCommitsOnDefaultBranch(store MRDeliveryStore, project, def, integ string) {
+	rows, err := store.MergedWorkMRs(project)
+	if err != nil {
+		log.Printf("mr-delivery work commits %s: %v", project, err)
+		return
+	}
+	cred, _, path, ok := s.gitlabCredentialForProject(project)
+	if !ok {
+		return
+	}
+	g := s.newGitLabClient(project, cred, path)
+	promotesListed := false
+	for _, row := range rows {
+		if row.MRIID <= 0 || domain.IsBaselinePromoteIssueID(row.IssueID) || domain.IsMainlineBranch(row.TargetBranch, def) {
+			continue
+		}
+		cacheKey := project + "#" + strconv.Itoa(row.MRIID)
+		if _, seen := s.landedOnDefault.Load(cacheKey); seen {
+			continue
+		}
+		if !promotesListed {
+			promotesListed = true
+			s.recordGitLabPromoteMRs(store, g, project, integ, def)
+		}
+		onDefault, ok := g.mrOnBranch(row.MRIID, def)
+		if !ok {
+			continue
+		}
+		if err := store.ApplyDefaultBranchLanding(row.IssueID, row.MRURL, onDefault); err != nil {
+			log.Printf("mr-delivery landing %s!%d: %v", project, row.MRIID, err)
+			continue
+		}
+		if onDefault {
+			s.landedOnDefault.Store(cacheKey, true)
 		}
 	}
 }

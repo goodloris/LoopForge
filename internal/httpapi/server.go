@@ -194,6 +194,7 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 		e.MergeIntoBranch = syncSvc.EnsureAndMergeBranchMR
 		e.FindBranchMR = syncSvc.FindBranchMR
 		e.FindBranchMRsInto = syncSvc.FindBranchMRsInto
+		e.EnsureBranchMR = syncSvc.EnsureBranchMR
 	}
 	// Wake long-polling CLI runners the moment the engine queues a task.
 	e.SetRunnerDispatchNotify(func(provider string) { api.runners.runnerWaiters.notify([]string{provider}) })

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -194,4 +195,154 @@ func TestGitLabFindBranchAndInto(t *testing.T) {
 	if err != nil || len(into) != 1 || into[0].IID != 5 || into[0].HeadSHA != "abc" {
 		t.Fatalf("FindBranchMRsInto = %+v err=%v", into, err)
 	}
+}
+
+func TestGitLabEnsureBranchMRCreatesReusesAndErrors(t *testing.T) {
+	s, _, r, _ := gitlabTrackerFixture(t)
+	var creates int
+	existing := "[]"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case req.Method == "GET" && req.URL.EscapedPath() == "/projects/"+gitlabEncodedPath+"/merge_requests":
+			_, _ = w.Write([]byte(existing))
+		case req.Method == "POST" && req.URL.EscapedPath() == "/projects/"+gitlabEncodedPath+"/merge_requests":
+			var body map[string]any
+			_ = json.NewDecoder(req.Body).Decode(&body)
+			if body["target_branch"] != "main" || body["source_branch"] != "feature/x" {
+				t.Errorf("create into base branch: %+v", body)
+			}
+			creates++
+			_, _ = w.Write([]byte(`{"iid":7,"state":"opened","source_branch":"feature/x","target_branch":"main"}`))
+		default:
+			t.Errorf("unexpected %s %s", req.Method, req.URL.EscapedPath())
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+	s.gitHostAPIBase = srv.URL
+
+	// 1. No MR for the work branch → create one into the base branch.
+	mr, ok, err := s.EnsureBranchMR(r.GongfengProjectID, "feature/x", "main", 0)
+	if err != nil || !ok || mr.IID != 7 || creates != 1 {
+		t.Fatalf("create path: mr=%+v ok=%v err=%v creates=%d", mr, ok, err, creates)
+	}
+	// 2. An open MR already exists → reuse it, no second create.
+	existing = `[{"iid":7,"state":"opened","source_branch":"feature/x","target_branch":"main"}]`
+	mr, ok, err = s.EnsureBranchMR(r.GongfengProjectID, "feature/x", "main", 0)
+	if err != nil || !ok || mr.IID != 7 || creates != 1 {
+		t.Fatalf("reuse path: mr=%+v ok=%v err=%v creates=%d", mr, ok, err, creates)
+	}
+
+	// 3. No credential for the host → a clear error, no API call.
+	if _, ok, err := s.EnsureBranchMR("gitlab:other.example.net/g/p", "feature/x", "main", 0); ok || err == nil {
+		t.Fatalf("missing credential must error: ok=%v err=%v", ok, err)
+	} else if !strings.Contains(err.Error(), "访问令牌") {
+		t.Fatalf("error must name the missing token: %v", err)
+	}
+
+	// A non-GitLab project passes through (ok=false, no error): GitHub/Gongfeng
+	// keep their find-only behaviour.
+	if mr, ok, err := s.EnsureBranchMR("github:example/repo", "feature/x", "main", 0); ok || err != nil || mr.IID != 0 {
+		t.Fatalf("non-gitlab must pass through: mr=%+v ok=%v err=%v", mr, ok, err)
+	}
+}
+
+// D16/D29 for GitLab: an MR merged into the integrate branch is "integrated",
+// not delivered; only when the integrate branch is promoted (its commit is on
+// the default branch) does the work count as merged, dated by the promote MR —
+// so mergedMrs rises and integratedMrs falls.
+func TestGitLabDeliveryWaitsForDefaultBranch(t *testing.T) {
+	st, err := repo.OpenTest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(st.Close)
+	if err := st.PutUser(domain.User{LoginName: "gl-owner"}); err != nil {
+		t.Fatal(err)
+	}
+	u, _ := st.UserByLoginName("gl-owner")
+	if err := st.SaveGitHTTPCredential(u.ID, "", domain.GitHTTPCredentialSecret{
+		GitHTTPCredential: domain.GitHTTPCredential{Name: "GitLab", Host: "code.example.net", Platform: domain.GitPlatformGitLab},
+		Token:             "owner-pat",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutProject(domain.Project{ID: "shop", Name: "Shop", OwnerID: u.ID}); err != nil {
+		t.Fatal(err)
+	}
+	const proj = "gitlab:code.example.net/example/shop"
+	const enc = "example%2Fshop"
+	if err := st.PutRepository(domain.Repository{ID: "gl", ProjectID: "shop", Provider: domain.GitPlatformGitLab, Name: "shop", GongfengProjectID: proj, DefaultBranch: "main", IntegrateBranch: "integration", WebURL: "https://code.example.net/example/shop"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutIssue(domain.Issue{ID: "shop-1", ProjectID: "shop", Title: "fix", Status: "in_progress"}); err != nil {
+		t.Fatal(err)
+	}
+
+	var mu sync.Mutex
+	workMR := `{"iid":9,"state":"merged","merged_at":"2026-11-18T09:34:42Z","source_branch":"work","target_branch":"integration","diff_refs":{"head_sha":"work-head"}}`
+	refs := `[]`
+	promotes := `[]`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		if req.Header.Get("PRIVATE-TOKEN") != "owner-pat" {
+			t.Errorf("wrong credential")
+		}
+		switch {
+		case req.Method == "GET" && req.URL.EscapedPath() == "/projects/"+enc+"/merge_requests/9":
+			_, _ = w.Write([]byte(workMR))
+		case req.Method == "GET" && req.URL.EscapedPath() == "/projects/"+enc+"/repository/commits/work-head/refs":
+			_, _ = w.Write([]byte(refs))
+		case req.Method == "GET" && req.URL.EscapedPath() == "/projects/"+enc+"/merge_requests":
+			if req.URL.Query().Get("source_branch") == "integration" {
+				_, _ = w.Write([]byte(promotes))
+				return
+			}
+			_, _ = w.Write([]byte(`[]`))
+		default:
+			t.Errorf("unexpected %s %s", req.Method, req.URL.EscapedPath())
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+	s := NewService()
+	s.ConfigureWithStore(domain.SyncConfig{}, st)
+	s.gitHostAPIBase = srv.URL
+
+	url := domain.GongfengMRURL(proj, 9)
+	if err := st.MarkIssueDeliveredFromSOPMRs("shop-1", []domain.DeliveryMR{{Project: proj, IID: 9, URL: url, GongfengState: "merged", TargetBranch: "integration"}}, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	poll := func() {
+		_ = st.UpdateMRDeliveryState(proj, 9, "merged", "integration", time.Time{}, time.Now().UTC().Add(-time.Hour))
+		s.SyncMRDeliveryStatesOnce(st)
+	}
+	metrics := func(step string, merged, integrated int) {
+		t.Helper()
+		got := st.Analytics(domain.AnalyticsFilter{ProjectID: "shop"})
+		if got.Summary.MergedMRs != merged || got.Summary.IntegratedMRs != integrated {
+			t.Fatalf("%s: mergedMrs=%d integratedMrs=%d, want %d/%d", step, got.Summary.MergedMRs, got.Summary.IntegratedMRs, merged, integrated)
+		}
+	}
+
+	// Merged into integration, main does not contain it yet → integrated.
+	poll()
+	if got, _ := st.Issue("shop-1"); got.DeliveryMRState != "integrated" {
+		t.Fatalf("merged into integration: mrState=%q want integrated", got.DeliveryMRState)
+	}
+	metrics("integrated", 0, 1)
+
+	// Integration promoted to main (PR !20 merged) and work-head now on main.
+	mu.Lock()
+	refs = `[{"name":"main","type":"branch"},{"name":"integration","type":"branch"}]`
+	promotes = `[{"iid":20,"state":"merged","merged_at":"2026-11-18T10:00:00Z","source_branch":"integration","target_branch":"main"}]`
+	mu.Unlock()
+	poll()
+	if got, _ := st.Issue("shop-1"); got.DeliveryMRState != "merged" || got.Status != "done" {
+		t.Fatalf("promoted: status=%q mrState=%q want done/merged", got.Status, got.DeliveryMRState)
+	}
+	metrics("promoted", 1, 0)
 }
