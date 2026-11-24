@@ -251,6 +251,7 @@ func (h *assistantHandlers) conversationExecutor(s *AgentToolSession, root strin
 		command = runtime.WithCommandEnvironment(command, map[string]string{"AGENTFLOW_NATIVE_APPROVAL_URL": agentToolMCPURL(s.Token)})
 		if s.RuntimeMode == domain.AssistantModeWorkspace {
 			command, credentials = h.bindWorkspaceGit(ctx, s, command, credentials)
+			command, credentials = h.bindWorkspaceFeishu(ctx, s, command, credentials)
 		}
 		wire := runtime.ConversationCommandFor(command, credentials)
 		wire.RunnerLogin = s.runnerLogin

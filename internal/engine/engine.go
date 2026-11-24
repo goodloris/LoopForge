@@ -91,7 +91,11 @@ type Engine struct {
 	obsPending []pendingObservation
 	obsKick    chan struct{}
 
-	WorkspaceActive              func(domain.Run) bool
+	WorkspaceActive func(domain.Run) bool
+	// FeishuCredential returns the lark-cli tokens of a run's responsible
+	// user (set by the HTTP layer, which owns the Feishu app). Nil or an
+	// empty AppID means Agent nodes get no Feishu variables at all.
+	FeishuCredential             func(ctx context.Context, userID int64) runtime.FeishuCredential
 	WorkspaceCheckpointTransport func(context.Context, domain.Run, domain.RunnerWorkspaceRequest) (domain.RunnerWorkspaceResponse, error)
 	maintenanceOnce              sync.Once
 }

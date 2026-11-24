@@ -148,6 +148,15 @@ func (r Runner) SupportsCodeBuddyBaseURL() bool {
 	return versionAtLeast(r.RunnerVersion, RunnerVersionCodeBuddyBaseURL)
 }
 
+// RunnerVersionFeishu is the first runner that exports the platform's Feishu
+// (lark-cli) tokens to a CLI. An older one rejects the conversation binding
+// and ignores the SOP invocation fields, so it only gets no Feishu identity.
+const RunnerVersionFeishu = "0.11.3"
+
+func (r Runner) SupportsFeishu() bool {
+	return versionAtLeast(r.RunnerVersion, RunnerVersionFeishu)
+}
+
 func (r Runner) SupportsSharedPush() bool {
 	return versionAtLeast(r.RunnerVersion, RunnerVersionSharedPush)
 }
@@ -463,6 +472,8 @@ func PublicRunnerTask(task RunnerTask) RunnerTask {
 	copyInvocation.CodeBuddyBaseURL = ""
 	copyInvocation.CodeBuddyInternetEnvironment = ""
 	copyInvocation.CodexAPIKey = ""
+	copyInvocation.FeishuTenantToken = ""
+	copyInvocation.FeishuUserToken = ""
 	copyInvocation.CodexBaseURL = ""
 	copyInvocation.ClaudeCodeAPIKey = ""
 	copyInvocation.ClaudeCodeBaseURL = ""
@@ -533,13 +544,18 @@ type RunnerInvocation struct {
 	CodeBuddyAPIKey              string   `json:"codebuddyApiKey,omitempty"`
 	CodeBuddyBaseURL             string   `json:"codebuddyBaseUrl,omitempty"`
 	CodeBuddyInternetEnvironment string   `json:"codebuddyInternetEnvironment,omitempty"`
-	CodexAPIKey                  string   `json:"codexApiKey,omitempty"`
-	CodexBaseURL                 string   `json:"codexBaseUrl,omitempty"`
-	ClaudeCodeAPIKey             string   `json:"claudeCodeApiKey,omitempty"`
-	ClaudeCodeBaseURL            string   `json:"claudeCodeBaseUrl,omitempty"`
-	AgentCLIAPIKey               string   `json:"agentCliApiKey,omitempty"`
-	AgentCLIBaseURL              string   `json:"agentCliBaseUrl,omitempty"`
-	AgentCLIProtocol             string   `json:"agentCliProtocol,omitempty"`
+	// Feishu (lark-cli) tokens of the responsible user for an Agent node:
+	// the app's tenant token and, when connected, the user's access token.
+	FeishuAppID       string `json:"feishuAppId,omitempty"`
+	FeishuTenantToken string `json:"feishuTenantToken,omitempty"`
+	FeishuUserToken   string `json:"feishuUserToken,omitempty"`
+	CodexAPIKey       string `json:"codexApiKey,omitempty"`
+	CodexBaseURL      string `json:"codexBaseUrl,omitempty"`
+	ClaudeCodeAPIKey  string `json:"claudeCodeApiKey,omitempty"`
+	ClaudeCodeBaseURL string `json:"claudeCodeBaseUrl,omitempty"`
+	AgentCLIAPIKey    string `json:"agentCliApiKey,omitempty"`
+	AgentCLIBaseURL   string `json:"agentCliBaseUrl,omitempty"`
+	AgentCLIProtocol  string `json:"agentCliProtocol,omitempty"`
 	// AgentCLIModels is the responsible user's saved catalog for the agent
 	// CLI; Cursor resolves the model's effort to an ID from it.
 	AgentCLIModels []CLIModel `json:"agentCliModels,omitempty"`

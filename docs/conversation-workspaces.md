@@ -23,6 +23,21 @@
 
 工具结果和回复都会对发言人的令牌（含去掉前缀后的裸令牌）做脱敏；提示词要求 Agent 不打印、不回显、不写入令牌。
 
+## 飞书身份（lark-cli）
+
+平台配置了飞书应用（`LOOPFORGE_FEISHU_APP_ID/SECRET`）时，工作区模式下的 CLI 进程（`runtime.BindFeishu`）每轮按本轮发言人注入 lark-cli 的环境变量，与 Git 凭据同构：
+
+- `LARKSUITE_CLI_APP_ID`、`LARKSUITE_CLI_BRAND=feishu`、`LARKSUITE_CLI_TENANT_ACCESS_TOKEN`：应用（bot）身份，始终注入。
+- `LARKSUITE_CLI_USER_ACCESS_TOKEN`：发言人在「个人配置 → 飞书」连接过、授权有效时注入（剩余不足 30 分钟先刷新），lark-cli 不带 `--as` 时默认用它。未连接、已过期或飞书暂时不可用时为空，只有 bot 身份。
+- `LARKSUITE_CLI_APP_SECRET` 置空：App Secret 和 refresh token 从不进入沙箱；宿主或沙箱环境里的同名变量会被覆盖。lark-cli 把空变量当作未设置。
+- 每轮在系统提示里告诉 Agent 本轮有哪种身份，要求不运行 `lark-cli config init`、`auth login`；没有用户身份时提示用户去个人配置连接。凭据来自环境变量时 lark-cli 不往 `$HOME` 写缓存（1.0.100 实测），所以轮末无需清理。
+- 诊断与进程日志对 `LARKSUITE_CLI_*_TOKEN` 和 `t-…`/`u-…`/JWT 形式的令牌脱敏。
+- 执行机器需 Runner 0.11.3 及以上；更旧的执行机器不注入，并在诊断中提示升级。
+- SOP 的 Agent 节点按运行负责人注入同样的变量（定时任务触发的 SOP 也一样）；负责人未连接或授权过期时只有 bot 身份，运行日志记一条「负责人未连接飞书 / 负责人飞书授权已过期」。脚本节点不注入。
+- 平台未配置飞书应用时什么都不注入，也不改动这些变量。
+
+风险：读写档的用户令牌在本轮进程环境里，Agent 若把它写进文件，共享对话里的后来者最长 2 小时内可读到，与 `GH_TOKEN` 现状一致。
+
 ## 工作区的切换与生命周期
 
 一个对话同一时间只绑定一个工作区（会话 `workspaceRunId`）。工作区按运行环境区分：不传 `sandboxProfileId` 或传的与当前工作区相同时继续用当前工作区；传了别的环境就切换过去——本对话之前在那个环境开过、仍可用的工作区（会话 `ownWorkspaceRunIds`）直接接着用，文件和已克隆的仓库都在，没有就新开一个空工作区。每轮上下文列出当前绑定的工作区、之前在其他环境开过的工作区，以及本条消息 @ 的需求和关联主需求各自有没有跑过 SOP、SOP 的工作分支；要接着 SOP 的改动，Agent 进入工作区后自己 clone 并 checkout 那个分支。

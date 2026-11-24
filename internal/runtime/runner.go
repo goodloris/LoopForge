@@ -77,6 +77,9 @@ func (r *ExecutorRunner) Run(ctx context.Context, sb Sandbox, invocationID strin
 	if err != nil {
 		return "", err
 	}
+	// The responsible user's Feishu identity (or the bot alone) for lark-cli;
+	// a no-op when the platform has no Feishu app.
+	command.CredentialBindings = append(append([]CredentialBinding(nil), command.CredentialBindings...), BindFeishu)
 	command = withBwrapManagedCLI(command, driver)
 	if cliLease != nil {
 		command = WithCommandEnvironment(command, managedcli.AutoUpdateEnvironment(command.Provider))

@@ -192,6 +192,8 @@ func bindCommand(ctx context.Context, sandbox Sandbox, workspace string, command
 				bound.environment[envName] = credentials.Extra[credName]
 				bound.credentialEnvKeys = append(bound.credentialEnvKeys, envName)
 			}
+		case BindFeishu:
+			bindFeishuEnvironment(bound.environment, credentials.Feishu)
 		case BindMCP:
 			if err := bindMCPCallEnvironment(ctx, sandbox, workspace, bound.environment, credentials.MCPServers); err != nil {
 				return CommandSpec{}, err
