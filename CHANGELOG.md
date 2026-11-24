@@ -10,6 +10,7 @@ Platform releases use `vX.Y.Z` tags. This fork (goodloris/LoopForge) publishes `
 
 - 个人配置 › 执行器配置 lists **Kiro CLI · 本机登录**. It needs no API key; it reads 已登录 when this account can run `kiro-cli` (the platform's login, or one of its execution machines'), 未登录 with a link to 执行机器 otherwise. Once logged in, Kiro CLI can be saved as the personal default executor (AI 默认设置 appears even for an account with no key); `PUT /api/users/{id}/credentials` refuses `assistantDefaults.executor=kiro` where Kiro cannot run.
 - Built-in SOP cards show the executor their roles resolve to again (e.g. 「Kiro CLI 本机登录 ✓」, or 「需要 Codex」), from the same `/api/workflows/{id}/executor-requirements` result the 使用 dialog shows; the browser no longer computes it. No migration.
+
 ### 同步上游 v0.4.1
 
 Merged upstream Tencent/LoopForge `main` at `52560f4` (v0.4.1, range `e89cda9..52560f4`, 48 commits) with a merge commit, not a squash or rebase. Upstream's own notes are kept below as **0.4.1**.
