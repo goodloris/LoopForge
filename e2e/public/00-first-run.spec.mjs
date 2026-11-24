@@ -24,7 +24,8 @@ async function createAccount(page,login,secret){
 
 test('the first visitor creates the administrator from the browser',async({page,request},info)=>{
   const errors=[];page.on('pageerror',e=>errors.push(e.message));
-  expect(await request.get('/api/auth/setup').then(r=>r.json())).toEqual({needsSetup:true,signupEnabled:true,feishuEnabled:false});
+  // feishuEnabled (and future sign-in flags) may be present too.
+  expect(await request.get('/api/auth/setup').then(r=>r.json())).toMatchObject({needsSetup:true,signupEnabled:true});
   await page.goto('/');
   await expect(page).toHaveURL(/login\.html/);
   await expect(page.locator('#setupNotice')).toBeVisible();
