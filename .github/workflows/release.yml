@@ -152,7 +152,7 @@ jobs:
             echo "Release ${TAG} already exists; image republished"
             exit 0
           fi
-          release_args=(--title "LoopForge v${VERSION}" --notes "${notes}" --generate-notes --verify-tag)
+          release_args=(--title "LooPool v${VERSION}" --notes "${notes}" --generate-notes --verify-tag)
           if [[ "${PRERELEASE}" == "true" ]]; then
             release_args+=(--prerelease)
           else

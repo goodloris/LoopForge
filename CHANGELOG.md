@@ -2,6 +2,10 @@
 
 Platform releases use `vX.Y.Z` tags. This fork (goodloris/LoopForge) publishes `ghcr.io/goodloris/loopforge` from 0.5.0 on; 0.4.0 and earlier were published upstream as `ghcr.io/tencent/loopforge`. LoopForge Local packages use `local-vX.Y.Z` tags and are published by manually running the `release-local` workflow.
 
+## Unreleased
+
+- Platform GitHub Releases are now titled `LooPool vX.Y.Z` instead of `LoopForge vX.Y.Z`. LoopForge Local releases keep their title.
+
 ## 0.8.0 — LooPool, Feishu identities and upstream v0.4.1
 
 **Upgrading an existing installation (from 0.7.0)** — order matters:
