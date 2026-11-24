@@ -174,6 +174,17 @@ func (e *Engine) mergeWorkBranchIntoIntegrate(id string, r domain.Run, rc domain
 				})
 				return nil
 			}
+			// A scheduled run may push the work branch yet produce no commits
+			// relative to the integration branch. Opening a 0-commit MR only
+			// to have it fail to merge is noise: skip it (no MR, no direct
+			// push) and record a readable event instead of a failure.
+			var notDeliverable *domain.BranchNotDeliverableError
+			if errors.As(err, &notDeliverable) {
+				e.updateRun(id, func(c *domain.Run) {
+					e.event(c, "", "integration.skipped", fmt.Sprintf("仓库 %s 的工作分支 %s 相对 %s 没有新提交，未开集成 MR", rc.Name, work, integrate))
+				})
+				return nil
+			}
 			e.updateRun(id, func(c *domain.Run) {
 				msg := fmt.Sprintf("已推送仓库 %s 的工作分支 %s，基线 MR（%s → %s）自动合并失败（不会直推基线）: %v", rc.Name, work, work, integrate, err)
 				e.event(c, "", "mr.auto_merge_failed", msg)

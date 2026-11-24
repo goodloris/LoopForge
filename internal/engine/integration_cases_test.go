@@ -172,3 +172,40 @@ func TestIntegrationQueuedAutoMergeIsNotFailure(t *testing.T) {
 		t.Fatal("queued auto-merge must not fall back to a direct push")
 	}
 }
+
+// A scheduled run that pushed the work branch but has no commits ahead of the
+// integrate branch must skip the integration MR: no failure, no direct push,
+// and a readable integration.skipped event.
+func TestIntegrationNoCommitsIsSkippedNotFailed(t *testing.T) {
+	e, st := cvEEngine(t)
+	run := domain.Run{ID: "integration-skip", Status: "running", Input: "Title", WorkflowSnapshot: domain.WorkflowDefinition{
+		Nodes: []domain.WorkflowNode{{ID: "implement", Type: "agent"}},
+	}, Nodes: map[string]*domain.NodeRun{"implement": {NodeID: "implement", Status: "succeeded"}}}
+	if err := st.PutRun(run); err != nil {
+		t.Fatal(err)
+	}
+	rc := domain.RepositoryContext{RepositoryID: "repo", Name: "Repo", GongfengProjectID: "gitlab:code.example.net/g/p", WorkBranch: "work", IntegrateBranch: "integrate"}
+	e.MergeIntoBranch = func(string, string, string, string, string) (string, error) {
+		return "", &domain.BranchNotDeliverableError{Project: "gitlab:code.example.net/g/p", Branch: "work", Target: "integrate", Reason: "相对目标分支没有新提交"}
+	}
+	pushed := false
+	if err := e.mergeWorkBranchIntoIntegrate(run.ID, run, rc, "work", "integrate", func() error { pushed = true; return nil }); err != nil {
+		t.Fatalf("no-commit integration must not fail: %v", err)
+	}
+	if pushed {
+		t.Fatal("no-commit integration must not fall back to a direct push")
+	}
+	got, ok := e.repo.RunState(run.ID)
+	if !ok {
+		t.Fatal("run missing")
+	}
+	found := false
+	for _, ev := range got.Events {
+		if ev.Type == "integration.skipped" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected an integration.skipped event, got %+v", got.Events)
+	}
+}

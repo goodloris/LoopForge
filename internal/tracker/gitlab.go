@@ -345,6 +345,11 @@ func (s *Service) gitlabMergeBranch(project, branch, target, title, description 
 		if target == "" {
 			return "", ErrNoOpenMR
 		}
+		// Don't open a 0-commit work→target MR (which then fails to merge) when
+		// a scheduled run pushed the work branch but produced no changes.
+		if err := g.requireDeliverableBranch(project, branch, target); err != nil {
+			return "", err
+		}
 		if title == "" {
 			title = fmt.Sprintf("LooPool: %s → %s", branch, target)
 		}
@@ -500,19 +505,11 @@ func (s *Service) EnsureBranchMR(project, sourceBranch, targetBranch string, use
 		return domain.DeliveryMR{}, false, fmt.Errorf("GitLab 仓库 %s 的工作分支 %s 没有可用目标分支，无法创建 MR", project, src)
 	}
 	// GitLab lets you open an MR from a source branch that does not exist or
-	// carries no commits, producing an empty MR (no head SHA, 0 changes). A
-	// pure-script SOP whose work branch was never pushed must not get one.
-	// Confirm the branch is on the remote and is ahead of the target first;
-	// otherwise skip without creating and let the caller record a run event.
-	if exists, err := g.branchExists(src); err != nil {
+	// carries no commits, producing an empty MR (no head SHA, 0 changes) that
+	// then fails to merge. Confirm there is something to deliver first;
+	// otherwise skip without creating and let the caller record an event.
+	if err := g.requireDeliverableBranch(project, src, target); err != nil {
 		return domain.DeliveryMR{}, false, err
-	} else if !exists {
-		return domain.DeliveryMR{}, false, &domain.BranchNotDeliverableError{Project: project, Branch: src, Target: target, Reason: "工作分支未推送到远端"}
-	}
-	if ahead, err := g.branchAhead(target, src); err != nil {
-		return domain.DeliveryMR{}, false, err
-	} else if !ahead {
-		return domain.DeliveryMR{}, false, &domain.BranchNotDeliverableError{Project: project, Branch: src, Target: target, Reason: "相对目标分支没有新提交"}
 	}
 	var created gitlabMR
 	title := fmt.Sprintf("LooPool: %s → %s", src, target)
@@ -524,6 +521,28 @@ func (s *Service) EnsureBranchMR(project, sourceBranch, targetBranch string, use
 		return domain.DeliveryMR{}, false, err
 	}
 	return created.delivery(project), true, nil
+}
+
+// requireDeliverableBranch confirms source is on the remote and carries
+// commits the target lacks, so an MR from source→target would not be empty.
+// GitLab otherwise opens an MR from a missing or 0-commit branch, producing a
+// head-less MR that later fails to merge. It returns a
+// *domain.BranchNotDeliverableError (not a transport error) when there is
+// nothing to deliver, so callers skip without treating it as a failure. Both
+// the SOP delivery fallback (EnsureBranchMR) and the integration merge
+// (gitlabMergeBranch) gate their MR create on it.
+func (g *gitlabClient) requireDeliverableBranch(project, source, target string) error {
+	if exists, err := g.branchExists(source); err != nil {
+		return err
+	} else if !exists {
+		return &domain.BranchNotDeliverableError{Project: project, Branch: source, Target: target, Reason: "工作分支未推送到远端"}
+	}
+	if ahead, err := g.branchAhead(target, source); err != nil {
+		return err
+	} else if !ahead {
+		return &domain.BranchNotDeliverableError{Project: project, Branch: source, Target: target, Reason: "相对目标分支没有新提交"}
+	}
+	return nil
 }
 
 // branchExists reports whether branch is present on the remote. A 404 is a

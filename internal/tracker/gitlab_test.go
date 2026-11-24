@@ -62,6 +62,13 @@ func TestGitLabMergeBranchCreatesThenMerges(t *testing.T) {
 				t.Errorf("find must filter by source+target: %q", req.URL.RawQuery)
 			}
 			_, _ = w.Write([]byte(`[]`))
+		case req.Method == "GET" && req.URL.EscapedPath() == "/projects/"+gitlabEncodedPath+"/repository/branches/feature%2Fwork":
+			_, _ = w.Write([]byte(`{"name":"feature/work"}`))
+		case req.Method == "GET" && req.URL.EscapedPath() == "/projects/"+gitlabEncodedPath+"/repository/compare":
+			if req.URL.Query().Get("from") != "main" || req.URL.Query().Get("to") != "feature/work" {
+				t.Errorf("compare query: %s", req.URL.RawQuery)
+			}
+			_, _ = w.Write([]byte(`{"commits":[{"id":"abc"}]}`))
 		case req.Method == "POST" && req.URL.EscapedPath() == "/projects/"+gitlabEncodedPath+"/merge_requests":
 			var body map[string]any
 			_ = json.NewDecoder(req.Body).Decode(&body)
@@ -432,6 +439,47 @@ func TestGitLabEnsureBranchMRSkipsEmptyBranch(t *testing.T) {
 				t.Fatalf("must not create an MR: posts=%d", posts)
 			}
 		})
+	}
+}
+
+// The integration merge path (EnsureAndMergeBranchMR → gitlabMergeBranch) must
+// reuse the same deliverable-branch gate: a scheduled run that pushed the work
+// branch but produced no commits ahead of the integrate branch must not get a
+// 0-commit work→int MR that then fails to merge. It returns a
+// BranchNotDeliverableError and never POSTs merge_requests.
+func TestGitLabMergeBranchSkipsEmptyBranch(t *testing.T) {
+	s, _, r, _ := gitlabTrackerFixture(t)
+	var posts int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case req.Method == "GET" && req.URL.EscapedPath() == "/projects/"+gitlabEncodedPath+"/merge_requests":
+			_, _ = w.Write([]byte("[]"))
+		case req.Method == "GET" && req.URL.EscapedPath() == "/projects/"+gitlabEncodedPath+"/repository/branches/feature%2Fwork":
+			_, _ = w.Write([]byte(`{"name":"feature/work"}`))
+		case req.Method == "GET" && req.URL.EscapedPath() == "/projects/"+gitlabEncodedPath+"/repository/compare":
+			_, _ = w.Write([]byte(`{"commits":[]}`))
+		case req.Method == "POST" && req.URL.EscapedPath() == "/projects/"+gitlabEncodedPath+"/merge_requests":
+			posts++
+			_, _ = w.Write([]byte(`{"iid":4}`))
+		default:
+			t.Errorf("unexpected %s %s", req.Method, req.URL.EscapedPath())
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+	s.gitHostAPIBase = srv.URL
+
+	ref, err := s.EnsureAndMergeBranchMR(r.GongfengProjectID, "feature/work", "main", "Title", "")
+	var notDeliverable *domain.BranchNotDeliverableError
+	if ref != "" || !errors.As(err, &notDeliverable) {
+		t.Fatalf("expected BranchNotDeliverableError, got ref=%q err=%v", ref, err)
+	}
+	if !strings.Contains(notDeliverable.Reason, "没有新提交") {
+		t.Fatalf("reason %q should mention no commits", notDeliverable.Reason)
+	}
+	if posts != 0 {
+		t.Fatalf("must not create an MR: posts=%d", posts)
 	}
 }
 
