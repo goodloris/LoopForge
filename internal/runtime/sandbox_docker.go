@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -802,11 +803,17 @@ func (s *dockerSandbox) start(ctx context.Context, recreate bool) error {
 	if p.ReadOnlyRootFS {
 		args = append(args, "--read-only", "--tmpfs", "/tmp:rw,noexec,nosuid,size=256m")
 	}
-	if image == isolatedRuntimeImage(s.dockerfile) {
-		args = append(args, "--entrypoint", "sh", image, "-lc", "trap : TERM INT; sleep infinity & wait")
-	} else {
-		args = append(args, image, "sh", "-lc", "trap : TERM INT; sleep infinity & wait")
+	override := image == isolatedRuntimeImage(s.dockerfile)
+	if !override {
+		// A custom Dockerfile built FROM the platform image inherits its
+		// ENTRYPOINT, which would take the keep-alive command as platform
+		// arguments and exit at once. Other images keep their own entrypoint.
+		// An unreadable entrypoint keeps the image's own, as before.
+		if entrypoint, err := dockerImageEntrypoint(ctx, image); err == nil {
+			override = inheritsPlatformEntrypoint(entrypoint, platformRuntimeEntrypoint(ctx))
+		}
 	}
+	args = append(args, sandboxKeepAliveArgs(image, override)...)
 	// Resolve the replacement image and mounts before retiring a workspace with
 	// legacy masks. Its new container ID invalidates old preparation receipts.
 	if mounts != nil || recreate {
@@ -970,6 +977,55 @@ func dockerBuildWatch(dockerfile domain.DockerfileDefinition) procwatch.Options 
 		Stall: procwatch.DurationEnv(dockerBuildStallEnv, 0), StallEnv: dockerBuildStallEnv,
 		Timeout: procwatch.DurationEnv(dockerBuildTimeoutEnv, 0), TimeoutEnv: dockerBuildTimeoutEnv,
 	}
+}
+
+// sandboxKeepAliveArgs is the image and command that keep a sandbox container
+// running. overrideEntrypoint replaces the image's ENTRYPOINT with sh.
+func sandboxKeepAliveArgs(image string, overrideEntrypoint bool) []string {
+	const keepAlive = "trap : TERM INT; sleep infinity & wait"
+	if overrideEntrypoint {
+		return []string{"--entrypoint", "sh", image, "-lc", keepAlive}
+	}
+	return []string{image, "sh", "-lc", keepAlive}
+}
+
+// platformEntrypoint is the ENTRYPOINT of the platform image (Dockerfile).
+var platformEntrypoint = []string{"/app/bin/agentflow"}
+
+// platformRuntimeEntrypoint is the ENTRYPOINT of the configured platform
+// runtime image (AGENTFLOW_ISOLATED_IMAGE) when it can be read, else the one
+// the platform Dockerfile sets.
+func platformRuntimeEntrypoint(ctx context.Context) []string {
+	if image := strings.TrimSpace(os.Getenv("AGENTFLOW_ISOLATED_IMAGE")); image != "" {
+		if entrypoint, err := dockerImageEntrypoint(ctx, image); err == nil && len(entrypoint) > 0 {
+			return entrypoint
+		}
+	}
+	return platformEntrypoint
+}
+
+// inheritsPlatformEntrypoint reports an image whose ENTRYPOINT is the
+// platform's: the configured runtime image's, or the platform binary.
+func inheritsPlatformEntrypoint(entrypoint, platform []string) bool {
+	if len(entrypoint) == 0 {
+		return false
+	}
+	return slices.Equal(entrypoint, platform) || slices.Equal(entrypoint, platformEntrypoint)
+}
+
+// dockerImageEntrypoint reads an image's Config.Entrypoint (nil when unset).
+func dockerImageEntrypoint(ctx context.Context, image string) ([]string, error) {
+	out, err := exec.CommandContext(ctx, "docker", "image", "inspect", "--format", "{{json .Config.Entrypoint}}", image).CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("inspect sandbox image entrypoint: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	var entrypoint []string
+	if raw := strings.TrimSpace(string(out)); raw != "" && raw != "null" {
+		if err := json.Unmarshal([]byte(raw), &entrypoint); err != nil {
+			return nil, fmt.Errorf("parse sandbox image entrypoint %q: %w", raw, err)
+		}
+	}
+	return entrypoint, nil
 }
 
 func isolatedRuntimeImage(dockerfile domain.DockerfileDefinition) string {
