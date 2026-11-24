@@ -36,7 +36,25 @@ const (
 	// are exported as empty strings so a child never inherits the host
 	// process's own variables.
 	BindExtra CredentialBinding = "extra"
+	// BindFeishu exports RunCredentials.Feishu as lark-cli's LARKSUITE_CLI_*
+	// variables: the app's tenant token always, the user's token when the
+	// speaker (conversation) or responsible user (SOP) connected Feishu.
+	BindFeishu CredentialBinding = "feishu"
 )
+
+// FeishuCredential is what one CLI process gets for lark-cli. It holds only
+// short-lived tokens; the app secret and refresh tokens stay on the platform.
+// An empty AppID means the platform has no Feishu app: BindFeishu does nothing.
+type FeishuCredential struct {
+	AppID       string `json:",omitempty"`
+	TenantToken string `json:",omitempty"`
+	UserToken   string `json:",omitempty"`
+	// UserName and Preset describe the user identity; Notice says why there
+	// is none (not connected, expired, Feishu unreachable).
+	UserName string `json:",omitempty"`
+	Preset   string `json:",omitempty"`
+	Notice   string `json:",omitempty"`
+}
 
 type CodeBuddyCredential struct {
 	APIKey              string
@@ -82,6 +100,9 @@ type RunCredentials struct {
 	// in-memory sandbox handle and is never serialized into domain objects,
 	// run-context.json, or workspace files.
 	Extra map[string]string `json:"-"`
+	// Feishu travels with the command to the execution machine like
+	// GitSSHHostKeys (authenticated control connection only).
+	Feishu FeishuCredential `json:",omitempty"`
 }
 
 type ProviderCredential struct {

@@ -404,7 +404,7 @@ var (
 	diagnosticPEM    = regexp.MustCompile(`(?s)-----BEGIN [^-]*PRIVATE KEY-----.*?(?:-----END [^-]*PRIVATE KEY-----|$)`)
 	diagnosticBearer = regexp.MustCompile(`(?i)\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+`)
 	diagnosticSecret = regexp.MustCompile(`(?i)((?:["']?(?:[a-z0-9_-]*(?:api[_-]?key|auth[_-]?token|access[_-]?token|refresh[_-]?token|password|passwd|client[_-]?secret)|authorization|cookie|set-cookie|token|secret)["']?)\s*[:=]\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;}]+)`)
-	diagnosticKey    = regexp.MustCompile(`\b(?:sk-[A-Za-z0-9_-]{8,}|ghp_[A-Za-z0-9]+|github_pat_[A-Za-z0-9_]+|glpat-[A-Za-z0-9_-]+)\b`)
+	diagnosticKey    = regexp.MustCompile(`\b(?:sk-[A-Za-z0-9_-]{8,}|ghp_[A-Za-z0-9]+|github_pat_[A-Za-z0-9_]+|glpat-[A-Za-z0-9_-]+|[tu]-[A-Za-z0-9_-]{24,}|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+)\b`) // incl. Feishu t-/u- tokens and JWT user tokens
 	diagnosticURL    = regexp.MustCompile(`https?://[^\s<>"']+`)
 	diagnosticPath   = regexp.MustCompile(`(?:/(?:Users|home|root|tmp|private|var|data|workspace|workspaces|opt|srv)/|[A-Za-z]:\\)[^\s"'<>;,|]+`)
 )

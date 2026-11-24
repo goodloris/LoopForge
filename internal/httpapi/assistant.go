@@ -572,7 +572,7 @@ func (h *assistantHandlers) chat(c *gin.Context) {
 				var sentRepositoryHash string
 				if req.workspaceMode {
 					system = assistantWorkspaceSystemPrompt
-					prefix := assistantWorkspaceSystemPrompt + "\n审批模式：" + approvalMode + "。\n"
+					prefix := assistantWorkspaceSystemPrompt + "\n审批模式：" + approvalMode + "。\n" + h.feishuWorkspaceNote(toolSession.User.ID)
 					var repositoryPrompt string
 					repositoryPrompt, sentRepositoryHash, err = h.workspaceRepositoryPrompt(toolSession, cliRoot, workspaceRepositoryHash, len(prefix)+len(prompt))
 					if err != nil {

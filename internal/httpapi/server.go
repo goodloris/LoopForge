@@ -186,6 +186,7 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 		know:            &knowledgeHandlers{deps: d, svc: knowledge.NewService(d.repo, randomID), activity: &knowledgeActivityLog{}},
 	}
 	e.WorkspaceActive = func(run domain.Run) bool { return api.runs.terminals.HasRunScope(run.ID) }
+	e.FeishuCredential = d.feishuRunCredential
 	api.catalog.notifications = api.notifications
 	api.auth.users = api.users
 	api.schedule.notifications = api.notifications
