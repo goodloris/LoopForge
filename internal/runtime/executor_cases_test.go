@@ -234,6 +234,10 @@ func TestEnvironmentIdentityGitAndMCPHeaders(t *testing.T) {
 	if env["AGENTFLOW_GIT_TOKEN"] != "" || env[SessionGatewayEnv] == "" {
 		t.Fatal("tokens must be fetched through the relay")
 	}
+	// Pin the relay network so the Docker case does not depend on host
+	// container detection (/.dockerenv without a docker CLI otherwise fails).
+	t.Setenv("AGENTFLOW_CONVERSATION_RELAY_HOST", "host.docker.internal")
+	t.Setenv("AGENTFLOW_CONVERSATION_DOCKER_NETWORK", "none")
 	env, closeDocker, err := RunGitEnvironment(context.Background(), &dockerSandbox{}, workspace, RunCredentials{GitHTTPCredentials: testHTTPSCredentials("token")})
 	if err != nil {
 		t.Fatal(err)
