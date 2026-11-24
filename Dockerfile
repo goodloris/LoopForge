@@ -49,6 +49,9 @@ RUN --mount=type=cache,target=/root/.npm apt-get update && apt-get install -y --
  && rm -rf /var/lib/apt/lists/* \
  && NPM_CONFIG_REGISTRY="${NPM_CONFIG_REGISTRY}" npm install -g @openai/codex@0.162.1 @deepseek-ai/dsh@0.2.2-rc.1 @wecom/cli@1.3.4 \
  && wecom-cli --version \
+ && NPM_CONFIG_REGISTRY="${NPM_CONFIG_REGISTRY}" npm install -g @larksuite/cli@1.0.100 \
+ && lark-cli --version \
+ && codex --version \
  && if [ -n "$CODEBUDDY_PACKAGE" ]; then NPM_CONFIG_REGISTRY="${NPM_CONFIG_REGISTRY}" npm install -g "$CODEBUDDY_PACKAGE"; fi
 # A relocatable Python that sandboxes of images without python3 mount for the
 # native CLI hooks (internal/runtime/toolchain.go). Its terminfo database has
@@ -101,6 +104,8 @@ COPY --from=build /out/ /app/bin/
 COPY LICENSE THIRD_PARTY_NOTICES.md /app/
 COPY third_party/go/ /app/third_party/go/
 ENV PATH="/app/bin:${PATH}"
+# lark-cli (Feishu) runs inside agent turns: no update or skills banners there.
+ENV LARKSUITE_CLI_NO_UPDATE_NOTIFIER=1 LARKSUITE_CLI_NO_SKILLS_NOTIFIER=1
 # An explicit LOOPFORGE_COMMIT wins. Otherwise read HEAD from the build context
 # so `docker build` stamps the same corner label as the release workflow.
 ARG LOOPFORGE_COMMIT=

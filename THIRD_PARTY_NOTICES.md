@@ -52,4 +52,6 @@ The Docker build downloads pinned Codex, CodeBuddy and DeepSeek Harness (`@deeps
 
 The platform image also includes the official WeCom CLI `@wecom/cli@1.3.4` and its matching platform binary package, distributed under the MIT License, Copyright (c) 2026 WeCom. Their original license and readme files are retained in the image's npm package directories. Source: <https://github.com/WecomTeam/wecom-cli>.
 
+The platform image also includes the official Feishu/Lark CLI `@larksuite/cli@1.0.100` (`lark-cli`), distributed under the MIT License, Copyright (c) 2026 Lark Technologies Pte. Ltd. Its npm install script downloads the matching `lark-cli` release binary and verifies it against the package's `checksums.txt`. The original license and readme files are retained in the image's npm package directory. Source: <https://github.com/larksuite/cli>.
+
 The platform source was contributed by the repository owner from the recorded upstream master and is distributed under the root MIT license.
