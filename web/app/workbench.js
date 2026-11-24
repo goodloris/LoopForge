@@ -729,6 +729,30 @@ function credentialRowMainHTML(kind,user){
   const active=executor&&executor===preferred?.id;
   return `<div class="credential-row-main credential-ink"${interaction}>${credentialLogo(kind,on?'':'is-dim')}<div class="credential-row-who"><b>${escapeHTML(kind.name)}${active?'<span class="credential-default-badge">默认</span>':''}</b><small>${credentialSubline(kind,user)}</small>${credentialRuntimeStatus(kind)}</div><div class="credential-row-end">${end}</div></div>`;
 }
+// Kiro CLI has no key: it signs in with `kiro-cli login` on the platform or an
+// execution machine. The model catalog reports whether this account can run it
+// (engine configured), so the row shows that state and, once logged in, Kiro
+// can be the personal default executor. null until the catalog has loaded.
+const KIRO_LOGIN_KIND={key:'kiroLogin',name:'Kiro CLI',icon:'terminal'};
+function kiroLoginState(){
+  const catalog=credentialUI().catalog;
+  if(!catalog)return null;
+  const engine=(catalog.engines||[]).find(item=>item.id==='kiro');
+  return {configured:!!(engine&&(engine.personal??engine.configured))};
+}
+function kiroLoginRowHTML(){
+  const login=kiroLoginState(),on=!!login?.configured;
+  const preferred=credentialDefaultsExecutor(credentialUI().catalog);
+  const badge=credentialBadgeHTML(!login?'busy':on?'ok':'empty').replace(/>(校验中|已配置|未配置)</,`>${!login?'检查中':on?'已登录':'未登录'}<`);
+  const action=on?'':`<a class="credential-btn secondary credential-ink" href="#/runners">配置执行机器<span class="credential-nudge">${credentialGlyph('chevron-right',13)}</span></a>`;
+  return `<div class="credential-row${on?' is-configured':''}" data-kiro-login-row><div class="credential-row-main credential-ink">${credentialLogo(KIRO_LOGIN_KIND,on?'':'is-dim')}<div class="credential-row-who"><b>Kiro CLI · 本机登录${on&&preferred?.id==='kiro'?'<span class="credential-default-badge">默认</span>':''}</b><small>不需要 API Key：使用平台或执行机器上 kiro-cli login 的订阅登录</small></div><div class="credential-row-end">${badge}${action}</div></div></div>`;
+}
+function repaintKiroLoginRow(panel=$('#credentialPanel')){
+  const row=panel?.querySelector('[data-kiro-login-row]');
+  if(!row)return;
+  row.outerHTML=kiroLoginRowHTML();
+  hydrateCredentialIcons(panel.querySelector('[data-kiro-login-row]'));
+}
 function credentialRowHTML(kind,user){
   const on=credentialConfigured(kind,user),open=on&&credentialUI().open===kind.key;
   const editor=on&&!kind.dialog?credentialEditorHTML(kind,user):'';
@@ -767,24 +791,27 @@ function credentialGroupHTML(group,user){
       ${git?`<p class="credential-group-note"${scope?'':' hidden'}>按仓库地址的协议、主机和端口匹配</p>`:''}
     </header>
     <div class="credential-group-body">
-      <div class="credential-rows">${kinds.map(kind=>credentialRowHTML(kind,user)).join('')}${git?'<div data-credential-git-rows></div>':''}</div>
+      <div class="credential-rows">${kinds.map(kind=>credentialRowHTML(kind,user)).join('')}${git?'<div data-credential-git-rows></div>':kiroLoginRowHTML()}</div>
       ${credentialAddMenu(group,user)}
       ${git?'':`<a class="credential-row-main credential-subscription" href="#/runners" aria-labelledby="credentialSubscriptionTitle credentialSubscriptionAction" aria-describedby="credentialSubscriptionHelp">
         ${credentialLogo({icon:'monitor'})}
         <span class="credential-row-who">
           <b id="credentialSubscriptionTitle">使用已有订阅</b>
-          <small id="credentialSubscriptionHelp">Claude Code、Codex 和 Antigravity 可用账号登录</small>
+          <small id="credentialSubscriptionHelp">Claude Code、Codex、Antigravity 和 Kiro CLI 可用账号登录</small>
         </span>
         <span class="credential-row-end credential-row-action"><span id="credentialSubscriptionAction">配置执行机器</span>${credentialGlyph('arrow-right',14)}</span>
       </a>`}
     </div>
   </section>`;
 }
+function credentialDefaultsPlaceholderHTML(){
+  return `<section class="credential-group credential-defaults" aria-labelledby="credentialDefaultsTitle" data-credential-defaults>${credentialDefaultsHeader()}<p class="credential-default-status" role="status">正在读取执行器…</p></section>`;
+}
 function credentialPanelHTML(user){
-  const hasCLI=CREDENTIAL_KINDS.some(kind=>kind.group==='model'&&credentialConfigured(kind,user));
+  const hasCLI=CREDENTIAL_KINDS.some(kind=>kind.group==='model'&&credentialConfigured(kind,user))||!!kiroLoginState()?.configured;
   return `<div class="credential-list">
     ${CREDENTIAL_GROUPS.map(group=>credentialGroupHTML(group,user)).join('')}
-    ${hasCLI?`<section class="credential-group credential-defaults" aria-labelledby="credentialDefaultsTitle" data-credential-defaults>${credentialDefaultsHeader()}<p class="credential-default-status" role="status">正在读取执行器…</p></section>`:''}
+    ${hasCLI?credentialDefaultsPlaceholderHTML():''}
   </div>`;
 }
 function credentialGitRowsHTML(http,ssh,showGitHub){
@@ -860,7 +887,7 @@ function paintCredentialDefaults(host,catalog){
   const engines=models.featureExecutors(catalog),engine=credentialDefaultsExecutor(catalog);
   if(!engine)return;
   const prefs=catalog.preferences||{};
-  const executorOptions=engines.map(item=>credentialOptionHTML({...credentialKind(item.credential),id:item.id,name:item.name},engine.id)).join('');
+  const executorOptions=engines.map(item=>credentialOptionHTML({...(item.id==='kiro'?KIRO_LOGIN_KIND:credentialKind(item.credential)),id:item.id,name:item.name},engine.id)).join('');
   host.innerHTML=`${credentialDefaultsHeader()}
     <form class="credential-default-form" data-ai-defaults-form>
       <fieldset>
@@ -922,7 +949,7 @@ function paintCredentialDefaults(host,catalog){
   hydrateCredentialIcons(host);
 }
 async function loadCredentialDefaults(panel){
-  const host=panel.querySelector('[data-credential-defaults]');
+  let host=panel.querySelector('[data-credential-defaults]');
   const models=window.AgentFlowAssistantModels;
   if(!models||!state.currentUser?.id||state.currentUser.isGuest)return;
   const ui=credentialUI();
@@ -932,6 +959,13 @@ async function loadCredentialDefaults(panel){
     ui.catalog=catalog;
     state.data.assistantDefaults=catalog.preferences||{};
     CREDENTIAL_KINDS.filter(kind=>kind.group==='model').forEach(kind=>repaintCredentialRow(kind.key));
+    repaintKiroLoginRow(panel);
+    // A Kiro-only account has no key row, so the defaults section appears
+    // once the catalog says Kiro CLI can run for it.
+    if(!host&&kiroLoginState()?.configured){
+      panel.querySelector('.credential-list')?.insertAdjacentHTML('beforeend',credentialDefaultsPlaceholderHTML());
+      host=panel.querySelector('[data-credential-defaults]');
+    }
     if(!host?.isConnected)return;
     if(!credentialDefaultsExecutor(catalog)){
       host.querySelector('.credential-default-status').textContent='当前账号暂无可用执行器';
@@ -960,6 +994,7 @@ async function saveCredentialDefaults(form,host){
     if(host.isConnected){
       paintCredentialDefaults(host,ui.catalog);
       CREDENTIAL_KINDS.filter(kind=>kind.group==='model').forEach(kind=>repaintCredentialRow(kind.key));
+      repaintKiroLoginRow();
       const executor=host.querySelector('.credential-default-field .hui-select-trigger, [name="executor"]:not(.hui-select-native)');
       executor?.focus({preventScroll:true});
       host.querySelector('[data-default-feedback]').textContent='已保存';
@@ -975,7 +1010,7 @@ async function saveCredentialDefaults(form,host){
 function renderCredentialPanel(){
   const panel=$('#credentialPanel');if(!panel)return;
   const user=credentialUser();
-  if(!CREDENTIAL_KINDS.some(kind=>kind.group==='model'&&credentialConfigured(kind,user))){
+  if(!CREDENTIAL_KINDS.some(kind=>kind.group==='model'&&credentialConfigured(kind,user))&&!kiroLoginState()?.configured){
     credentialUI().catalog=null;
     state.data.assistantDefaults={};
   }
@@ -1084,7 +1119,7 @@ function storeCredentialUser(saved){
   const users=state.data.users||(state.data.users=[]),index=users.findIndex(u=>Number(u.id)===Number(saved.id));
   if(index>=0)users[index]=saved;else users.push(saved);
 }
-function notifyCredentialsChanged(){$('#chatNextFrame')?.contentWindow?.postMessage({type:'agentflow-credentials-changed'},location.origin)}
+function notifyCredentialsChanged(){if(typeof genericExecutorRequirements!=='undefined')genericExecutorRequirements.clear();$('#chatNextFrame')?.contentWindow?.postMessage({type:'agentflow-credentials-changed'},location.origin)}
 async function saveCredential(key,values={},options={}){
   const user=state.currentUser,kind=credentialKind(key);
   let saved;

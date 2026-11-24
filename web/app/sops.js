@@ -98,7 +98,11 @@ function sopResourceRequirements(w){
 function sopRunRequirements(w){
   const nodes=w?.nodes||[],user=userById(state.currentUser?.id)||{};
   const resources=sopResourceRequirements(w);
-  if(catalogGeneric(w)||(w?.tags||[]).some(tag=>tag.startsWith('generic-source:')))return resources;
+  // Built-in templates: the CLI their roles resolve to is decided on the server
+  // (responsible user's default, then AGENTFLOW_DEFAULT_EXECUTOR, Kiro login);
+  // the card shows the same executor-requirements result as the 使用 dialog.
+  if(catalogGeneric(w))return [...genericExecutorRequirementRows(w),...resources];
+  if((w?.tags||[]).some(tag=>tag.startsWith('generic-source:')))return resources;
   const rows=[];
   const executorIds=nodes.filter(n=>n.type==='agent'&&!isPreviewBuildNode(n.id)).map(node=>{
     const role=(state.data?.agents||[]).find(a=>a.id===node.agentId);
@@ -125,6 +129,43 @@ function sopRunRequirements(w){
     rows.push({key:'run-key-'+kind,field,fix:'settings',fixLabel:'去个人配置配置',label:label+' API Key',ok:!!user[flag]||!!window.AgentFlowAssistantModels?.catalog().engines?.find(engine=>engine.id===kind&&engine.configured),hint:lfT('Agent 节点使用 '+label+'，请在个人配置里配置对应 API Key。','Agent nodes use '+label+'. Configure its API key in Settings.')});
   }
   return [...rows,...resources];
+}
+// One executor-requirements result per template and project, shared by the
+// SOP cards and the 使用 dialog. A card renders without it, asks once, and
+// repaints when it arrives.
+const genericExecutorRequirements=new Map();
+function genericExecutorRequirementKey(id){return `${id}|${state.projectFilter||''}`}
+function fetchGenericExecutorRequirements(id){
+  const key=genericExecutorRequirementKey(id);
+  const request=Promise.resolve().then(()=>api(`/api/workflows/${encodeURIComponent(id)}/executor-requirements${projectQuery()}`,{silent:true})).then(rows=>{
+    const list=Array.isArray(rows)?rows:[];
+    genericExecutorRequirements.set(key,{rows:list});
+    return list;
+  }).catch(error=>{genericExecutorRequirements.delete(key);throw error});
+  genericExecutorRequirements.set(key,{pending:request,rows:genericExecutorRequirements.get(key)?.rows});
+  return request;
+}
+// Several templates answer together; repaint the catalog once for them.
+let sopCatalogRepaint=null;
+function repaintSOPCatalogSoon(){
+  if(sopCatalogRepaint)return;
+  sopCatalogRepaint=setTimeout(()=>{sopCatalogRepaint=null;if(activeViewName()==='sops')renderSOPCatalog()},30);
+}
+function genericExecutorRequirementRows(w){
+  const nodes=w?.nodes||[];
+  if(!nodes.some(n=>n.type==='agent')&&!w?.preview?.enabled)return [];
+  const cached=genericExecutorRequirements.get(genericExecutorRequirementKey(w.id));
+  if(!cached){
+    fetchGenericExecutorRequirements(w.id).then(repaintSOPCatalogSoon).catch(()=>{});
+    return [];
+  }
+  return (cached.rows||[]).map(ex=>({
+    key:'run-executor',ok:!!ex.configured,
+    label:ex.kind==='kiro'?`${ex.name||'Kiro CLI'} 本机登录`:(ex.name||'执行器'),
+    hint:ex.kind==='kiro'
+      ?lfT('Kiro CLI 节点使用 kiro-cli login 的订阅登录，不读取个人 API Key：在执行机器上运行时用该机器的登录，在平台上运行时用部署时挂载的登录（LOOPFORGE_KIRO_DATA_DIR）。','Kiro CLI nodes use the kiro-cli login subscription, not a personal API key: the execution machine\'s own login, or on the platform the login mounted at deployment (LOOPFORGE_KIRO_DATA_DIR).')
+      :ex.configured?'角色节点使用任务责任人的执行器配置。':`配置运行此 SOP 所需的 ${ex.name||'执行器'}。`
+  }));
 }
 function sopRunRequirementChips(w){
   const rows=sopRunRequirements(w);
@@ -446,8 +487,9 @@ async function openGenericTemplateModal(id){
   modal.classList.add('open');
   if(!needsExecutor)return;
   try{
-    const executors=await api(`/api/workflows/${encodeURIComponent(id)}/executor-requirements${projectQuery()}`,{silent:true});
+    const executors=await fetchGenericExecutorRequirements(id);
     if(request===genericRequirementRequest&&modal.classList.contains('open'))renderGenericRequirementRows(w,executors);
+    repaintSOPCatalogSoon();
   }catch{
     if(request===genericRequirementRequest&&modal.classList.contains('open'))renderGenericRequirementRows(w,null);
   }
