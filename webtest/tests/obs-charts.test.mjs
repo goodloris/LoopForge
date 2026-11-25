@@ -35,7 +35,8 @@ test('observability chart options expose meaningful series, labels, tooltips, an
       theme:obsEChartsTheme('light').mode
     };
   })()`);
-  assert.equal(JSON.stringify(result.trendSeries), JSON.stringify([2, 4, 2, 2, 2, 2]));
+  // tokens, comp, cost, runs, issues, rate, credits
+  assert.equal(JSON.stringify(result.trendSeries), JSON.stringify([2, 4, 2, 2, 2, 2, 2]));
   assert.match(result.trendTip, /240 tok|成功率/);
   assert.equal(JSON.stringify(result.costSeries), JSON.stringify([[3.5,5.6],[7,17.5]]));
   assert.match(result.costTip, /¥17\.50/);

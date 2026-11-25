@@ -26,6 +26,7 @@ type RequirementLane struct {
 	FailedRuns          int                    `json:"failedRuns"`
 	Tokens              int64                  `json:"tokens"`
 	CostUSD             float64                `json:"costUsd"`
+	Credits             float64                `json:"credits,omitempty"`
 	ExecutionDurationMs int64                  `json:"executionDurationMs"`
 	AssigneeUserID      int64                  `json:"assigneeUserId,omitempty"`
 	Order               int                    `json:"order,omitempty"`
@@ -50,6 +51,7 @@ type RequirementOverall struct {
 	Tokens              int64     `json:"tokens"`
 	CostUSD             float64   `json:"costUsd"`
 	CostKnown           bool      `json:"costKnown"`
+	Credits             float64   `json:"credits,omitempty"`
 	ExecutionDurationMs int64     `json:"executionDurationMs"`
 	CycleDurationMs     int64     `json:"cycleDurationMs"`
 	FirstRunAt          time.Time `json:"firstRunAt,omitempty"`

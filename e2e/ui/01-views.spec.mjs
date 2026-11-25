@@ -37,6 +37,23 @@ test('legacy routes land on their replacements', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+// 通道管理 (bots) is hidden behind channelsEnabled=false in web/app.js. Its
+// nav entry is removed and a direct route redirects instead of showing the
+// view or a blank page. The CRUD/permission coverage in 03-workbench-settings
+// is skipped while the flag is off; turn channelsEnabled back on to restore it.
+test('the hidden 通道管理 (bots) entry is gone and its route redirects', async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.goto('/#/collaboration');
+  await expect(page.locator('#pageTitle')).toHaveText(TITLES.collaboration);
+  await expect(page.locator('.platform-sidebar .nav[data-view="bots"]')).toHaveCount(0);
+  // A fresh direct load of the route must not show the bots view or a blank page.
+  await page.goto('about:blank');
+  await page.goto('/#/bots');
+  await expect(page.locator('#botsView')).toBeHidden();
+  await expect(page.locator('#pageTitle')).not.toHaveText('');
+  expect(errors).toEqual([]);
+});
+
 test('the latest deep link wins while the platform is loading', async ({ page }) => {
   let release;
   const bootstrap = new Promise(resolve => { release = resolve; });

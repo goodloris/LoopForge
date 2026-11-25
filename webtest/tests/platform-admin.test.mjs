@@ -368,3 +368,41 @@ test('platform admins authorize HTTPS addresses in the Git host trust tab', asyn
   assert.equal(new Headers(revoke.options.headers).get('If-Match'), '"second"');
   assert.equal(card.querySelector('[data-https-host-remove]'), null);
 });
+
+test('成员账号 intro separates closed password sign-up from closed self-service sign-up', async (t) => {
+  const cases = [
+    [{ signupEnabled: true, passwordSignupEnabled: true, feishuEnabled: true }, /^登录页目前允许自助注册/],
+    [{ signupEnabled: true, passwordSignupEnabled: false, feishuEnabled: true }, /^登录页的密码注册已关闭。如已启用飞书登录，飞书租户白名单内的成员首次登录时仍会自动开户/],
+    // Password closed but Feishu is not configured: do not mention Feishu.
+    [{ signupEnabled: true, passwordSignupEnabled: false, feishuEnabled: false }, /^登录页的自助注册已关闭/],
+    [{ signupEnabled: false, passwordSignupEnabled: false, feishuEnabled: false }, /^登录页的自助注册已关闭/],
+    [{ signupEnabled: true }, /^登录页目前允许自助注册/],
+  ];
+  for (const [flags, expected] of cases) {
+    const app = await loadApp();
+    t.after(app.close);
+    app.evaluate(`state.currentUser={...state.data.users[0],isGuest:false,isPlatformAdmin:true}`);
+    app.router.get('/api/platform/admins', []);
+    app.router.get('/api/platform/accounts', { ...flags, accounts: [] });
+    app.evaluate(`renderPlatformAdminPanel()`);
+    await settle(8);
+    const intro = app.document.querySelector('[data-account-intro]');
+    assert.ok(intro, 'account intro rendered');
+    assert.match(intro.textContent, expected, JSON.stringify(flags));
+    if (flags.passwordSignupEnabled === false && flags.feishuEnabled === false) {
+      assert.ok(!intro.textContent.includes('飞书'), `no Feishu mention without Feishu: ${JSON.stringify(flags)}`);
+    }
+  }
+  const { readFile } = await import('node:fs/promises');
+  const path = await import('node:path');
+  const vm = await import('node:vm');
+  const { JSDOM } = await import('jsdom');
+  const { WEB_ROOT } = await import('../lib/load-app.mjs');
+  const dom = new JSDOM('<html data-lang="en"><body></body></html>', { runScripts: 'outside-only', url: 'http://127.0.0.1/' });
+  for (const file of ['i18n-en.js', 'i18n.js']) {
+    new vm.Script(await readFile(path.join(WEB_ROOT, file), 'utf8'), { filename: file }).runInContext(dom.getInternalVMContext());
+  }
+  assert.match(dom.window.lfTranslate('登录页的密码注册已关闭。如已启用飞书登录，飞书租户白名单内的成员首次登录时仍会自动开户；其他同事的账号在这里创建，再把登录信息发给对方。忘记密码时可以在下面重置。'),
+    /^Password sign-up is closed on the login page\. If Feishu login is enabled/);
+  dom.window.close();
+});

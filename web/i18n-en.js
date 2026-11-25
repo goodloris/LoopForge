@@ -345,3 +345,19 @@ Object.assign(window.LF_I18N_EN, {
   "未登录": "Not signed in",
   "Kiro CLI 本机登录": "Kiro CLI machine login"
 });
+// 平台管理 → 成员账号 when only password sign-up is closed (AGENTFLOW_ALLOW_PASSWORD_SIGNUP=false).
+Object.assign(window.LF_I18N_EN, {
+  "登录页的密码注册已关闭。如已启用飞书登录，飞书租户白名单内的成员首次登录时仍会自动开户；其他同事的账号在这里创建，再把登录信息发给对方。忘记密码时可以在下面重置。": "Password sign-up is closed on the login page. If Feishu login is enabled, members of allowlisted Feishu tenants still get an account on their first sign-in; create other teammates' accounts here and send them the sign-in details. Reset the password below if they forget it."
+});
+// Kiro CLI subscription credits: run, node, requirement and insights usage.
+Object.assign(window.LF_I18N_EN, {
+  "按 credits 计量，未上报 tokens": "Metered in credits; no tokens reported",
+  "订阅计量 · 不折算金额": "Subscription meter · not priced",
+  "Credits 去向": "Where credits go",
+  "订阅计量 · 不折算金额；按 SOP、节点、项目拆分": "Subscription meter · not priced; split by SOP, node and project",
+  "暂无 credits": "No credits",
+  "该维度没有 credits 数据": "No credits in this dimension",
+  "对话改代码": "Code changes in chat",
+  "其中对话改代码": "Of which code changes in chat",
+  "Kiro CLI 等按订阅 credits 计量的执行器上报，不折算人民币，不计入成本。": "Reported by executors metered in subscription credits, such as Kiro CLI. Never converted to CNY and not part of cost."
+});

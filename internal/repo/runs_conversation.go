@@ -66,7 +66,7 @@ func keepConversationRunFields(run *domain.Run, current runRow) {
 // so analytics attributes the conversation's tokens and cost to that
 // workspace's project, user and requirement.
 func (r *RunsRepo) AddConversationRunUsage(runID, model string, usage domain.TokenUsage) error {
-	if usage.TotalTokens == 0 && usage.InputTokens == 0 && usage.OutputTokens == 0 && usage.CostUSD == 0 {
+	if usage.TotalTokens == 0 && usage.InputTokens == 0 && usage.OutputTokens == 0 && usage.CostUSD == 0 && usage.Credits == 0 {
 		return nil
 	}
 	lower := strings.ToLower(strings.TrimSpace(model))

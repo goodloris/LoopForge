@@ -785,6 +785,8 @@ function sopPane(issue,data){
   const snap=data.requirement||{};
   const lanes=snap.lanes||clientIssueLanes(issue);
   const overall=snap.overall||{};
+  // Server snapshots carry overall.credits; the client fallback sums its lanes.
+  const overallCredits=snap.overall?usageCredits(overall):lanes.reduce((n,l)=>n+usageCredits(l),0);
   const out=issueOutcome(issue);
   const run=data.run;
   const workflow=(state.data.workflows||[]).find(w=>w.id===(issue.workflowId||defaultSOPForIssue(issue)));
@@ -797,7 +799,7 @@ function sopPane(issue,data){
   else if(run?.status==='cancelled')actions=triggerSOPButton(issue);
   if(run?.status==='running')actions+=`<button class="button ghost small" data-pause-run="${escapeHTML(run.id)}">暂停运行</button>`;
   actions+=issueProgressActionsHTML(issue,run);
-  const overallFacts=`<div class="req-overall ${out.key}"><b>${escapeHTML(out.title)}</b><p>整体 ${overall.runCount||0} 次执行 · ${formatTokens(overall.tokens||0)} tokens · 周期 ${overall.cycleDurationMs?duration(overall.cycleDurationMs):'—'}</p>${actions?`<div class="issue-outcome-actions">${actions}</div>`:''}</div>`;
+  const overallFacts=`<div class="req-overall ${out.key}"><b>${escapeHTML(out.title)}</b><p>整体 ${overall.runCount||0} 次执行 · ${usageAmountText(overall.tokens||0,overallCredits)} · 周期 ${overall.cycleDurationMs?duration(overall.cycleDurationMs):'—'}</p>${actions?`<div class="issue-outcome-actions">${actions}</div>`:''}</div>`;
   const bound=lanes.filter(l=>!l.orphan);
   const orphans=lanes.filter(l=>l.orphan);
   const busy=bound.find(l=>['active','waiting','attention'].includes(l.status));
@@ -814,7 +816,7 @@ function sopPane(issue,data){
     const canRetriggerLane=actionWorkflow&&lane.started&&!issueManuallyClosed(issue)&&!issueTrackerClosed(issue)&&!clarificationNeedsConfirm(issue);
     const trigger=canStart?`<button class="button primary small" data-dispatch-issue="${escapeHTML(issue.id)}" data-workflow="${escapeHTML(actionWorkflow)}">触发</button>`:(canRetriggerLane?`<button class="button ghost small" data-retrigger-issue="${escapeHTML(issue.id)}" data-workflow="${escapeHTML(actionWorkflow)}">重新触发</button>`:'');
     const ownerName=userDisplay(userById(lane.assigneeUserId||issue.assigneeUserId))||'需求跟进人';
-    const hint=lane.started?`${lane.runCount||0} 次 · ${formatTokens(lane.tokens||0)}`:'展开可看节点';
+    const hint=lane.started?(usageCredits(lane)>0?`${lane.runCount||0} 次 · ${usageAmountText(lane.tokens||0,usageCredits(lane))}`:`${lane.runCount||0} 次 · ${formatTokens(lane.tokens||0)}`):'展开可看节点';
     return `<article class="req-lane-card req-sop-row ${escapeHTML(lane.status||'')} ${open?'is-open':''}" data-toggle-sop-row="${escapeHTML(lane.workflowId||'')}">
       <div class="req-sop-main">
         <span class="req-sop-idx">${idx+1}</span>
