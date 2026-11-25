@@ -5,6 +5,9 @@ Platform releases use `vX.Y.Z` tags. This fork (goodloris/LoopForge) publishes `
 ## Unreleased
 
 - Platform GitHub Releases are now titled `LooPool vX.Y.Z` instead of `LoopForge vX.Y.Z`. LoopForge Local releases keep their title.
+- Feishu sign-in no longer auto-provisions a duplicate account for a member whose existing account already connected the same Feishu identity (active, expired or revoked grant) without binding it for sign-in; it shows a page naming that account and asking to bind 「同时用于登录」 there first. Nothing is bound automatically.
+- Clearer Feishu copy: the "identity already used by another account" page explains how to resolve it, and the 「同时用于登录」 checkbox warns that skipping it makes a later Feishu sign-in create another account.
+- 平台管理 → 成员账号 shows which accounts sign in with Feishu and lets administrators unbind it (`DELETE /api/platform/accounts/{id}/feishu-login`); an account whose only sign-in is Feishu is refused.
 
 ## 0.8.0 — LooPool, Feishu identities and upstream v0.4.1
 

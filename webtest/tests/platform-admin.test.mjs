@@ -368,3 +368,42 @@ test('platform admins authorize HTTPS addresses in the Git host trust tab', asyn
   assert.equal(new Headers(revoke.options.headers).get('If-Match'), '"second"');
   assert.equal(card.querySelector('[data-https-host-remove]'), null);
 });
+
+test('platform admins unbind an account\'s Feishu sign-in', async (t) => {
+  const app = await loadApp();
+  t.after(app.close);
+  app.evaluate(`state.currentUser={...state.data.users[0],isGuest:false,isPlatformAdmin:true};window.adminToasts=[];toast=(message,tone)=>window.adminToasts.push(tone+':'+message)`);
+  const accounts = [
+    { userId: 1, loginName: 'owner', admin: true, password: true, codeBuddyApiKeyConfigured: true },
+    { userId: 2, loginName: 'alice', admin: false, password: true, feishuLogin: true, codeBuddyApiKeyConfigured: false },
+    { userId: 3, loginName: 'feishu-0123456789ab', admin: false, password: false, feishuLogin: true, codeBuddyApiKeyConfigured: false },
+  ];
+  app.router.get('/api/platform/admins', []);
+  app.router.get('/api/platform/accounts', { accounts, signupEnabled: false });
+  app.router.delete('/api/platform/accounts/2/feishu-login', { ...accounts[1], feishuLogin: false });
+  app.router.delete('/api/platform/accounts/3/feishu-login', { status: 409, body: { error: '飞书是该账号唯一的登录方式，没有本地密码或其他登录方式，不能解绑。' } });
+  app.evaluate(`renderPlatformAdminPanel()`);
+  await settle(8);
+  const card = app.document.querySelector('#platformAccountsCard');
+  assert.ok(!card.querySelector('[data-unbind-feishu="1"]'), 'accounts without Feishu sign-in have no unbind button');
+  assert.doesNotMatch(card.querySelector('[data-account-row="1"]').textContent, /飞书登录/);
+  assert.match(card.querySelector('[data-account-row="2"]').textContent, /飞书登录/);
+
+  card.querySelector('[data-unbind-feishu="2"]').click();
+  await settle();
+  assert.match(app.document.body.textContent, /Agent 使用的飞书授权、密码和项目成员关系不变/);
+  app.document.querySelector('#confirmOkBtn').click();
+  await settle(6);
+  assert.ok(app.router.calls.some((call) => call.method === 'DELETE' && call.path === '/api/platform/accounts/2/feishu-login'));
+  assert.ok(!card.querySelector('[data-unbind-feishu="2"]'), 'the button disappears once unbound');
+  assert.doesNotMatch(card.querySelector('[data-account-row="2"]').textContent, /飞书登录/);
+  assert.match(app.evaluate('window.adminToasts.join()'), /ok:已解绑飞书登录/);
+
+  card.querySelector('[data-unbind-feishu="3"]').click();
+  await settle();
+  app.document.querySelector('#confirmOkBtn').click();
+  await settle(6);
+  assert.match(app.evaluate('window.adminToasts.join()'), /err:飞书是该账号唯一的登录方式/);
+  assert.ok(card.querySelector('[data-unbind-feishu="3"]'), 'a refused unbind keeps the button');
+  assert.equal(card.querySelector('[data-unbind-feishu="3"]').disabled, false);
+});

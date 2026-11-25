@@ -859,6 +859,27 @@ paths:
         "400": {description: Invalid password or not a password account}
         "403": {description: Platform administrator access or same-origin request required}
         "404": {description: Unknown account}
+  /api/platform/accounts/{id}/feishu-login:
+    delete:
+      tags: [Users]
+      operationId: unbindPlatformAccountFeishuLogin
+      summary: Remove an account's Feishu sign-in identity
+      description: Platform administrators only, same-origin. Removes the account's Feishu sign-in identity so its owner can bind it to another account. The Feishu grant agents use, the password, role and project memberships are kept. An account whose only way to sign in is Feishu is refused with 409.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: integer, format: int64}
+      responses:
+        "200":
+          description: Account, with feishuLogin false
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/PlatformAccount"}
+        "400": {description: Invalid account id}
+        "403": {description: Platform administrator access or same-origin request required}
+        "404": {description: Unknown account, or the account has no Feishu sign-in}
+        "409": {description: Feishu is the account's only sign-in method}
   /api/platform/codebuddy-key:
     get:
       tags: [Users]
@@ -4507,6 +4528,7 @@ components:
         admin: {type: boolean}
         password: {type: boolean, description: False for accounts that sign in through GitHub or a gateway}
         codeBuddyApiKeyConfigured: {type: boolean}
+        feishuLogin: {type: boolean, description: True when the account has a Feishu sign-in identity}
         createdAt: {type: string, format: date-time}
     PlatformGitSSHHost:
       type: object

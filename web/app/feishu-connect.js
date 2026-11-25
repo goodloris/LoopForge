@@ -42,7 +42,7 @@ function feishuConnectBodyHTML(status){
     +(status.preset?`<span class="feishu-connect-preset">${escapeHTML(FEISHU_PRESET_LABELS[status.preset]||status.preset)}</span>`:'')+'</div>';
   const scopes=status.connected&&status.scopes?.length?`<p class="feishu-connect-scopes">已授权：<code>${status.scopes.map(escapeHTML).join(' ')}</code></p>`:'';
   const note=status.status==='expired'?'<p class="feishu-connect-note">授权已失效，请重新授权。</p>':'';
-  const loginOption=status.loginBound||status.connected?'':'<label class="feishu-login-opt"><input type="checkbox" data-feishu-login> 同时用于登录（之后可以在登录页用飞书登录这个账号）</label>';
+  const loginOption=status.loginBound||status.connected?'':'<label class="feishu-login-opt"><input type="checkbox" data-feishu-login> 同时用于登录（之后可以在登录页用飞书登录这个账号）。不勾选时，之后用飞书登录会新建另一个账号</label>';
   const actions=`<div class="feishu-connect-actions"><a class="credential-btn primary credential-ink" data-feishu-connect href="${feishuConnectURL(status.preset)}">${status.connected||status.status==='expired'?'重新授权':'连接飞书'}</a>`
     +(status.connected?'<button type="button" class="credential-btn secondary credential-ink" data-feishu-disconnect>断开</button>':'')+'</div>';
   return head+scopes+note+feishuPresetPickerHTML(status.preset)+loginOption+actions+feishuLoginHTML(status);
