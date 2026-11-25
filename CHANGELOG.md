@@ -2,7 +2,19 @@
 
 Platform releases use `vX.Y.Z` tags. This fork (goodloris/LoopForge) publishes `ghcr.io/goodloris/loopforge` from 0.5.0 on; 0.4.0 and earlier were published upstream as `ghcr.io/tencent/loopforge`. LoopForge Local packages use `local-vX.Y.Z` tags and are published by manually running the `release-local` workflow.
 
-## Unreleased
+## 0.9.0 — Self-hosted GitLab delivery, Kiro credits and Loopool
+
+**Upgrading an existing installation (from 0.8.0)**:
+1. `git checkout v0.9.0 && ./start.sh pull`. No schema change blocks startup; startup AutoMigrate adds no new table this release, and nothing has to run before the platform starts.
+2. After startup, run `045_loopool_lowercase_builtin_labels.sql` (repeatable): it lowercases the capital P in the built-in display labels 044 wrote, so the welcome project reads 「Loopool 体验项目」 and the four built-in SOP templates' owner reads `Loopool`. It changes only values still at the `LooPool` capitalisation; a renamed project or edited owner is left alone, and 044 need not run first. Purely cosmetic — the labels a user reads — so it is safe to run any time after the upgrade, not before. New installs get the Loopool labels from the seed.
+   - MySQL: `docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" mysql -u loopforge loopforge' < migrations/045_loopool_lowercase_builtin_labels.sql`
+   - PostgreSQL: `docker compose exec -T postgres psql -X -v ON_ERROR_STOP=1 -U loopforge -d loopforge < migrations/postgres/045_loopool_lowercase_builtin_labels.sql`
+
+`045_loopool_lowercase_builtin_labels.sql` is the only migration added since 0.8.0 (the earlier manual migrations 036/037/041/042/044 are unchanged; an installation already on 0.8.0 has run the ones it needed). `./start.sh pull` and `scripts/manual-migration-hints.sh` print 045 while it is still pending.
+
+New optional environment variable `AGENTFLOW_ALLOW_PASSWORD_SIGNUP` (see below) closes only password self sign-up; unset it keeps the previous behaviour. Using a self-hosted GitLab needs no migration: an administrator authorizes the host under 平台管理 → Git HTTPS 主机授权 (platform type GitLab), and each user adds a GitLab access token with the `api` scope for that host in 个人配置.
+
+### Changes
 
 - New `AGENTFLOW_ALLOW_PASSWORD_SIGNUP` closes only password self sign-up. Unset or empty inherits `AGENTFLOW_ALLOW_SIGNUP` (existing deployments behave as before); `false`/`0`/`no`/`off` makes `POST /api/auth/register` answer 403 and hides the login page's 注册 entry, while Feishu auto-provisioning still follows only `AGENTFLOW_ALLOW_SIGNUP` and the tenant allowlist. It cannot reopen sign-up when `AGENTFLOW_ALLOW_SIGNUP=false`. When Feishu sign-in can still create the account, the 403 reads 「自助注册已关闭，请使用飞书登录，或联系管理员创建账号」. `/api/auth/setup` and `/api/platform/accounts` add `passwordSignupEnabled`; `signupEnabled` keeps its meaning (any self-service path). 平台管理 → 成员账号 says when only password sign-up is closed. `compose.yaml` passes the variable through (empty by default).
 - The first-account rule counts every user, as Feishu provisioning already did: `needsSetup` and the administrator granted to the first password registration now require no user at all, instead of no password account. On a Feishu-only deployment (users but no password account) the login page no longer asks for setup and a password registration no longer becomes administrator. A fresh empty install is unchanged. If a new install got a user through another sign-in method before its administrator, create the administrator with `loopforge-account -admin`.
@@ -20,7 +32,6 @@ Platform releases use `vX.Y.Z` tags. This fork (goodloris/LoopForge) publishes `
   - promote 落地检测（#24/D16/D29 口径）：新增 `syncGitLabWorkCommitsOnDefaultBranch` + `recordGitLabPromoteMRs` + `gitlabClient.mrOnBranch`，与 GitHub 的 `syncGitHubWorkCommitsOnDefaultBranch` 对齐——集成分支被提升（promote MR 合入默认分支、work 提交进入默认分支）后，work MR 由 integrated 变 merged，`landed_at` = promote 时间，`mergedMrs` 增、`integratedMrs` 减。`ApplyDefaultBranchLanding` 原先用只认 github.com/工蜂 的 `ParseGongfengMR` 解析 MR 链接，对 `gitlab:` 链接失效导致 `landed_at` 写不进去；改用覆盖 gitlab/ghe 的 `ParseDeliveryMRURL`（严格超集，GitHub/工蜂行为不变）。SOP 交付的 gitlab MR 没有登记人，`refreshExternalDelivery` 无法轮询，新增 `refreshGitLabDelivery` 用项目 Owner 凭据兜底刷新（对齐 GitHub 的 `refreshGitHubDelivery`）。
   - CI 门禁项目（`only_allow_merge_if_pipeline_succeeds=true`）：合并前先读 MR 的 `detailed_merge_status`（17.x）与 head pipeline。流水线运行中（`ci_still_running`/`ci_must_pass` 且 pipeline 为 running/pending 等）时，`PUT /merge` 带 `merge_when_pipeline_succeeds=true`（17.9 支持；`auto_merge` 参数 17.11 才加，故按 17.9 用 `merge_when_pipeline_succeeds`）排队自动合并，返回 `domain.MergeQueuedError`（既非失败也非已合并）；流水线失败时返回带 pipeline 链接的明确错误。集成节点（`mergeWorkBranchIntoIntegrate`）识别该错误为「已排队、等流水线」事件而不失败，也不直推；合并后由现有 MR 交付状态轮询（`refreshExternalDelivery`/`refreshGitLabDelivery`）推进——复用已有等待机制，不新增节点状态。GitHub 在 required checks 下仍是原有行为（重试预算用尽后失败），未改动。
   - 不删分支：创建 MR 带 `remove_source_branch=false`、合并带 `should_remove_source_branch=false`，即使项目开了 `remove_source_branch_after_merge=true`，promote（集成分支→默认分支）合并后也不会删掉集成分支，工作分支同样保留，和 GitHub 一致。
-  - 平台开出/登记的 MR 标题与描述使用 LooPool（原 `LoopForge:` 前缀改为 `LooPool:`）。
   - 凭据与库内存储沿用上游：令牌存在 `git_http_credentials`（与 GitHub 令牌同机制、脱敏、API/日志不回显），无新增列或迁移。GitLab Issue 拉取不在本次范围。
 - 自托管 GitLab 实例的 Issue 拉取补齐，与 GitHub 逐字段对齐（接 #58，GitLab 的第二个 PR）。复用已有的每主机 GitLab 客户端（项目 Owner 的 Git HTTPS 凭据经 `gitegress` 出网调用 GitLab v4 REST），不新增平行实现，不新增列或迁移：
   - 导入：`tracker/gitlab.go` 的 `pullGitLabIssues` 调 `GET /projects/:id/issues?state=all&per_page=100&page=N` 翻页到最后一页（GitLab 的 issues 端点从不返回 MR，无需像 GitHub 那样过滤 PR）。需求 ID 为 `gl-<repo>-<iid>`，`Source="gitlab"`，`ExternalRef` 带 source/id/iid/url/state/hash，`ExternalIID=iid`。`Number` 保持 0，由 store 分配一个本项目内不冲突的编号（D22 口径，与 GitHub 相同）。`opened` 映射为 `todo`，`closed` 映射为 `closed` 且 `CloseSource=external`（外部关闭）。已存在的需求走 `applyExistingIssue`，按与 GitHub 相同的 `SourceContentHash` 判断，保留用户已编辑或已澄清的描述；未改动的只做刷新。缺少项目 Owner 凭据时明确报错并记入同步日志，绝不静默零导入。
@@ -29,11 +40,19 @@ Platform releases use `vX.Y.Z` tags. This fork (goodloris/LoopForge) publishes `
   - 不回写 GitLab：除 MR 交付状态刷新外，平台本就没有任何 Issue 状态回写，这里也不新增。
   - 界面：定时任务的来源选项「只同步 GitLab」仅当项目绑定了 GitLab 仓库时出现；来源徽标/标签「GitLab」用自己的色调；需求抽屉的绑定说明显示「GitLab Issue」；来源文案为「GitLab #<iid>」；外部链接用 Issue 的 `web_url`（`/-/issues/N`）。
   - 测试（httptest 伪 GitLab）：翻页到最后一页、opened/closed 映射、store 分配不冲突编号、已编辑描述保留与未改动刷新、缺凭据报错，以及 `PullScheduleJob` 的来源门控（空/github 跳过、gitlab 拉取）。sqlite + PostgreSQL 17 绿。
-- Platform GitHub Releases are now titled `LooPool vX.Y.Z` instead of `LoopForge vX.Y.Z`. LoopForge Local releases keep their title.
+- Platform GitHub Releases are now titled `Loopool vX.Y.Z` (previously `LoopForge vX.Y.Z`). LoopForge Local releases keep their title.
 - 产品名的大小写从 **LooPool** 改为 **Loopool**（只把大写 P 改成小写 p）。`web/` 与 `chatbot/` 里用户能看到的每一处 "LooPool" 都变成 "Loopool"：页面标题、登录页、首页字标、云端执行机器标签「Loopool 云端」、OAuth/bot-bind/VS Code 页、用量报告、英文 i18n（`web/i18n-en.js` 的键与值同步改）。侧栏品牌组件 `chatbot/src/LooPoolMark.jsx` 随之改名为 `LoopoolMark.jsx`（同步更新导入与 `web/brand_test.go` 的引用）。品牌素材的文件名本就是小写（`web/loopool-mark.svg`、`web/loopool-logo.svg`、`web/images/loopool-mark.png`），不受影响，圆环字标的图形也不变。平台开出/登记的 MR 标题与提交信息前缀由「LooPool:」改为「Loopool:」（`internal/engine`、`internal/tracker`），GitHub Release 标题由「LooPool vX.Y.Z」改为「Loopool vX.Y.Z」（`.github/workflows/release.yml`）。`web/brand_test.go` 现在除 LoopForge、Bagel 外也拦下用户可读的「LooPool」。内置标签的显示值说「Loopool 体验项目」/ owner `Loopool`：新装由 seed 提供；已装实例手动执行 `045_loopool_lowercase_builtin_labels.sql`（MySQL：`migrations/045_loopool_lowercase_builtin_labels.sql`，PostgreSQL：`migrations/postgres/045_loopool_lowercase_builtin_labels.sql`），只改仍停在「LooPool」大小写的值，044 无需先跑；幂等，`scripts/manual-migration-hints.sh` 在其待执行时提示。内部标识符（`LOOPFORGE_*` 环境变量、`loopforge.*` 存储键、ghcr 镜像名、`.loopforge/verify`、Go 标识符）一律不变。
+- 通道管理（企业微信机器人通知通道）在界面上隐藏，由 `web/app.js` 的单个前端开关 `channelsEnabled=false` 控制（纯前端，后端与 API 不变）：设置侧栏与命令面板不再显示「通道管理」入口；它从 `viewTitles` 移除，所以直接访问 `#/bots` 会回落到 AI 工作台而不是空白页；SOP 设置与定时任务里的通知通道选择器受门控——项目没有 Bot 时隐藏，已有 Bot 或历史绑定时只读显示（并去掉「Bot 管理」链接），因此已有的通道配置保留、后端照常发送。要恢复这个功能，把 `web/app.js` 的 `channelsEnabled` 改回 `true` 即可。
 - Feishu sign-in no longer auto-provisions a duplicate account for a member whose existing account already connected the same Feishu identity (active, expired or revoked grant) without binding it for sign-in; it shows a page naming that account and asking to bind 「同时用于登录」 there first. Nothing is bound automatically. A revoked or expired grant blocking auto-provisioning is intended: the normal way forward is to bind 「同时用于登录」 on that account, and if a genuinely separate new account is needed on this Feishu identity, a platform administrator deletes the original account first. No endpoint clears a grant on its own.
 - Clearer Feishu copy: the "identity already used by another account" page explains how to resolve it, and the 「同时用于登录」 checkbox warns that skipping it makes a later Feishu sign-in create another account.
 - 平台管理 → 成员账号 shows which accounts sign in with Feishu and lets administrators unbind it (`DELETE /api/platform/accounts/{id}/feishu-login`); an account whose only sign-in is Feishu is refused.
+- Kiro CLI 的订阅额度（credits）现在和 token 一样记录并展示：运行详情、运行节点、需求（泳道与汇总）、对话消息都显示 Kiro 轮次消耗的额度，洞察页有独立的额度卡片、趋势模式和按 SOP/节点/项目的拆分（`web/` 与 `chatbot/` 共用 `formatCredits`，保留两位小数）。修复了 `AddConversationRunUsage`/`accumulateConversationRun` 丢掉「只有额度」（Kiro）的对话轮次与工作区的问题。额度**只统计、不计入成本**（`omitempty`，永不定价），只按 token 展示的渲染逐字节不变（golden fixture 取自 main）。analytics 接口、`docs/api/openapi.yaml` 与 `docs/token-pricing.md` 同步。无迁移。
+
+### 已知限制
+
+- GitHub 上 0 提交的 PR：GitHub 的 PR create 对「两分支间无提交」返回 422（No commits between），平台当前按 `auto_merge_failed` 计为失败（本次只给 GitLab 补了「无提交则不开 MR」的前置校验，GitHub 未改）。
+- 控制事件（`mr.auto_merge_queued`、`mr.delivery_skipped`、`mr.auto_merge_failed`、`integration.skipped` 等）只写在 `run_events` 表里，`/api/runs/:id`、`/telemetry`、`/logs` 都不返回，界面上看不到；要排查得直接查库。
+- webtest 的「只按 token 展示」golden fixture 依赖 UTC：运行 `npm --prefix webtest test` 时需设 `TZ=UTC`，否则比对会因本地时区而失败。
 
 ## 0.8.0 — LooPool, Feishu identities and upstream v0.4.1
 
