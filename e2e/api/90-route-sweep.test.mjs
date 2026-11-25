@@ -107,6 +107,10 @@ test('OTLP ingest accepts an empty export', async () => {
 test('platform admins and repository registration validate required fields', async () => {
   await status('PUT', '/api/platform/admins', {}, [400, 403]);
   assert.match((await status('PUT', '/api/repositories', {}, [400])).data.error, /projectId/);
+  // Unbind Feishu sign-in: a bad id is 400, an unknown account 404 (or 403
+  // for a non-admin token). Uses a non-existent id, so it never unbinds.
+  await status('DELETE', '/api/platform/accounts/abc/feishu-login', undefined, [400, 403]);
+  await status('DELETE', `/api/platform/accounts/999999999/feishu-login`, undefined, [403, 404]);
 });
 
 test('run sub-resources of an unknown run answer 404 (or 400 for body-validated actions)', async () => {
