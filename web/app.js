@@ -24,6 +24,13 @@ const state = {
   listPages:{}
 };
 
+// 通道管理（企业微信 Bot 通知通道）功能的前端总开关。设为 false 时隐藏它在导航、
+// 命令面板的入口，直接访问 #/bots 会跳回 AI 工作台；SOP 设置与定时任务里的通知通道
+// 选择器在没有历史 Bot 配置时隐藏，有历史配置时只读展示（不改后端，已有配置照常发送）。
+// 以后要重新打开整套功能，把这里改成 true 即可。用 let 而非 const，方便前端测试
+// 切换到启用态去覆盖通道编辑器的交互逻辑；产品默认关闭。
+let channelsEnabled=false;
+
 const LIST_PAGE_SIZE={issues:20,runs:20,mcp:24,obs:20};
 function listPageSize(key){return String(key||'').startsWith('obs-')?LIST_PAGE_SIZE.obs:(LIST_PAGE_SIZE[key]||20)}
 function resetListPage(key){if(!state.listPages)state.listPages={};if(key)state.listPages[key]=1}
@@ -1014,6 +1021,7 @@ window.addEventListener('storage',event=>{if(!event.key||event.key===THEME_KEY)a
 
 function bind(){
 	prepareMCPFormHints();
+  if(!channelsEnabled)$$('.nav[data-view="bots"]').forEach(btn=>{btn.hidden=true;btn.style.display='none'});
   $('#returnToQuickAccess')?.addEventListener('click',returnToQuickAccess);
   $$('.nav[data-view]').forEach(btn=>btn.onclick=async()=>{
     if(!(await confirmAssetLeave()))return;
@@ -1835,7 +1843,7 @@ function setSettingsSidebarExpanded(expanded){
     });
   }
 }
-function viewTitles(){return {management:'设置',collaboration:'AI 工作台',issues:'需求列表',aiSchedules:'定时任务',bots:'通道管理',assistant:'AI 助手',runs:'运行记录',approvals:'待我确认',sops:'流程模板',flow:'流程设计',agents:'角色定义',mcp:'能力资产',rules:'能力资产',skills:'能力资产',dockerfiles:'环境资产',environments:'环境资产',sandboxes:'环境资产',observability:'统计',projects:'项目配置',platform:'平台管理',runners:'执行机器',settings:'个人配置',access:'访问密钥',guide:'访问密钥'}}
+function viewTitles(){const t={management:'设置',collaboration:'AI 工作台',issues:'需求列表',aiSchedules:'定时任务',bots:'通道管理',assistant:'AI 助手',runs:'运行记录',approvals:'待我确认',sops:'流程模板',flow:'流程设计',agents:'角色定义',mcp:'能力资产',rules:'能力资产',skills:'能力资产',dockerfiles:'环境资产',environments:'环境资产',sandboxes:'环境资产',observability:'统计',projects:'项目配置',platform:'平台管理',runners:'执行机器',settings:'个人配置',access:'访问密钥',guide:'访问密钥'};if(!channelsEnabled)delete t.bots;return t}
 // 设置侧栏只列一级入口；被合并进同一页的子视图（能力资产、环境资产的类型 Tab，
 // 从流程模板打开的流程设计）按 data-nav-match 高亮它们所属的入口。
 function settingsNavMatches(btn,name){return btn.dataset.view===name||String(btn.dataset.navMatch||'').split(/\s+/).includes(name)}

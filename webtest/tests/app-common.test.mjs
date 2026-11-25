@@ -128,5 +128,5 @@ test('theme, settings sidebar, merged asset tabs, and route helpers persist UI s
   assert.equal(app.document.querySelector('#assetsView [data-asset-type-tab="rules"]')?.getAttribute('aria-selected'), 'true');
   assert.equal(app.document.querySelector('#assetsView [data-asset-type-group="environment"]')?.hidden, true);
   assert.match(app.evaluate(`viewTitles().settings`), /个人配置/);
-  assert.equal(app.evaluate(`viewTitles().bots`), '通道管理');
+  assert.equal(app.evaluate(`viewTitles().bots`), undefined); // 通道管理 is hidden while channelsEnabled=false
 });

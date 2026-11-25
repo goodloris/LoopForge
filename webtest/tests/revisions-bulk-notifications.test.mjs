@@ -85,6 +85,7 @@ test('issue bulk selection synchronizes filters, page checkboxes, clear and fail
 test('notification editors load bots, add bindings, choose presets, insert variables, preview, and remove', async (t) => {
   const app = await loadApp();
   t.after(app.close);
+  app.evaluate(`channelsEnabled=true`); // exercise the editor's interactive (channels-on) path
   app.router.get('/api/notification-bots?projectId=project-1', [{
     id: 'bot-1', name: 'Delivery Bot', enabled: true, target: { type: 'group', name: 'Dev group' },
   }]);
