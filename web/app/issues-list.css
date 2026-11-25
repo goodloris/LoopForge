@@ -280,6 +280,7 @@ html[data-theme="dark"] #issuesView .issue-title-cell .issue-title-tag.tone-dang
 #issuesView .issue-source-chip.tone-tapd { border-color: transparent; background: var(--hui-accent-soft); color: var(--hui-accent); }
 #issuesView .issue-source-chip.tone-gongfeng { border-color: transparent; background: color-mix(in srgb, var(--hui-success) 10%, transparent); color: var(--hui-success); }
 #issuesView .issue-source-chip.tone-github { border-color: transparent; background: color-mix(in srgb, var(--hui-text) 8%, transparent); color: var(--hui-text); }
+#issuesView .issue-source-chip.tone-gitlab { border-color: transparent; background: color-mix(in srgb, #fc6d26 12%, transparent); color: #fc6d26; }
 /* 责任人头像复用统一头像组件：真实头像填满，未取到照片时回退首字渐变圆。 */
 #issuesView .issue-assignee-avatar {
   position: relative;
