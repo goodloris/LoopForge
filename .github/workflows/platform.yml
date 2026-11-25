@@ -5,6 +5,9 @@ on:
     branches: [main, master]
 permissions:
   contents: read
+concurrency:
+  group: platform-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   core:
     runs-on: ubuntu-latest
@@ -51,9 +54,6 @@ jobs:
           min=$(tr -d '[:space:]' < scripts/coverage-go.min)
           test -n "$min"
           bash scripts/coverage-go.sh --profile "${{ runner.temp }}/go.cover" --profile "${{ runner.temp }}/go-browser.cover" --min "$min"
-      - name: Browser-free UI tests for the platform console
-        run: npm ci --no-audit --no-fund && npm run coverage
-        working-directory: webtest
       - name: Install pinned CLIs for local protocol acceptance
         run: npm install --global @openai/codex@0.162.1 @anthropic-ai/claude-code@2.1.300
       - name: Check real CLI credentials, MCP, stream parsing and native-tool restrictions
@@ -69,6 +69,21 @@ jobs:
       - run: bash scripts/scan-secrets.sh
         env:
           LOOPFORGE_GITLEAKS_TOKEN: ${{ github.token }}
+  webtest:
+    # Split out of core so it runs in parallel: ~280 browser-free UI specs with
+    # c8 coverage against web/ sources. Needs only Node and the checkout; it
+    # loads web/*.js through jsdom, so no Go build, chatbot build or artifact
+    # from core is required (keeping the jobs independent, not serial again).
+    name: Browser-free UI tests for the platform console
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '22'
+      - run: npm ci --no-audit --no-fund && npm run coverage
+        working-directory: webtest
   browser:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -280,13 +295,13 @@ jobs:
     # in GitHub; the workflow does not change repository settings.
     name: platform-required
     if: always()
-    needs: [core, browser, first-run, postgres]
+    needs: [core, webtest, browser, first-run, postgres]
     runs-on: ubuntu-latest
     steps:
       - name: Require every platform job to pass
         working-directory: ${{ runner.temp }}
         run: |
-          if [[ "${{ needs.core.result }}" != "success" || "${{ needs.browser.result }}" != "success" || "${{ needs.first-run.result }}" != "success" || "${{ needs.postgres.result }}" != "success" ]]; then
-            echo "core=${{ needs.core.result }} browser=${{ needs.browser.result }} first-run=${{ needs.first-run.result }} postgres=${{ needs.postgres.result }}" >&2
+          if [[ "${{ needs.core.result }}" != "success" || "${{ needs.webtest.result }}" != "success" || "${{ needs.browser.result }}" != "success" || "${{ needs.first-run.result }}" != "success" || "${{ needs.postgres.result }}" != "success" ]]; then
+            echo "core=${{ needs.core.result }} webtest=${{ needs.webtest.result }} browser=${{ needs.browser.result }} first-run=${{ needs.first-run.result }} postgres=${{ needs.postgres.result }}" >&2
             exit 1
           fi
