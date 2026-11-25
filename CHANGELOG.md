@@ -18,6 +18,13 @@ Platform releases use `vX.Y.Z` tags. This fork (goodloris/LoopForge) publishes `
   - 不删分支：创建 MR 带 `remove_source_branch=false`、合并带 `should_remove_source_branch=false`，即使项目开了 `remove_source_branch_after_merge=true`，promote（集成分支→默认分支）合并后也不会删掉集成分支，工作分支同样保留，和 GitHub 一致。
   - 平台开出/登记的 MR 标题与描述使用 LooPool（原 `LoopForge:` 前缀改为 `LooPool:`）。
   - 凭据与库内存储沿用上游：令牌存在 `git_http_credentials`（与 GitHub 令牌同机制、脱敏、API/日志不回显），无新增列或迁移。GitLab Issue 拉取不在本次范围。
+- 自托管 GitLab 实例的 Issue 拉取补齐，与 GitHub 逐字段对齐（接 #58，GitLab 的第二个 PR）。复用已有的每主机 GitLab 客户端（项目 Owner 的 Git HTTPS 凭据经 `gitegress` 出网调用 GitLab v4 REST），不新增平行实现，不新增列或迁移：
+  - 导入：`tracker/gitlab.go` 的 `pullGitLabIssues` 调 `GET /projects/:id/issues?state=all&per_page=100&page=N` 翻页到最后一页（GitLab 的 issues 端点从不返回 MR，无需像 GitHub 那样过滤 PR）。需求 ID 为 `gl-<repo>-<iid>`，`Source="gitlab"`，`ExternalRef` 带 source/id/iid/url/state/hash，`ExternalIID=iid`。`Number` 保持 0，由 store 分配一个本项目内不冲突的编号（D22 口径，与 GitHub 相同）。`opened` 映射为 `todo`，`closed` 映射为 `closed` 且 `CloseSource=external`（外部关闭）。已存在的需求走 `applyExistingIssue`，按与 GitHub 相同的 `SourceContentHash` 判断，保留用户已编辑或已澄清的描述；未改动的只做刷新。缺少项目 Owner 凭据时明确报错并记入同步日志，绝不静默零导入。
+  - 定时任务与全量同步：`tracker/service.go` 的 `PullAll` 对 `provider=="gitlab"` 分派；`PullScheduleJob` 把 `"gitlab"` 加入来源白名单并按仓库拉取。`domain/sync.go` 的 `NormalizeScheduleSource` 接受 `"gitlab"`。选 `source=gitlab` 的定时任务每次执行先把该来源的 Issue 拉进本项目，再启动其中还没跑过 SOP 的单；来源为空仍只派发不拉取（dispatch-only），行为不变。
+  - 派发按需求类型而非来源：缺陷修复 SOP 的派发由 `Kind`（`"issue"` → 缺陷修复泳道）驱动，不按 `Source` 分支，因此 GitLab Issue（`Kind="issue"`，与 GitHub 一致）与 GitHub Issue 派发路径完全相同，没有任何按来源分支的派发代码。
+  - 不回写 GitLab：除 MR 交付状态刷新外，平台本就没有任何 Issue 状态回写，这里也不新增。
+  - 界面：定时任务的来源选项「只同步 GitLab」仅当项目绑定了 GitLab 仓库时出现；来源徽标/标签「GitLab」用自己的色调；需求抽屉的绑定说明显示「GitLab Issue」；来源文案为「GitLab #<iid>」；外部链接用 Issue 的 `web_url`（`/-/issues/N`）。
+  - 测试（httptest 伪 GitLab）：翻页到最后一页、opened/closed 映射、store 分配不冲突编号、已编辑描述保留与未改动刷新、缺凭据报错，以及 `PullScheduleJob` 的来源门控（空/github 跳过、gitlab 拉取）。sqlite + PostgreSQL 17 绿。
 - Platform GitHub Releases are now titled `LooPool vX.Y.Z` instead of `LoopForge vX.Y.Z`. LoopForge Local releases keep their title.
 
 ## 0.8.0 — LooPool, Feishu identities and upstream v0.4.1
