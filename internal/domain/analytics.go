@@ -71,6 +71,9 @@ type AnalyticsSummary struct {
 	ConversationTokens          int64   `json:"conversationTokens"`
 	ConversationCostUSD         float64 `json:"conversationCostUsd"`
 	ConversationCostCNY         float64 `json:"conversationCostCny"`
+	// ConversationCredits is the share of TotalCredits used by conversation
+	// workspaces (Kiro CLI subscription credits, never priced).
+	ConversationCredits float64 `json:"conversationCredits,omitempty"`
 
 	CostCurrency       string  `json:"costCurrency"`
 	USDToCNY           float64 `json:"usdToCny"`
@@ -161,6 +164,11 @@ type AnalyticsTrendPoint struct {
 	ConversationTokens     int64   `json:"conversationTokens,omitempty"`
 	ConversationCostUSD    float64 `json:"conversationCostUsd,omitempty"`
 	ConversationCostCNY    float64 `json:"conversationCostCny,omitempty"`
+
+	// Credits are subscription credits (Kiro CLI) used in this bucket,
+	// including ConversationCredits; never priced into Cost*.
+	Credits             float64 `json:"credits,omitempty"`
+	ConversationCredits float64 `json:"conversationCredits,omitempty"`
 }
 
 // AnalyticsWeekHourCell is one non-empty weekday × hour bucket in the requested time zone.
@@ -221,6 +229,9 @@ type AnalyticsBreakdown struct {
 	CostSharePct  float64 `json:"costSharePct"`
 
 	ToolCalls int `json:"toolCalls"`
+
+	// Credits 为订阅 credits（Kiro CLI），不折算金额、不计入占比。
+	Credits float64 `json:"credits,omitempty"`
 
 	// CompletedIssues 为按需求去重后的成功交付数（分类、需求来源等维度使用）。
 	CompletedIssues int `json:"completedIssues,omitempty"`
@@ -422,6 +433,8 @@ type AnalyticsProjectUsage struct {
 	CostUSD      float64 `json:"costUsd"`
 	CostCNY      float64 `json:"costCny"`
 	CostKnown    bool    `json:"costKnown"`
+	// Credits 为订阅 credits（Kiro CLI），不折算金额。
+	Credits float64 `json:"credits,omitempty"`
 }
 
 // AnalyticsDemoSummary exposes the first Loop demo metrics with explicit,
@@ -462,6 +475,7 @@ type AnalyticsRunTrace struct {
 	CostUSD             float64   `json:"costUsd"`
 	CostCNY             float64   `json:"costCny"`
 	CostKnown           bool      `json:"costKnown"`
+	Credits             float64   `json:"credits,omitempty"`
 	ToolCalls           int       `json:"toolCalls"`
 	ToolCallsSucceeded  int       `json:"toolCallsSucceeded"`
 	ToolCallsFailed     int       `json:"toolCallsFailed"`
@@ -491,8 +505,10 @@ type AnalyticsSessionUsage struct {
 	OutputTokens     int64 `json:"outputTokens"`
 	CacheReadTokens  int64 `json:"cacheReadTokens"`
 	CacheWriteTokens int64 `json:"cacheWriteTokens"`
-	ReportedReplies  int   `json:"reportedReplies"`
-	MissingReplies   int   `json:"missingReplies"`
+	// Credits are subscription credits (Kiro CLI), never priced.
+	Credits         float64 `json:"credits,omitempty"`
+	ReportedReplies int     `json:"reportedReplies"`
+	MissingReplies  int     `json:"missingReplies"`
 	// UndatedReplies only participate in cumulative usage, never date buckets.
 	UndatedReplies int `json:"undatedReplies"`
 }
