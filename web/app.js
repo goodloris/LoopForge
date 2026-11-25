@@ -1037,14 +1037,7 @@ function bind(){
   $('#settingsSidebarExpand')?.addEventListener('click',()=>{
     cancelSettingsRouteTransition();
     setSettingsSidebarExpanded(true);
-    requestAnimationFrame(()=>{
-      // Wait for the sidebar's descendants to inherit the restored visibility.
-      requestAnimationFrame(()=>{
-        if(settingsSidebarExpanded()&&document.activeElement===document.body){
-          $('#settingsSidebarToggle')?.focus({preventScroll:true});
-        }
-      });
-    });
+    focusSettingsToggleOnReveal();
   });
   document.addEventListener('click',event=>{
     if(document.body.classList.contains('management-mode')&&event.target instanceof Element&&event.target.closest('.collab-rail-toggle')){
@@ -1790,6 +1783,26 @@ settingsRouteMotion.addEventListener('change',()=>{
   if(pending)switchView(pending);
   setSettingsSidebarExpanded(settingsSidebarExpanded());
 });
+// Reopening the settings sidebar from the collapsed expand button returns focus
+// to the collapse toggle. The reveal can leave the toggle visibility:hidden for
+// a frame or two (the panel's CSS transition), where focus() is a no-op, so wait
+// with rAF until it is actually visible rather than guessing a fixed frame.
+// Bounded so a stalled reveal cannot loop forever; aborts if the sidebar
+// re-collapsed or focus already moved to another control.
+function focusSettingsToggleOnReveal(){
+  const toggle=$('#settingsSidebarToggle');
+  if(!toggle)return;
+  let frames=0;
+  const attempt=()=>{
+    if(!settingsSidebarExpanded())return;
+    const active=document.activeElement;
+    if(active&&active!==document.body&&active!==toggle&&active!==$('#settingsSidebarExpand'))return;
+    if(getComputedStyle(toggle).visibility==='visible'){toggle.focus({preventScroll:true});return;}
+    if(++frames>40)return;
+    requestAnimationFrame(attempt);
+  };
+  requestAnimationFrame(attempt);
+}
 function setSettingsSidebarExpanded(expanded){
   const managing=document.body.classList.contains('management-mode');
   const open=managing&&expanded;
