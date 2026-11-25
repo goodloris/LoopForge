@@ -61,6 +61,27 @@ func TestHTTPSCredentialMatchesOnlyItsHostAndProtocol(t *testing.T) {
 	}
 }
 
+// A push or fetch to a named remote carries a refspec, not a URL. "HEAD:refs/
+// heads/x" is scp-ambiguous, so the credential helper must still resolve the
+// HTTPS credential from the context remote rather than mistaking the refspec
+// for an SSH remote and dropping the credential (regression: aligned
+// integration push failed with "could not read Username").
+func TestBareRemoteRefspecResolvesContextCredential(t *testing.T) {
+	ctx := WithHTTPRemote(WithHTTPCredentials(context.Background(), map[string]HTTPCredential{
+		"code.example.net": {Username: "john.xu", Token: "fake-push-token"},
+	}), "https://code.example.net/group/sub/proj.git")
+	for _, args := range [][]string{
+		{"-C", "/w", "push", "origin", "HEAD:refs/heads/loopool-e2e-int"},
+		{"-C", "/w", "fetch", "origin", "+refs/heads/loopool-e2e:refs/remotes/origin/loopool-e2e"},
+		{"-C", "/w", "push", "-u", "origin", "work"},
+	} {
+		credential, host, _ := httpCredentialForCommand(ctx, args)
+		if host != "code.example.net" || credential.Token != "fake-push-token" {
+			t.Fatalf("args %v resolved host=%q token=%q; want the context HTTPS credential", args, host, credential.Token)
+		}
+	}
+}
+
 func TestHTTPSRepositoryURLDoesNotNeedAPlatform(t *testing.T) {
 	remote, name, err := HTTPSRepositoryURL("https://Unfamiliar.example.org:443/team/code.git")
 	if err != nil || remote != "https://unfamiliar.example.org/team/code.git" || name != "code" {

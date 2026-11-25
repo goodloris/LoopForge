@@ -61,6 +61,13 @@ type Engine struct {
 	// branch with their head commits, for mode=mr gates. Nil cannot verify.
 	FindBranchMRsInto func(domain.BranchMRQuery) ([]domain.DeliveryMR, error)
 
+	// EnsureBranchMR finds, or opens, the delivery MR from a run repository's
+	// work branch into its base branch, with the responsible user's per-host
+	// credential. It is the SOP delivery fallback for GitLab, whose sandbox has
+	// no gh/glab binary to open the MR; GitHub/Gongfeng pass through to a
+	// find-only lookup and never auto-create. Nil skips the fallback.
+	EnsureBranchMR func(projectID, sourceBranch, targetBranch string, responsibleUserID int64) (domain.DeliveryMR, bool, error)
+
 	// runnerDispatchNotify wakes long-polling CLI runners when the engine
 	// queues a runner task. Wired via SetRunnerDispatchNotify (httpapi.New);
 	// nil falls back to the runner claim retry interval.

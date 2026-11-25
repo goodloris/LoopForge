@@ -11,6 +11,13 @@
 - 一个 Run 包含多个模型时，分别计价后求和；统计页总额、趋势、项目、责任人、SOP、模型和需求明细使用同一个投影。零用量的脚本节点不产生 Token 费用。
 - 小额费用在求和前不取整。新字段 `costCny` / `totalCostCny` / `costReportedCny` 的单位是人民币；兼容字段 `costUsd` 等表示该统计金额按 7 折算的美元等值，不能再当成原始账单金额。
 
+## Credits（订阅计量）
+
+- Kiro CLI 按订阅 **credits** 计量，不上报 Token（`inputTokens` / `outputTokens` / `totalTokens` 为 0）。credits 记在用量的 `credits` 字段里，节点、Run、对话每轮和对话工作区各自累加。
+- credits **不折算人民币或美元**，不计入 `costUsd` / `costCny` / `totalCostCny`、成本覆盖率、成本趋势和成本占比；本页的计费规则不适用于 credits。
+- 分析接口在筛选窗口内汇总 `totalCredits`、`conversationCredits`，并在趋势点（`credits`、`conversationCredits`）、SOP / 节点 / 模型等拆分、项目用量、Run 追溯、会话用量和需求快照的泳道与整体上给出 `credits`。没有 credits 的数据不输出这些字段。
+- 前端统一保留两位小数（如 `12.34 credits`）。运行、节点、需求进展、消息详情和洞察页在有 credits 时单独展示；只有 Token 的数据显示保持不变。
+
 ## 价格版本与适用范围
 
 版本：`public-standard-2026-11-05`，核价日期 **2026-11-05**（Kimi K3.1 Pro、MiMo-V2.6-Pro 于该日补登，其余沿用 2026-11-02 核价）。费率登记在 `internal/domain/token_pricing.go`，新增模型先核实官方价格再更新登记和测试；不使用模糊前缀给未知型号套价。已知的 `-ioa`、`-internal-ioa`、Claude 点号/短横线版本、日期快照和 `-1m` 别名显式归一化；`custom-local:<模型>`（用户自带 key 直连厂商）按去前缀后的同名公开价计算。Gemini 3.5 Flash 已不在 Google 官方价格页，暂不登记，显示为未识别。

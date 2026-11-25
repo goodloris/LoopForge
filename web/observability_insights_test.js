@@ -9,6 +9,7 @@ const ctx = {
   projectQuery:()=>'?projectId=p',currentProject:()=>({id:'p',ownerId:7,members:[{userId:8,role:'maintainer'}]}),
 };
 vm.createContext(ctx);
+vm.runInContext(fs.readFileSync('app/usage-format.js','utf8'),ctx);
 vm.runInContext(fs.readFileSync('app/obs-charts.js','utf8'),ctx);
 vm.runInContext(fs.readFileSync('app/observability.js','utf8'),ctx);
 assert.match(ctx.analyticsQuery({overview:true}),/origin=external/);
@@ -95,12 +96,18 @@ ctx.lfT = zh => zh;
 assert.equal(ctx.obsPeriodRange('2026-10').label,'2026年10月');
 assert.match(ctx.obsActivityKpis(),/输入 0 \/ 输出 0/);
 assert.match(ctx.obsUsageKpis({period:true}),/10月运行/);
-// Kiro CLI credits are never priced: they appear on the token footnote only
-// when the summary reports some, and the UI stays unchanged otherwise.
+// Kiro CLI credits are never priced: they get their own card only when the
+// analytics report some, and the token card and UI stay unchanged otherwise.
 ctx.formatTokens=n=>String(Number(n||0));ctx.percent=n=>`${n}%`;ctx.duration=ms=>`${ms}ms`;
 ctx.state.obsTrendGrain='all';
-const tokenFoot=summary=>{ctx.state.analytics={summary};return ctx.obsUsageKpis(ctx.obsScopedView())};
-assert.match(tokenFoot({totalTokens:0,totalCredits:1.5,costUnknownRuns:0}),/入 0 \/ 出 0 · 1\.50 credits/);
-assert.doesNotMatch(tokenFoot({totalTokens:0,costUnknownRuns:0}),/credits/);
-assert.doesNotMatch(tokenFoot({totalTokens:0,totalCredits:1.5,costUnknownRuns:0}),/¥1\.50/,'credits must not be priced');
-console.log('kiro credits footnote checks passed');
+const usageKpis=summary=>{ctx.state.analytics={summary};return ctx.obsUsageKpis(ctx.obsScopedView())};
+const kiro=usageKpis({totalTokens:0,totalCredits:1.5,costUnknownRuns:0});
+assert.match(kiro,/累计 Credits/);
+assert.match(kiro,/1\.50/);
+assert.match(kiro,/订阅计量 · 不折算金额/);
+assert.match(kiro,/入 0 \/ 出 0/);
+assert.doesNotMatch(kiro,/入 0 \/ 出 0 · 1\.50 credits/,'credits no longer ride on the token footnote');
+assert.doesNotMatch(kiro,/¥1\.50/,'credits must not be priced');
+const tokensOnly=usageKpis({totalTokens:0,costUnknownRuns:0});
+assert.doesNotMatch(tokensOnly,/credits|Credits/);
+console.log('kiro credits card checks passed');

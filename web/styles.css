@@ -155,6 +155,7 @@ input::placeholder,textarea::placeholder{color:var(--muted-2)}
 .sync-badge.failed{background:rgba(248,113,113,.15);color:var(--red)}
 .sync-badge.gongfeng{background:var(--blue-soft);color:var(--blue)}
 .sync-badge.tapd{background:rgba(251,191,36,.15);color:var(--amber)}
+.sync-badge.gitlab{background:rgba(252,109,38,.15);color:#fc6d26}
 .sync-badge.local{background:rgba(52,211,153,.15);color:var(--green)}
 
 .status{display:inline-flex;align-items:center;padding:3px 9px;border-radius:var(--radius-pill);font-size:var(--fs-sm);font-weight:750;white-space:nowrap}

@@ -6,7 +6,7 @@ let scheduleAssistantReferences=[];
 let schedulePromptEditor=null;
 let scheduleSharedPrompt='';
 // --- Sync Panel (embedded in Issues view) ---
-function sourceBadge(issue){if(!issue.source||issue.source==='local')return '<span class="sync-badge local">本地</span>';if(issue.source==='github')return '<span class="sync-badge local">GitHub</span>';if(issue.source==='gongfeng')return '<span class="sync-badge gongfeng">工蜂</span>';if(issue.source==='tapd')return '<span class="sync-badge tapd">TAPD</span>';return ''}
+function sourceBadge(issue){if(!issue.source||issue.source==='local')return '<span class="sync-badge local">本地</span>';if(issue.source==='github')return '<span class="sync-badge local">GitHub</span>';if(issue.source==='gitlab')return '<span class="sync-badge gitlab">GitLab</span>';if(issue.source==='gongfeng')return '<span class="sync-badge gongfeng">工蜂</span>';if(issue.source==='tapd')return '<span class="sync-badge tapd">TAPD</span>';return ''}
 function externalLink(issue){if(!issue.externalRef)return '';return `<a href="${escapeHTML(safeURL(issue.externalRef.externalUrl))}" target="_blank" rel="noopener noreferrer" class="ext-link" title="${escapeHTML(issue.externalRef.externalUrl)}">↗</a>`}
 function renderSync(){
   const cfg=state.data.syncConfig||{};const logs=state.data.syncLogs||[];
@@ -90,6 +90,7 @@ function scheduleJobTimingLabel(job){
 function scheduleSourceLabel(job){
   const source=String(job?.source||'').toLowerCase();
   if(source==='github')return '只同步 GitHub';
+  if(source==='gitlab')return '只同步 GitLab';
   if(source==='gongfeng')return '只同步工蜂';
   if(source==='tapd')return '只同步 TAPD';
   return '所有已配置来源';
@@ -375,7 +376,12 @@ function fillScheduleJobForm(job={}){
   f.elements.maxDispatch.value=job.maxDispatch||'';
   f.elements.enabled.checked=job.id?!!job.enabled:true;
   const source=String(job.source||'').toLowerCase();
-  if(f.elements.source)f.elements.source.value=(source==='github'||source==='gongfeng'||source==='tapd')?source:'';
+  const hasGitLabRepo=(state.data.repositories||[]).some(r=>r.projectId===state.projectFilter&&r.provider==='gitlab');
+  if(f.elements.source){
+    const glOpt=f.elements.source.querySelector('option[value="gitlab"]');
+    if(glOpt){glOpt.hidden=!hasGitLabRepo;glOpt.disabled=!hasGitLabRepo}
+    f.elements.source.value=(source==='github'||source==='gongfeng'||source==='tapd'||(source==='gitlab'&&hasGitLabRepo))?source:'';
+  }
   const selected=new Set(scheduleIssueStatusValues(job.id?job:{}));
   f.querySelectorAll('[name="issueStatus"]').forEach(cb=>{cb.checked=selected.has(cb.value)});
   const sops=runnableWorkflowOptions();

@@ -58,7 +58,7 @@ function obsEChartsTheme(mode){
 // ---------- option 公共片段 ----------
 function obsChartOpts(opts){
   opts=opts||{};
-  return {theme:opts.theme||OBS_THEME_PRESETS.light,reduced:!!opts.reduced,fmtTokens:opts.fmtTokens||(v=>String(Math.round(Number(v)||0))),fmtCost:opts.fmtCost||(v=>'¥'+Number(v||0).toFixed(2)),fmtDuration:opts.fmtDuration||(v=>Math.round((Number(v)||0)/1000)+'s'),label:opts.label||(p=>String(p?.label||p?.date||''))};
+  return {theme:opts.theme||OBS_THEME_PRESETS.light,reduced:!!opts.reduced,fmtTokens:opts.fmtTokens||(v=>String(Math.round(Number(v)||0))),fmtCost:opts.fmtCost||(v=>'¥'+Number(v||0).toFixed(2)),fmtCredits:opts.fmtCredits||(typeof formatCredits==='function'?formatCredits:(v=>String(v))),fmtDuration:opts.fmtDuration||(v=>Math.round((Number(v)||0)/1000)+'s'),label:opts.label||(p=>String(p?.label||p?.date||''))};
 }
 function obsChartBase(o,extra){
   const t=o.theme;
@@ -89,9 +89,10 @@ function obsTooltipRows(title,rows,note){
 }
 
 // ---------- 趋势 ----------
-const OBS_TREND_MODES=['tokens','comp','cost','runs','issues','rate'];
+const OBS_TREND_MODES=['tokens','comp','cost','runs','issues','rate','credits'];
 function obsTrendModeValue(p,mode){
   if(mode==='cost')return Number(p?.costCny||0);
+  if(mode==='credits')return Number(p?.credits||0);
   if(mode==='runs')return Number(p?.runs||0);
   if(mode==='issues')return Number(p?.issues||0);
   if(mode==='rate'){
@@ -107,6 +108,7 @@ function obsTrendCacheHit(p){
 function obsTrendFormat(mode,o){
   if(mode==='tokens'||mode==='comp')return v=>o.fmtTokens(v);
   if(mode==='cost')return v=>o.fmtCost(v);
+  if(mode==='credits')return v=>o.fmtCredits(v);
   if(mode==='rate')return v=>v==null?'—':Math.round(v)+'%';
   return v=>String(Math.round(Number(v)||0));
 }
@@ -131,6 +133,8 @@ function obsTrendOption(points,mode,sel,prev,opts){
     if(!p)return '';
     const rate=obsTrendModeValue(p,'rate'),hit=obsTrendCacheHit(p);
     const rows=[['Token',o.fmtTokens(p.tokens)],['成本',o.fmtCost(p.costCny)],['运行',String(p.runs||0)],['需求',String(p.issues||0)],['成功率',rate==null?'—':rate.toFixed(0)+'%'],['缓存命中',hit==null?'—':hit.toFixed(0)+'%']];
+    // Credits ride after cost only when the bucket has some; never priced.
+    if(Number(p.credits||0)>0)rows.splice(2,0,['Credits',o.fmtCredits(p.credits)]);
     if(mode==='comp')rows.splice(1,0,['输入',o.fmtTokens(p.inputTokens)],['输出',o.fmtTokens(p.outputTokens)],['缓存读',o.fmtTokens(p.cacheReadTokens)],['缓存写',o.fmtTokens(p.cacheWriteTokens)]);
     const pp=mode!=='comp'&&prevValues?prev[idx]:null;
     const pv=pp?obsTrendModeValue(pp,mode):null;
@@ -162,18 +166,18 @@ function obsTrendOption(points,mode,sel,prev,opts){
 
 // ---------- Token 去向环图 ----------
 function obsBreakdownPalette(t){return [t.c1,t.c2,t.c3,t.muted2,t.c4,t.panel3]}
-function obsBreakdownValue(row,metric){return Number(metric==='cost'?row?.costCny:row?.tokens)||0}
+function obsBreakdownValue(row,metric){return Number(metric==='cost'?row?.costCny:metric==='credits'?row?.credits:row?.tokens)||0}
 function obsBreakdownTotal(rows,metric){return (rows||[]).reduce((n,r)=>n+obsBreakdownValue(r,metric),0)}
 // Conversation code changes stand apart from SOPs, and are often a sliver.
 const OBS_CONVERSATION_COLOR='#f59e0b';
 function obsBreakdownOption(rows,metric,opts){
   const o=obsChartOpts(opts),t=o.theme,pal=obsBreakdownPalette(t);
   rows=Array.isArray(rows)?rows:[];
-  metric=metric==='cost'?'cost':'tokens';
+  metric=['cost','credits'].includes(metric)?metric:'tokens';
   const total=obsBreakdownTotal(rows,metric);
-  const fmt=metric==='cost'?o.fmtCost:o.fmtTokens;
+  const fmt=metric==='cost'?o.fmtCost:metric==='credits'?o.fmtCredits:o.fmtTokens;
   return obsChartBase(o,{
-    tooltip:{...obsTooltipBase(t),trigger:'item',formatter:p=>obsTooltipRows(p.name,[[metric==='cost'?'成本':'Token',fmt(p.value)],['占比',total?(p.value*100/total).toFixed(1)+'%':'—']],'点击查看明细')},
+    tooltip:{...obsTooltipBase(t),trigger:'item',formatter:p=>obsTooltipRows(p.name,[[metric==='cost'?'成本':metric==='credits'?'Credits':'Token',fmt(p.value)],['占比',total?(p.value*100/total).toFixed(1)+'%':'—']],'点击查看明细')},
     series:[{type:'pie',radius:['66%','80%'],center:['50%','50%'],avoidLabelOverlap:true,minAngle:2,padAngle:1,label:{show:false},labelLine:{show:false},itemStyle:{borderColor:t.panel,borderWidth:2},emphasis:{scale:true,scaleSize:4,label:{show:false}},
       animationType:'expansion',animationDuration:o.reduced?0:700,
       data:rows.map((r,i)=>({name:String(r.name||r.key||'—'),value:obsBreakdownValue(r,metric),itemStyle:{color:r.conversation?OBS_CONVERSATION_COLOR:pal[Math.min(i,pal.length-1)]}}))}],

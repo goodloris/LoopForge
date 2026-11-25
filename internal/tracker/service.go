@@ -322,6 +322,21 @@ func (s *Service) PullAll(store IssueStoreAdapter) error {
 			}
 			continue
 		}
+		if repo.Provider == "gitlab" {
+			started := time.Now().UTC()
+			n, err := s.pullGitLabIssues(store, repo)
+			status, message := "success", fmt.Sprintf("GitLab: imported %d work items", n)
+			if err != nil {
+				status = "failed"
+				message = err.Error()
+			}
+			s.addLog(domain.SyncLog{ID: fmt.Sprintf("sync-%d", started.UnixNano()), Direction: "pull", Source: "gitlab", Action: "sync_issues", Status: status, Count: n, Message: message, ProjectID: repo.ProjectID, StartedAt: started, FinishedAt: time.Now().UTC()})
+			syncCount += n
+			if err != nil {
+				lastErr = err
+			}
+			continue
+		}
 		if repo.Provider != "gongfeng" || repo.GongfengProjectID == "" {
 			continue
 		}
@@ -378,7 +393,7 @@ func (s *Service) PullScheduleJob(store IssueStoreAdapter, job domain.ScheduleJo
 	switch source {
 	case "":
 		return 0, nil, nil
-	case "github", "gongfeng":
+	case "github", "gongfeng", "gitlab":
 	case "tapd":
 		if strings.TrimSpace(job.TAPDWorkspaceID) == "" || strings.TrimSpace(job.TAPDIterationID) == "" {
 			return 0, nil, fmt.Errorf("schedule job needs TAPD workspace and iteration")
@@ -407,6 +422,16 @@ func (s *Service) PullScheduleJob(store IssueStoreAdapter, job domain.ScheduleJo
 				errs = append(errs, fmt.Errorf("GitHub %s: %w", repo.Name, err))
 			}
 			s.addLog(domain.SyncLog{ID: fmt.Sprintf("sync-%d", started.UnixNano()), Direction: "pull", Source: "github", Action: "sync_issues", Status: status, Count: n, Message: message, ProjectID: repo.ProjectID, StartedAt: started, FinishedAt: time.Now().UTC()})
+			count += n
+		case repo.Provider == "gitlab" && source == "gitlab":
+			started := time.Now().UTC()
+			n, err := s.pullGitLabIssues(store, repo)
+			status, message := "success", fmt.Sprintf("GitLab: imported %d work items", n)
+			if err != nil {
+				status, message = "failed", err.Error()
+				errs = append(errs, fmt.Errorf("GitLab %s: %w", repo.Name, err))
+			}
+			s.addLog(domain.SyncLog{ID: fmt.Sprintf("sync-%d", started.UnixNano()), Direction: "pull", Source: "gitlab", Action: "sync_issues", Status: status, Count: n, Message: message, ProjectID: repo.ProjectID, StartedAt: started, FinishedAt: time.Now().UTC()})
 			count += n
 		case repo.Provider == "gongfeng" && repo.GongfengProjectID != "" && source == "gongfeng":
 			client, _, err := s.trackerClientForProject("gongfeng", repo.ProjectID)

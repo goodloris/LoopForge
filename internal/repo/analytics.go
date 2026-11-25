@@ -320,6 +320,7 @@ func (r *AnalyticsRepo) analyticsWithRuns(filter domain.AnalyticsFilter, prefetc
 			ProjectID: projectID, IssueID: issueID, IssueSource: analyticsIssueSource(issue), WorkflowTaskID: run.ExecutionContext.TaskID,
 			RunID: run.ID, TraceID: traceID, Status: run.Status, DurationMs: duration,
 			Tokens: run.Usage.TotalTokens, CostUSD: run.Usage.CostUSD, CostKnown: usageCostKnown(run.Usage),
+			Credits:   run.Usage.Credits,
 			ToolCalls: run.ToolCalls, ErrorNodeID: errorNodeID, ErrorMessage: errorMessage,
 			CreatedAt: run.CreatedAt,
 		}
@@ -402,6 +403,7 @@ func (r *AnalyticsRepo) analyticsWithRuns(filter domain.AnalyticsFilter, prefetc
 		point.Reworks += reworks
 		point.Tokens += run.Usage.TotalTokens
 		point.CostUSD += run.Usage.CostUSD
+		point.Credits += run.Usage.Credits
 		point.InputTokens += run.Usage.InputTokens
 		point.OutputTokens += run.Usage.OutputTokens
 		point.CacheReadTokens += run.Usage.CacheReadTokens
@@ -1038,6 +1040,7 @@ func accumulateBreakdownUsage(value *analyticsAccumulator, usage domain.TokenUsa
 	}
 	value.item.Tokens += usage.TotalTokens
 	value.item.CostUSD += usage.CostUSD
+	value.item.Credits += usage.Credits
 	value.inputTokens += usage.InputTokens
 	value.outputTokens += usage.OutputTokens
 	value.cacheReadTokens += usage.CacheReadTokens
@@ -1291,6 +1294,7 @@ func accumulateProjectUsage(values map[string]*analyticsProjectAccumulator, proj
 	value.item.Runs++
 	value.item.Tokens += run.Usage.TotalTokens
 	value.item.CostUSD += run.Usage.CostUSD
+	value.item.Credits += run.Usage.Credits
 	if !usageCostKnown(run.Usage) {
 		value.item.CostKnown = false
 	}
@@ -1360,6 +1364,7 @@ func accumulateIssueSource(values map[string]*analyticsAccumulator, source strin
 	value.item.Runs++
 	value.item.Tokens += run.Usage.TotalTokens
 	value.item.CostUSD += run.Usage.CostUSD
+	value.item.Credits += run.Usage.Credits
 	value.inputTokens += run.Usage.InputTokens
 	value.outputTokens += run.Usage.OutputTokens
 	value.cacheReadTokens += run.Usage.CacheReadTokens
@@ -1435,6 +1440,7 @@ func accumulateConversationRun(summary *domain.AnalyticsSummary, issues map[stri
 	summary.ConversationWorkspaces++
 	summary.ConversationTokens += usage.TotalTokens
 	summary.ConversationCostUSD += usage.CostUSD
+	summary.ConversationCredits += usage.Credits
 	summary.TotalTokens += usage.TotalTokens
 	summary.TotalCostUSD += usage.CostUSD
 	summary.TotalCredits += usage.Credits
@@ -1457,12 +1463,14 @@ func accumulateConversationRun(summary *domain.AnalyticsSummary, issues map[stri
 	point.ConversationWorkspaces++
 	point.ConversationTokens += usage.TotalTokens
 	point.ConversationCostUSD += usage.CostUSD
+	point.Credits += usage.Credits
+	point.ConversationCredits += usage.Credits
 	point.InputTokens += usage.InputTokens
 	point.OutputTokens += usage.OutputTokens
 	point.CacheReadTokens += usage.CacheReadTokens
 	point.CacheWriteTokens += usage.CacheWriteTokens
 	addAnalyticsTrendIssue(trendIssues, bucket, issueID)
-	if usage.TotalTokens == 0 && usage.CostUSD == 0 && issueID == "" {
+	if usage.TotalTokens == 0 && usage.CostUSD == 0 && usage.Credits == 0 && issueID == "" {
 		return
 	}
 	user := analyticsUserEntry(users, analyticsRunUserID(run, issue), at.Format("2006-01-02"))
@@ -1475,6 +1483,7 @@ func accumulateConversationRun(summary *domain.AnalyticsSummary, issues map[stri
 	project := analyticsProjectEntry(projects, domain.RunProjectID(run, issue.ProjectID))
 	project.item.Tokens += usage.TotalTokens
 	project.item.CostUSD += usage.CostUSD
+	project.item.Credits += usage.Credits
 	if issueID == "" {
 		return
 	}
@@ -1482,6 +1491,7 @@ func accumulateConversationRun(summary *domain.AnalyticsSummary, issues map[stri
 	value := analyticsSourceEntry(sources, analyticsIssueSource(issue))
 	value.item.Tokens += usage.TotalTokens
 	value.item.CostUSD += usage.CostUSD
+	value.item.Credits += usage.Credits
 	value.inputTokens += usage.InputTokens
 	value.outputTokens += usage.OutputTokens
 	value.cacheReadTokens += usage.CacheReadTokens

@@ -371,9 +371,11 @@ test('platform admins authorize HTTPS addresses in the Git host trust tab', asyn
 
 test('成员账号 intro separates closed password sign-up from closed self-service sign-up', async (t) => {
   const cases = [
-    [{ signupEnabled: true, passwordSignupEnabled: true }, /^登录页目前允许自助注册/],
-    [{ signupEnabled: true, passwordSignupEnabled: false }, /^登录页的密码注册已关闭。如已启用飞书登录，飞书租户白名单内的成员首次登录时仍会自动开户/],
-    [{ signupEnabled: false, passwordSignupEnabled: false }, /^登录页的自助注册已关闭/],
+    [{ signupEnabled: true, passwordSignupEnabled: true, feishuEnabled: true }, /^登录页目前允许自助注册/],
+    [{ signupEnabled: true, passwordSignupEnabled: false, feishuEnabled: true }, /^登录页的密码注册已关闭。如已启用飞书登录，飞书租户白名单内的成员首次登录时仍会自动开户/],
+    // Password closed but Feishu is not configured: do not mention Feishu.
+    [{ signupEnabled: true, passwordSignupEnabled: false, feishuEnabled: false }, /^登录页的自助注册已关闭/],
+    [{ signupEnabled: false, passwordSignupEnabled: false, feishuEnabled: false }, /^登录页的自助注册已关闭/],
     [{ signupEnabled: true }, /^登录页目前允许自助注册/],
   ];
   for (const [flags, expected] of cases) {
@@ -387,6 +389,9 @@ test('成员账号 intro separates closed password sign-up from closed self-serv
     const intro = app.document.querySelector('[data-account-intro]');
     assert.ok(intro, 'account intro rendered');
     assert.match(intro.textContent, expected, JSON.stringify(flags));
+    if (flags.passwordSignupEnabled === false && flags.feishuEnabled === false) {
+      assert.ok(!intro.textContent.includes('飞书'), `no Feishu mention without Feishu: ${JSON.stringify(flags)}`);
+    }
   }
   const { readFile } = await import('node:fs/promises');
   const path = await import('node:path');

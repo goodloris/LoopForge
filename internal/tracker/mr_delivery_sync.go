@@ -135,7 +135,25 @@ func (s *Service) syncMRDeliveryStates(store MRDeliveryStore) {
 			}
 			continue
 		}
-		if strings.HasPrefix(row.MRProject, domain.MRProjectGHE) || strings.HasPrefix(row.MRProject, domain.MRProjectGitLab) {
+		if strings.HasPrefix(row.MRProject, domain.MRProjectGitLab) {
+			if ok, err := s.refreshExternalDelivery(store, row); ok || err != nil {
+				if err != nil {
+					log.Printf("mr-delivery refresh %s!%d: %v", row.MRProject, row.MRIID, err)
+				} else {
+					updated++
+				}
+				continue
+			}
+			// An SOP-delivered MR has no registering user; refresh with the
+			// project Owner's per-host credential, like GitHub does.
+			if err := s.refreshGitLabDelivery(store, row.MRProject, row.MRIID); err != nil {
+				log.Printf("mr-delivery refresh %s!%d: %v", row.MRProject, row.MRIID, err)
+			} else {
+				updated++
+			}
+			continue
+		}
+		if strings.HasPrefix(row.MRProject, domain.MRProjectGHE) {
 			if ok, err := s.refreshExternalDelivery(store, row); err != nil {
 				log.Printf("mr-delivery refresh %s!%d: %v", row.MRProject, row.MRIID, err)
 			} else if ok {
@@ -242,6 +260,10 @@ func (s *Service) syncWorkCommitsOnDefaultBranch(store MRDeliveryStore) {
 		}
 		if strings.HasPrefix(project, "github:") {
 			s.syncGitHubWorkCommitsOnDefaultBranch(store, project, def, domain.NormalizeIntegrateBranch(repo.IntegrateBranch))
+			continue
+		}
+		if strings.HasPrefix(project, domain.MRProjectGitLab) {
+			s.syncGitLabWorkCommitsOnDefaultBranch(store, project, def, domain.NormalizeIntegrateBranch(repo.IntegrateBranch))
 			continue
 		}
 		rows, err := store.MergedWorkMRs(project)

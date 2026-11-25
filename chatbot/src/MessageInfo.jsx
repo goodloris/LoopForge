@@ -53,26 +53,36 @@ function InfoCard({ id, message, sessionExecutor, cardRef, onPointerEnter, onPoi
         ))}
       </dl>
       <div className="message-info-tokens">
-        <div className="message-info-total">
-          <strong>Tokens</strong>
-          <span className={info.total === null ? "is-missing" : ""}>
-            {info.totalText}
-          </span>
-        </div>
-        {info.tokens.length ? (
-          <dl className="message-info-parts">
-            {info.tokens.map((part) => (
-              <div
-                key={part.key}
-                data-key={part.key}
-                className={part.zero ? "is-zero" : ""}
-              >
-                <span className="message-info-dot" aria-hidden="true" />
-                <dt>{part.label}</dt>
-                <dd>{part.text}</dd>
-              </div>
-            ))}
-          </dl>
+        {info.showTokens ? (
+          <>
+            <div className="message-info-total">
+              <strong>Tokens</strong>
+              <span className={info.total === null ? "is-missing" : ""}>
+                {info.totalText}
+              </span>
+            </div>
+            {info.tokens.length ? (
+              <dl className="message-info-parts">
+                {info.tokens.map((part) => (
+                  <div
+                    key={part.key}
+                    data-key={part.key}
+                    className={part.zero ? "is-zero" : ""}
+                  >
+                    <span className="message-info-dot" aria-hidden="true" />
+                    <dt>{part.label}</dt>
+                    <dd>{part.text}</dd>
+                  </div>
+                ))}
+              </dl>
+            ) : null}
+          </>
+        ) : null}
+        {info.credits !== null ? (
+          <div className="message-info-total" data-key="credits">
+            <strong>Credits</strong>
+            <span>{info.creditsText}</span>
+          </div>
         ) : null}
       </div>
     </section>

@@ -390,7 +390,7 @@ func TestPasswordSignupDefaultsUnchanged(t *testing.T) {
 	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &listed) != nil {
 		t.Fatalf("accounts: %d %s", w.Code, w.Body.String())
 	}
-	if got := strings.Join(sortedKeys(listed), ","); got != "accounts,passwordSignupEnabled,signupEnabled" || listed["signupEnabled"] != true || listed["passwordSignupEnabled"] != true {
+	if got := strings.Join(sortedKeys(listed), ","); got != "accounts,feishuEnabled,passwordSignupEnabled,signupEnabled" || listed["signupEnabled"] != true || listed["passwordSignupEnabled"] != true {
 		t.Fatalf("accounts = %v", listed)
 	}
 

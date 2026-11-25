@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"errors"
+	"fmt"
 	"log"
 	"strings"
 	"time"
@@ -171,9 +173,33 @@ func (e *Engine) deliveryMRsFromRun(run domain.Run) []domain.DeliveryMR {
 			mr, ok, err := e.FindBranchMR(rc.GongfengProjectID, rc.WorkBranch)
 			if err != nil {
 				log.Printf("resolve delivery MR run=%s project=%s branch=%s: %v", run.ID, rc.GongfengProjectID, rc.WorkBranch, err)
-				return domain.DeliveryMR{}, false
+			} else if ok {
+				return mr, true
 			}
-			return mr, ok
+			// GitLab SOP sandboxes have no gh/glab binary, so the Agent may not
+			// have opened the MR. When none exists for the work branch, open it
+			// on the platform with the responsible user's per-host credential,
+			// targeting the base branch, then use it. GitHub/Gongfeng never
+			// auto-create here (EnsureBranchMR passes them through).
+			if e.EnsureBranchMR != nil && domain.IsGitLabMRProject(rc.GongfengProjectID) && strings.TrimSpace(rc.WorkBranch) != "" {
+				target := strings.TrimSpace(rc.BaseBranch)
+				if target == "" {
+					target = strings.TrimSpace(rc.DefaultBranch)
+				}
+				created, ok, cerr := e.EnsureBranchMR(rc.GongfengProjectID, rc.WorkBranch, target, run.ExecutionContext.ResponsibleUserID)
+				var notDeliverable *domain.BranchNotDeliverableError
+				if errors.As(cerr, &notDeliverable) {
+					// Not a failure: the work branch was never pushed or has no
+					// changes, so there is nothing to open an MR from. Record a
+					// readable event and leave the delivery unresolved.
+					e.AppendRunEvent(run.ID, "mr.delivery_skipped", fmt.Sprintf("仓库 %s 未开出交付 MR：%s", rc.Name, notDeliverable.Reason))
+				} else if cerr != nil {
+					log.Printf("open delivery MR run=%s project=%s branch=%s: %v", run.ID, rc.GongfengProjectID, rc.WorkBranch, cerr)
+				} else if ok {
+					return created, true
+				}
+			}
+			return domain.DeliveryMR{}, false
 		}
 	}
 	return domain.ResolveRunDeliveryMRs(run, byBranch)

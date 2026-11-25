@@ -600,7 +600,7 @@ func (r *DeliveryRepo) MergedWorkMRs(project string) ([]domain.MRDeliveryState, 
 // work merge time is unknown) landed_at stays NULL and analytics leave the MR
 // out of mergedMrs rather than guess.
 func (r *DeliveryRepo) ApplyDefaultBranchLanding(issueID, mrURL string, onDefault bool) error {
-	if project, iid, _, ok := domain.ParseGongfengMR(mrURL); ok {
+	if project, iid, _, ok := domain.ParseDeliveryMRURL(mrURL); ok {
 		var landed *time.Time
 		if onDefault {
 			landed = r.promoteMergedAt(project, iid)

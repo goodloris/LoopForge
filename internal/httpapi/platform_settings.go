@@ -50,7 +50,7 @@ func (h *usersHandlers) platformAccounts(c *gin.Context) {
 		respond(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"accounts": accounts, "signupEnabled": signupEnabled(), "passwordSignupEnabled": passwordSignupEnabled()})
+	c.JSON(http.StatusOK, gin.H{"accounts": accounts, "signupEnabled": signupEnabled(), "passwordSignupEnabled": passwordSignupEnabled(), "feishuEnabled": feishuSignInEnabled()})
 }
 
 func validAccountPassword(c *gin.Context, password string) bool {
