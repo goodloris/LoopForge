@@ -59,6 +59,8 @@ services:
       AGENTFLOW_SESSION_SECRET: ${AGENTFLOW_SESSION_SECRET:?Run scripts/configure.sh first}
       AGENTFLOW_AUTH_REQUIRED: "true"
       AGENTFLOW_ALLOW_SIGNUP: ${AGENTFLOW_ALLOW_SIGNUP:-true}
+      # Only tightens password sign-up; empty inherits AGENTFLOW_ALLOW_SIGNUP.
+      AGENTFLOW_ALLOW_PASSWORD_SIGNUP: ${AGENTFLOW_ALLOW_PASSWORD_SIGNUP:-}
       AGENTFLOW_SECURE_COOKIES: ${AGENTFLOW_SECURE_COOKIES:-false}
       AGENTFLOW_GITHUB_CLIENT_ID: ${AGENTFLOW_GITHUB_CLIENT_ID:-}
       # Feishu (飞书) web login. Set all of APP_ID, APP_SECRET and the allowed

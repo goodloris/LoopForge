@@ -623,6 +623,23 @@ paths:
               schema: {type: string}
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /api/auth/setup:
+    get:
+      tags: [Users]
+      operationId: authSetup
+      summary: Read the login page state (public)
+      responses:
+        "200":
+          description: Whether the deployment still needs its first account and which sign-in paths are offered
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  needsSetup: {type: boolean, description: The deployment has no user yet; the first registration becomes the administrator}
+                  signupEnabled: {type: boolean, description: Any self-service sign-up path is open (always true while needsSetup)}
+                  passwordSignupEnabled: {type: boolean, description: The password sign-up form is open (always true while needsSetup)}
+                  feishuEnabled: {type: boolean, description: Feishu sign-in is configured}
   /api/auth/photo/{spec}/{username}:
     get:
       tags: [System]
@@ -803,7 +820,9 @@ paths:
                 type: object
                 properties:
                   accounts: {type: array, items: {$ref: "#/components/schemas/PlatformAccount"}}
-                  signupEnabled: {type: boolean}
+                  signupEnabled: {type: boolean, description: Any self-service sign-up path is open (AGENTFLOW_ALLOW_SIGNUP)}
+                  passwordSignupEnabled: {type: boolean, description: The password sign-up form is open (AGENTFLOW_ALLOW_SIGNUP and AGENTFLOW_ALLOW_PASSWORD_SIGNUP)}
+                  feishuEnabled: {type: boolean, description: Feishu sign-in is configured}
         "403": {description: Platform administrator access required}
     post:
       tags: [Users]
