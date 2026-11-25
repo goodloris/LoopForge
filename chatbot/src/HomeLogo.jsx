@@ -1,7 +1,7 @@
 import React, { useId } from "react";
 import "./home-logo.css";
 
-// The LooPool ring (source artwork from agenzo-rsi console-ui, reused with
+// The Loopool ring (source artwork from agenzo-rsi console-ui, reused with
 // permission): the crust draws itself clockwise, the sesame and the closing
 // arrow settle after it. A logo keeps its own colours, so this mark does not
 // follow the theme. prefers-reduced-motion drops straight to the final frame.

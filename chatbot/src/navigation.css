@@ -98,7 +98,7 @@
   height: 25px;
 }
 
-/* The LooPool ring is a full-colour glyph, so it never sits on a filled box
+/* The Loopool ring is a full-colour glyph, so it never sits on a filled box
    (the home shell otherwise gives .brand-icon a dark rounded background). */
 .brand-icon.brand-icon-loopool,
 .chat-shell .brand-icon.brand-icon-loopool,

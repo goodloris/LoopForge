@@ -61,7 +61,7 @@ import IssueContext from "./IssueContext";
 import { insertMention } from "./mentions.js";
 import { elementTitle } from "./element-context.js";
 import HarnessIcon from "./HarnessIcon";
-import LooPoolMark from "./LooPoolMark";
+import LoopoolMark from "./LoopoolMark";
 import QueuedMessages from "./QueuedMessages";
 import { turnModeCaption } from "./message-info.js";
 import "./message-queue.css";
@@ -1253,14 +1253,14 @@ export default function App() {
         <button
           className="brand-home"
           onClick={startNewChat}
-          aria-label="LooPool 首页"
+          aria-label="Loopool 首页"
           inert={!sidebar}
           aria-hidden={!sidebar || undefined}
         >
           <span className="brand-icon brand-icon-loopool">
-            <LooPoolMark size={25} />
+            <LoopoolMark size={25} />
           </span>
-          <strong>LooPool</strong>
+          <strong>Loopool</strong>
         </button>
         <IconButton
           className="sidebar-toggle"

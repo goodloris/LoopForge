@@ -50,8 +50,8 @@ export default function HomeWelcome() {
         <HomeLogo />
         <div className="home-welcome-copy">
           <h1 className="home-welcome-title">
-            <span className="home-welcome-title-ink">LooPool</span>
-            <span className="home-welcome-title-light" aria-hidden="true">LooPool</span>
+            <span className="home-welcome-title-ink">Loopool</span>
+            <span className="home-welcome-title-light" aria-hidden="true">Loopool</span>
             <TitleSweep />
           </h1>
           <p className="home-welcome-subtitle">

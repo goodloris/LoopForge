@@ -59,7 +59,7 @@ func (s *Service) EnsureAndMergeBranchMR(project, sourceBranch, targetBranch, ti
 		}
 		createTitle := strings.TrimSpace(title)
 		if createTitle == "" {
-			createTitle = fmt.Sprintf("LooPool: %s → %s", src, tgt)
+			createTitle = fmt.Sprintf("Loopool: %s → %s", src, tgt)
 		}
 		createDesc := strings.TrimSpace(description)
 		if createDesc == "" {
