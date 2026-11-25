@@ -493,6 +493,11 @@ func (h *authHandlers) feishuCallback(c *gin.Context) {
 	}
 	user, err := h.resolveFeishuUser(subject, info)
 	if err != nil {
+		var existing *feishuExistingAccountError
+		if errors.As(err, &existing) {
+			feishuExistingAccountPage(c, existing.Logins)
+			return
+		}
 		if errors.Is(err, errFeishuSignupDisabled) {
 			feishuErrorPage(c, http.StatusForbidden, "自助注册已关闭", "平台未开启自助注册，请联系管理员先创建账号后再用飞书登录。")
 			return
@@ -519,6 +524,27 @@ func (h *authHandlers) feishuCallback(c *gin.Context) {
 
 var errFeishuSignupDisabled = errors.New("feishu self-service signup is disabled")
 
+// feishuExistingAccountError stops auto-provisioning: the Feishu identity is
+// already connected (grant) to accounts that do not sign in with it.
+type feishuExistingAccountError struct{ Logins []string }
+
+func (e *feishuExistingAccountError) Error() string {
+	return "feishu identity is connected to an existing account"
+}
+
+// feishuExistingAccountPage tells a member who already connected this Feishu
+// identity from another account to bind sign-in there instead. Only login
+// names are shown.
+func feishuExistingAccountPage(c *gin.Context, logins []string) {
+	names := make([]string, 0, len(logins))
+	for _, l := range logins {
+		names = append(names, "<code>"+html.EscapeString(l)+"</code>")
+	}
+	feishuErrorPage(c, http.StatusConflict, "检测到你已有平台账号",
+		"检测到你已有平台账号 "+strings.Join(names, "、")+
+			"，请先用该账号登录，在个人配置 → 飞书里勾选或点击「同时用于登录」完成绑定，再用飞书登录。")
+}
+
 // resolveFeishuUser binds the sign-in to an existing Feishu account or, when
 // permitted, provisions a new one. It never matches a password account: lookup
 // and creation go only through the (feishu, tenant_key, subject) identity.
@@ -544,6 +570,23 @@ func (h *authHandlers) resolveFeishuUser(subject string, info feishuUserInfo) (d
 	defer registerMu.Unlock()
 	if existing, ok := h.repo.UserByIdentity(identity.Provider, identity.Tenant, identity.Subject); ok {
 		return existing, nil
+	}
+	// An account that already connected this Feishu identity (any grant
+	// status) but does not sign in with it: never provision a duplicate and
+	// never bind silently; the member must bind from that account.
+	holders, err := h.repo.FeishuGrantHolders(identity.Tenant, identity.Subject)
+	if err != nil {
+		return domain.User{}, err
+	}
+	if len(holders) > 0 {
+		logins := make([]string, 0, len(holders))
+		ids := make([]int64, 0, len(holders))
+		for _, u := range holders {
+			logins = append(logins, u.LoginName)
+			ids = append(ids, u.ID)
+		}
+		log.Printf("[feishu] sign-in skipped auto-provision: identity is connected to accounts %v", ids)
+		return domain.User{}, &feishuExistingAccountError{Logins: logins}
 	}
 	first := h.repo.UserCount() == 0
 	if !first && !signupEnabled() {

@@ -581,10 +581,13 @@ func (h *usersHandlers) feishuConnectCallback(c *gin.Context, cfg feishuConfig, 
 }
 
 // feishuIdentityTakenPage refuses an identity that signs in to another
-// account. Accounts are never merged automatically.
+// account and tells the member how to resolve it themselves (sign in to that
+// account with Feishu) or through an admin. Accounts are never merged
+// automatically, and only the other account's login name is shown.
 func feishuIdentityTakenPage(c *gin.Context, ownerLogin string) {
 	feishuConnectPage(c, http.StatusForbidden, "该飞书账号已被其他账号使用",
-		"这个飞书账号是平台账号 <code>"+html.EscapeString(ownerLogin)+"</code> 的登录身份。平台不会自动合并账号，请联系平台管理员先处理那个账号后再试。")
+		"这个飞书账号已经是另一个平台账号 <code>"+html.EscapeString(ownerLogin)+"</code> 的登录身份。"+
+			"如果那是你自己的另一个账号，请用飞书登录那个账号，或联系平台管理员合并。")
 }
 
 // feishuConnectPage renders a small HTML page linking back to personal

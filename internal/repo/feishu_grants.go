@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+
+	"agentflow/internal/domain"
 )
 
 // A Feishu grant is a member's consent for the platform to call Feishu as
@@ -136,6 +138,34 @@ func (r *UsersRepo) FeishuGrant(userID int64) (FeishuGrant, bool) {
 		RefreshExpiresAt: timeOrZero(row.RefreshExpiresAt),
 		UpdatedAt:        timeOrZero(row.UpdatedAt),
 	}, true
+}
+
+// FeishuGrantHolders lists the accounts whose Feishu grant (any status:
+// active, expired or revoked) is for (tenant, subject) and that have no
+// Feishu sign-in identity of their own, oldest first. Feishu sign-in uses it
+// to avoid provisioning a duplicate account for a member who already
+// connected Feishu from a password account. An empty subject never matches.
+func (r *UsersRepo) FeishuGrantHolders(tenant, subject string) ([]domain.User, error) {
+	tenant, subject = strings.TrimSpace(tenant), strings.TrimSpace(subject)
+	if subject == "" {
+		return nil, nil
+	}
+	var ids []int64
+	err := r.DB.Raw(`SELECT g.user_id FROM user_feishu_grants g
+		WHERE g.tenant = ? AND g.subject = ?
+		AND NOT EXISTS (SELECT 1 FROM user_identities i WHERE i.user_id = g.user_id AND i.provider = ?)
+		ORDER BY g.user_id ASC`, tenant, subject, IdentityProviderFeishu).Scan(&ids).Error
+	if err != nil {
+		return nil, err
+	}
+	out := make([]domain.User, 0, len(ids))
+	for _, id := range ids {
+		// Skip orphaned grant rows whose user no longer exists.
+		if u, ok := r.User(id); ok {
+			out = append(out, u)
+		}
+	}
+	return out, nil
 }
 
 // RevokeFeishuGrant clears the member's tokens and marks the grant revoked.

@@ -151,7 +151,7 @@ func TestFeishuBindRefusesIdentityOfAnotherAccount(t *testing.T) {
 	session := sessionCookie(t, client, admin)
 	_, state := feishuBindStartAs(t, h, session)
 	rec := feishuConnectCallbackAs(t, h, session, state, "good")
-	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), provisioned.LoginName) || !strings.Contains(rec.Body.String(), "不会自动合并") {
+	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), provisioned.LoginName) || !strings.Contains(rec.Body.String(), "另一个平台账号") || !strings.Contains(rec.Body.String(), "用飞书登录那个账号") || !strings.Contains(rec.Body.String(), "联系平台管理员合并") {
 		t.Fatalf("taken identity = %d %s", rec.Code, rec.Body.String())
 	}
 	if owner, _ := s.UserByIdentity(repo.IdentityProviderFeishu, "tenantA", "union-1"); owner.ID != provisioned.ID {
@@ -168,7 +168,7 @@ func TestFeishuBindRefusesIdentityOfAnotherAccount(t *testing.T) {
 	c.Request = req
 	h.users.feishuConnectStart(c)
 	loc, _ := url.Parse(rec2.Header().Get("Location"))
-	if rec := feishuConnectCallbackAs(t, h, session, loc.Query().Get("state"), "good"); rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "不会自动合并") {
+	if rec := feishuConnectCallbackAs(t, h, session, loc.Query().Get("state"), "good"); rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "联系平台管理员合并") {
 		t.Fatalf("connect+bind of a taken identity = %d %s", rec.Code, rec.Body.String())
 	}
 	if _, ok := s.FeishuGrant(admin.ID); ok {
