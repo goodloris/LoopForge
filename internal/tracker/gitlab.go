@@ -351,7 +351,7 @@ func (s *Service) gitlabMergeBranch(project, branch, target, title, description 
 			return "", err
 		}
 		if title == "" {
-			title = fmt.Sprintf("LooPool: %s → %s", branch, target)
+			title = fmt.Sprintf("Loopool: %s → %s", branch, target)
 		}
 		if description == "" {
 			description = fmt.Sprintf("定时 SOP 将 `%s` 合入 `%s`。", branch, target)
@@ -512,7 +512,7 @@ func (s *Service) EnsureBranchMR(project, sourceBranch, targetBranch string, use
 		return domain.DeliveryMR{}, false, err
 	}
 	var created gitlabMR
-	title := fmt.Sprintf("LooPool: %s → %s", src, target)
+	title := fmt.Sprintf("Loopool: %s → %s", src, target)
 	if err := g.do("POST", g.projectPath("/merge_requests"), map[string]any{"source_branch": src, "target_branch": target, "title": title, "remove_source_branch": false}, &created); err != nil {
 		// A create race may have left a reusable MR; search again before failing.
 		if again, ok, findErr := g.findMR(src, target); findErr == nil && ok {

@@ -214,13 +214,13 @@ func integrateMRTitle(r domain.Run, rc domain.RepositoryContext, work, integrate
 		if def == "" {
 			def = work
 		}
-		return fmt.Sprintf("LooPool: 对齐 %s → %s", def, integrate)
+		return fmt.Sprintf("Loopool: 对齐 %s → %s", def, integrate)
 	}
 	label := integrationCommitLabel(r)
 	if label == "" || label == "scheduled SOP work" {
-		return fmt.Sprintf("LooPool: %s → %s", work, integrate)
+		return fmt.Sprintf("Loopool: %s → %s", work, integrate)
 	}
-	return fmt.Sprintf("LooPool: %s → %s", label, integrate)
+	return fmt.Sprintf("Loopool: %s → %s", label, integrate)
 }
 
 func integrateMRDescription(r domain.Run, work, integrate string) string {

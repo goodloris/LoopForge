@@ -1,6 +1,6 @@
 import React, { useId } from "react";
 
-// The LooPool ring, static, for the sidebar rail brand. Same artwork as the home
+// The Loopool ring, static, for the sidebar rail brand. Same artwork as the home
 // logo (web/loopool-mark.svg); a logo keeps its own baked colours in both themes.
 const SEEDS = [
   [14.25, 42.25, 255], [15.1, 27.47, 300], [22, 14.68, 345], [28.61, 51.2, 205],
@@ -9,7 +9,7 @@ const SEEDS = [
   [27.43, 10.48, 3],
 ];
 
-export default function LooPoolMark({ size = 25 }) {
+export default function LoopoolMark({ size = 25 }) {
   const identity = useId().replaceAll(":", "");
   const crust = `bgl-crust-${identity}`;
   const tip = `bgl-tip-${identity}`;
@@ -22,7 +22,7 @@ export default function LooPoolMark({ size = 25 }) {
       height={size}
       fill="none"
       role="img"
-      aria-label="LooPool"
+      aria-label="Loopool"
       focusable="false"
     >
       <defs>

@@ -35,7 +35,7 @@ export default function ExecutionMachinePicker({ chat, onManage }) {
       : "加载执行机器…"
     : runnerId
       ? machine?.name || runnerId
-      : "LooPool 云端";
+      : "Loopool 云端";
   const online =
     known &&
     (runnerId
@@ -60,7 +60,7 @@ export default function ExecutionMachinePicker({ chat, onManage }) {
     ? [
         {
           id: "",
-          label: "LooPool 云端",
+          label: "Loopool 云端",
           icon: "server",
           description:
             chat.cloudPool?.configured && !chat.cloudPool.online

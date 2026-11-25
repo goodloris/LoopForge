@@ -13,8 +13,8 @@ function accessMcpAgentPrompt(spec,base,token){
   if(!token||token==='<YOUR_PERSONAL_TOKEN>')return '';
   const guide = `${base}/mcp-setup.txt`;
   const instructions = window.lfT(
-    `请为 ${spec.label} 接入 LooPool 平台 MCP。使用 curl 下载 ${guide}（禁止使用 fetch），按指南中 ${spec.label} 的步骤配置，最后用 tools/list 验证连接。`,
-    `Connect ${spec.label} to the LooPool platform MCP server. Download ${guide} with curl, follow the steps for ${spec.label}, then verify the connection with tools/list.`
+    `请为 ${spec.label} 接入 Loopool 平台 MCP。使用 curl 下载 ${guide}（禁止使用 fetch），按指南中 ${spec.label} 的步骤配置，最后用 tools/list 验证连接。`,
+    `Connect ${spec.label} to the Loopool platform MCP server. Download ${guide} with curl, follow the steps for ${spec.label}, then verify the connection with tools/list.`
   );
   return `${instructions}\n\nAPI_TOKEN = ${token}\nENDPOINT = ${base}/mcp`;
 }
@@ -126,7 +126,7 @@ function accessTokenSetupHTML(token){
     <div class="token-setup-layout">
       <div class="token-setup-intro">
         <div class="token-created">${huiIcon('check')}访问密钥已创建</div>
-        <h2 id="token-setup-title" tabindex="-1">连接 LooPool 平台 MCP</h2>
+        <h2 id="token-setup-title" tabindex="-1">连接 Loopool 平台 MCP</h2>
         <p>接入后，可以在 AI 对话里查询项目、需求和运行进度。</p>
         <fieldset class="token-client-picker">
           <legend>选择 AI 客户端</legend>
@@ -275,7 +275,7 @@ async function revokePersonalToken(id){
 
 let commandMatches=[],commandSelectedIndex=0;
 function commandCatalog(){
-  const pages=[['collaboration','AI 工作台','和 AI 对话，派发与跟进任务'],['issues','需求列表','查看进度，触发或重试'],['approvals','待我确认','批准或退回卡住的需求'],['observability','统计','用量分析 · Token 与质量'],['settings','个人配置','账号、模型与执行凭据'],['projects','项目配置','项目、成员和仓库'],['bots','通道管理','企业微信单聊或群聊通知通道'],['sops','流程模板','Issue 修复与需求开发'],['runs','运行记录','查看节点日志和产物'],['aiSchedules','定时任务','提示词任务、SOP 触发与共享任务'],['agents','角色定义','管理角色和能力资产'],['mcp','能力资产 · MCP','添加项目级或个人 MCP'],['rules','能力资产 · 规则','当前项目的行为与执行约束'],['skills','能力资产 · 技能','当前项目的技能和附加文件'],['runners','执行机器','用自己的电脑或 CVM 跑任务'],['dockerfiles','环境资产 · Dockerfile','管理项目容器构建定义'],['environments','环境资产 · 安装脚本','管理隔离环境的工具安装脚本'],['sandboxes','环境资产 · 沙箱','管理项目运行隔离策略'],['guide','访问密钥','创建和撤销访问密钥']].map(([view,title,meta])=>({kind:'页面',title,meta,action:()=>switchView(view)}));
+  const pages=[['collaboration','AI 工作台','和 AI 对话，派发与跟进任务'],['issues','需求列表','查看进度，触发或重试'],['approvals','待我确认','批准或退回卡住的需求'],['observability','统计','用量分析 · Token 与质量'],['settings','个人配置','账号、模型与执行凭据'],['projects','项目配置','项目、成员和仓库'],['bots','通道管理','企业微信单聊或群聊通知通道'],['sops','流程模板','Issue 修复与需求开发'],['runs','运行记录','查看节点日志和产物'],['aiSchedules','定时任务','提示词任务、SOP 触发与共享任务'],['agents','角色定义','管理角色和能力资产'],['mcp','能力资产 · MCP','添加项目级或个人 MCP'],['rules','能力资产 · 规则','当前项目的行为与执行约束'],['skills','能力资产 · 技能','当前项目的技能和附加文件'],['runners','执行机器','用自己的电脑或 CVM 跑任务'],['dockerfiles','环境资产 · Dockerfile','管理项目容器构建定义'],['environments','环境资产 · 安装脚本','管理隔离环境的工具安装脚本'],['sandboxes','环境资产 · 沙箱','管理项目运行隔离策略'],['guide','访问密钥','创建和撤销访问密钥']].filter(([view])=>channelsEnabled||view!=='bots').map(([view,title,meta])=>({kind:'页面',title,meta,action:()=>switchView(view)}));
   const issues=(state.data.issues||[]).map(i=>({kind:'需求',title:i.title,meta:`${i.priority||'—'} · ${issueStatusLabel(i.status)}`,action:()=>openIssueDetail(i.id)}));
   const runs=sopRuns(state.data.runs).map(r=>({kind:'运行',title:runIssueTitle(r),meta:`${runDisplayStatus(r)} · ${r.workflowSnapshot?.name||r.workflowId}`,action:()=>openRunFromId(r.id)}));
   const sops=catalogWorkflows().map(w=>({kind:'SOP',title:w.name,meta:`${w.status==='published'?'已发布':'草稿'} · ${w.nodes?.length||0} 个节点`,action:()=>{state.workflow=clone(w);state.selectedNode=null;switchView('flow')}}));

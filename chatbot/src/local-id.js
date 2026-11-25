@@ -2,7 +2,7 @@ let counter = 0;
 
 /**
  * Client-side id for placeholders that never leave the browser.
- * crypto.randomUUID only exists in secure contexts, and LooPool is served
+ * crypto.randomUUID only exists in secure contexts, and Loopool is served
  * over plain HTTP, so fall back to a timestamp, a counter and a random suffix.
  * These ids only key UI state and must not be used as secrets.
  */

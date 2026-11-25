@@ -4,9 +4,11 @@
 import { test, expect, watchErrors } from './fixtures.mjs';
 
 // Keep in sync with viewTitles() in web/app.js; a renamed or dropped view is
-// a visible product change the suite should notice.
+// a visible product change the suite should notice. 通道管理 (bots) is hidden
+// behind channelsEnabled=false in app.js: its nav entry is removed and the
+// route redirects, so it is not a navigable view here.
 const TITLES = {
-  collaboration: 'AI 工作台', issues: '需求列表', aiSchedules: '定时任务', bots: '通道管理', assistant: 'AI 助手', runs: '运行记录',
+  collaboration: 'AI 工作台', issues: '需求列表', aiSchedules: '定时任务', assistant: 'AI 助手', runs: '运行记录',
   approvals: '待我确认', sops: '流程模板', flow: '流程设计', agents: '角色定义', mcp: '能力资产', rules: '能力资产', skills: '能力资产',
   dockerfiles: '环境资产', environments: '环境资产', sandboxes: '环境资产', observability: '统计', projects: '项目配置',
   platform: '平台管理', runners: '执行机器', settings: '个人配置', guide: '访问密钥',
@@ -32,6 +34,23 @@ test('legacy routes land on their replacements', async ({ page }) => {
   await page.goto('about:blank');
   await page.goto('/#/no-such-view');
   await expect(page.locator('#pageTitle')).toHaveText(TITLES.collaboration);
+  expect(errors).toEqual([]);
+});
+
+// 通道管理 (bots) is hidden behind channelsEnabled=false in web/app.js. Its
+// nav entry is removed and a direct route redirects instead of showing the
+// view or a blank page. The CRUD/permission coverage in 03-workbench-settings
+// is skipped while the flag is off; turn channelsEnabled back on to restore it.
+test('the hidden 通道管理 (bots) entry is gone and its route redirects', async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.goto('/#/collaboration');
+  await expect(page.locator('#pageTitle')).toHaveText(TITLES.collaboration);
+  await expect(page.locator('.platform-sidebar .nav[data-view="bots"]')).toHaveCount(0);
+  // A fresh direct load of the route must not show the bots view or a blank page.
+  await page.goto('about:blank');
+  await page.goto('/#/bots');
+  await expect(page.locator('#botsView')).toBeHidden();
+  await expect(page.locator('#pageTitle')).not.toHaveText('');
   expect(errors).toEqual([]);
 });
 

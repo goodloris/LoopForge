@@ -10,7 +10,7 @@
 |---|---|---|---|
 | Grasp | 见许可文件 | 视觉结构：工作台布局、侧栏、产物抽屉、模型品牌图标 | MIT，`chatbot/src/assets/provider-logos/LICENSE.grasp`、`chatbot/src/assets/provider-logos/SOURCE.md` |
 | Harness UI | 见许可文件 | 图标与动效，Status Badge、Selector、SlidingTabs、Switch 等组件设计语言，以及需求列表、运行记录、Bot 管理、知识中心、流程模板卡片的面板语言 | MIT，上游版本 `da2e476895331ef4afee30878af0fb3fb1c73131`，`chatbot/src/HARNESS-UI-LICENSE.txt`、`web/app/harness-ui-LICENSE.txt` |
-| LooPool 品牌 | 见素材文件 | 品牌标记与字标（圆环 + 文字）：favicon、登录页与首页 Logo | 来自 agenzo-rsi `apps/console-ui`（tommy，2026-11-02），经授权复用；源文件 `web/loopool-mark.svg`、`web/loopool-logo.svg` |
+| Loopool 品牌 | 见素材文件 | 品牌标记与字标（圆环 + 文字）：favicon、登录页与首页 Logo | 来自 agenzo-rsi `apps/console-ui`（tommy，2026-11-02），经授权复用；源文件 `web/loopool-mark.svg`、`web/loopool-logo.svg` |
 
 引入上游素材或代码时保留对应的 MIT 许可与来源说明。
 
@@ -240,7 +240,7 @@
 
 首页采用左 Logo、右标题和副标题的组合，背景透明。Logo 使用 SVG 路径绘制，不播放视频、不插入全屏遮罩，输入区始终可用。
 
-顺序为：LooPool 圆环的酥皮描边自绘，芝麻与收口箭头随后落位，与圆环同色的酥皮光圈扫出标题，副标题“把想法，变成下一步。”连续显现，最后停止在正常主题下的静态字标。品牌标记保留自身的烘焙配色，不随明暗主题切换。
+顺序为：Loopool 圆环的酥皮描边自绘，芝麻与收口箭头随后落位，与圆环同色的酥皮光圈扫出标题，副标题“把想法，变成下一步。”连续显现，最后停止在正常主题下的静态字标。品牌标记保留自身的烘焙配色，不随明暗主题切换。
 
 所有阶段共用 `--home-intro-tempo: .45`，包括尾环的延迟，避免只加快局部造成不同步。
 

@@ -1,5 +1,33 @@
 // Compact SOP Bot settings and the shared AI schedule/assistant notification editor.
 const nodeBotCache=new Map(),notificationBotRequests=new Map();
+// 通道管理关闭时（channelsEnabled=false），通知通道选择器只在存在历史配置或项目已配置
+// Bot 时以只读形式展示；没有任何历史时整块隐藏。读到的绑定不改动，保存按原数据写回，
+// 后端照常发送，不改后端。重新打开功能把 app.js 的 channelsEnabled 改回 true 即可。
+function channelsNotificationHidden(host,bindings,options,remount){
+ if(channelsEnabled)return false;
+ const wrap=host.closest('.flow-settings-notifications,.schedule-notifications');
+ const hasBinding=(bindings||[]).some(b=>b&&b.botId);
+ if(hasBinding)return false;
+ const cached=nodeBotCache.get(options.projectId);
+ if(!cached){host.innerHTML='';host.hidden=true;if(wrap)wrap.hidden=true;loadNotificationBots(options.projectId).then(()=>{if(host.isConnected)remount()});return true}
+ if(!(cached.bots||[]).length){host.innerHTML='';host.hidden=true;if(wrap)wrap.hidden=true;return true}
+ return false;
+}
+function applyChannelsReadonly(host){
+ if(channelsEnabled||!host)return;
+ host.hidden=false;
+ // The SOP notification section is static; re-show it in case a previous SOP
+ // with no Bot hid it. The schedule section is re-shown per job kind upstream.
+ host.closest('.flow-settings-notifications')?.removeAttribute('hidden');
+ host.querySelector('[data-notification-manage]')?.remove();
+ host.querySelectorAll('select,textarea,input,button').forEach(el=>{el.disabled=true});
+ if(!host.querySelector('[data-channels-readonly-note]')){
+  const note=document.createElement('p');
+  note.className='prop-hint';note.dataset.channelsReadonlyNote='1';
+  note.textContent='通道功能已关闭，以下为历史通知配置，仅供查看，保存不会改变它。';
+  host.prepend(note);
+ }
+}
 const defaultAIInstruction='用简洁自然的语气总结本次实际完成的事项、已有验证结果和后续需要关注的事情。不要包含凭据、原始日志或无关上下文。';
 function notificationPayload(bindings){return(bindings||[]).map(b=>({botId:b.botId||'',events:[...(b.events||[])],template:b.template||'',scope:b.scope||'',contentMode:b.contentMode||'template',aiInstruction:b.aiInstruction||'',waitingPolicy:b.waitingPolicy||'actionable'}))}
 function notificationUsesAI(binding){return binding.contentMode==='ai'||!!binding.aiInstruction||/\{\{\s*ai\./.test(binding.template||'')}
@@ -24,6 +52,7 @@ function sopNotificationHTML(bindings,options){
  return `<label>通知 Bot<select class="select" data-sop-notification-bot><option value="">不启用通知</option>${binding?.botId&&!bots.some(b=>b.id===binding.botId)?`<option value="${escapeHTML(binding.botId)}" selected>Bot 不可访问，请重新选择</option>`:''}${bots.map(b=>`<option value="${escapeHTML(b.id)}" ${binding?.botId===b.id?'selected':''} ${!b.enabled||!b.target?'disabled':''}>${escapeHTML(b.name)} · ${b.target?`${b.target.type==='group'?'群聊':'单聊'}：${escapeHTML(b.target.name)}`:'未绑定聊天'}</option>`).join('')}</select></label><div class="notification-config-head"><span>${cached?.error?escapeHTML(cached.error):!cached?'正在获取本项目 Bot…':'选中后自动提醒失败、待人工处理，并在 SOP 完成后发送汇报。'}</span><button type="button" class="button ghost small" data-notification-refresh>刷新 Bot</button><button type="button" class="button ghost small" data-notification-manage>Bot 管理</button></div>${binding?`<p class="prop-hint">SOP 完成后使用所选 Bot 配置的 CLI 模型单独生成整体报告，凭据沿用本次 SOP 执行身份。缺少凭据或生成失败时发送标准完成消息。</p><details data-sop-notification-custom><summary>自定义完成汇报（选填）</summary><label>AI 编写要求<textarea class="input" rows="3" data-sop-notification-instruction placeholder="${escapeHTML(defaultAIInstruction)}">${escapeHTML(binding.aiInstruction||'')}</textarea></label><div class="sop-message-compose"><div class="sop-message-edit"><div class="sop-message-help"><b>完成消息</b><p class="prop-hint">直接写想说的话，点击下面的内容即可插入。按钮会插入英文占位符，发送时自动替换为实际内容，不需要手动记忆或输入。留空则使用默认汇报。</p><div class="sop-message-fields">${sopNotificationFieldButtons(sopNotificationFields.slice(0,4))}<button type="button" class="button ghost small" data-sop-notification-recommended>用推荐格式</button></div><details class="sop-more-fields"><summary>更多可插入内容</summary><div class="sop-message-fields">${sopNotificationFieldButtons(sopNotificationFields.slice(4,10))}</div><p class="prop-hint">项目名称是当前项目，简短摘要是完成汇报的精简内容，节点执行结果会汇总各步骤的输出。</p></details></div><label>消息内容<textarea class="input" rows="5" data-sop-notification-template placeholder="留空使用默认汇报。也可以点击「用推荐格式」，再修改文案。">${escapeHTML(binding.template||'')}</textarea></label></div><div class="sop-notification-example"><div><b>接收者看到的消息示例</b><small>示例数据 · 不发送通知</small></div><div class="markdown-body" data-sop-notification-preview aria-live="polite">展开后加载示例…</div><p class="prop-hint">以示例需求「登录校验优化」展示。实际内容会替换为本次需求和执行结果；AI 编写要求在实际执行时生效。</p></div></div><p class="prop-hint">独立 AI 汇总所有节点的输出、验证信息和历史产物，提炼需求的整体成果。以上设置仅影响完成汇报，失败与待人工提醒始终使用标准消息。</p></details>`:''}`;
 }
 function mountSOPNotificationEditor(host,bindings,options,onChange){
+ if(channelsNotificationHidden(host,bindings,options,()=>mountSOPNotificationEditor(host,bindings,options,onChange)))return;
  const revision=(host._notificationEditorRevision||0)+1;host._notificationEditorRevision=revision;
  const expanded=host.querySelector('[data-sop-notification-custom]')?.open;
  host.innerHTML=sopNotificationHTML(bindings,options);
@@ -53,6 +82,7 @@ function mountSOPNotificationEditor(host,bindings,options,onChange){
  host.querySelector('[data-sop-notification-recommended]')?.addEventListener('click',()=>{area.value=recommendedSOPNotificationTemplate;area.focus();update()});
  host.querySelector('[data-sop-notification-instruction]')?.addEventListener('input',e=>{bindings[0].aiInstruction=e.target.value;bindings[0].contentMode='ai';onChange();preview()});
  if(expanded)preview();
+ applyChannelsReadonly(host);
 }
 function notificationBindingsHTML(bindings,options){
  const cached=nodeBotCache.get(options.projectId),bots=cached?.bots||[],task=options.sourceType!=='run',node=options.kind==='node',sop=options.kind==='sop';
@@ -61,6 +91,7 @@ function notificationBindingsHTML(bindings,options){
 function mountNotificationEditor(host,bindings,options,onChange=()=>{}){
  if(!host)return;
  if(options.kind==='sop'){mountSOPNotificationEditor(host,bindings,options,onChange);return}
+ if(channelsNotificationHidden(host,bindings,options,()=>mountNotificationEditor(host,bindings,options,onChange)))return;
  const focused=host.querySelector('textarea:focus'),focusRow=focused?.closest('[data-notification-index]')?.dataset.notificationIndex,focusSelector=focused?.hasAttribute('data-notification-template')?'[data-notification-template]':'[data-notification-instruction]',selection=focused?[focused.selectionStart,focused.selectionEnd]:null;const editorRevision=(host._notificationEditorRevision||0)+1;host._notificationEditorRevision=editorRevision;
  const scrolling=host.closest('.prop-body,.schedule-config-pane,.ai-draft-body');const scrollTop=scrolling?.scrollTop;
  host.innerHTML=notificationBindingsHTML(bindings,options);
@@ -90,4 +121,5 @@ function mountNotificationEditor(host,bindings,options,onChange=()=>{}){
   });
   row.querySelector('[data-notification-remove]').onclick=()=>{bindings.splice(index,1);render()};preview();
  });
+ applyChannelsReadonly(host);
 }

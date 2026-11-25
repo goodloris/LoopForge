@@ -238,8 +238,8 @@
           'agentflow.repositories': repositories
         },
         productConfiguration: {
-          nameShort: 'LooPool VS Code',
-          nameLong: 'LooPool VS Code',
+          nameShort: 'Loopool VS Code',
+          nameLong: 'Loopool VS Code',
           applicationName: 'agentflow-vscode',
           dataFolderName: '.agentflow-vscode',
           version: '1.91.1',

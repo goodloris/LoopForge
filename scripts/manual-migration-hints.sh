@@ -15,7 +15,8 @@
 # while a finished execution of the last 30 days has no hourly bucket; 041
 # while a built-in role still names executorId codebuddy; 042 while the
 # welcome project is still 「LoopForge 体验项目」 or a built-in SOP's owner is
-# LoopForge; 044 while either still holds the LoopForge or Bagel label. 033 and 038_generic_sop_host_credentials are replayed by
+# LoopForge; 044 while either still holds the LoopForge or Bagel label; 045
+# while either still holds the earlier LooPool capitalisation. 033 and 038_generic_sop_host_credentials are replayed by
 # scripts/install-schema-extensions.sh and need no hint. PostgreSQL
 # installations started from a seed that already holds 033 and 037.
 #
@@ -131,6 +132,12 @@ WHERE EXISTS (SELECT 1 FROM projects WHERE id = 'welcome' AND name IN ('LoopForg
    OR EXISTS (SELECT 1 FROM generic_templates WHERE id IN ('generic-backend-delivery', 'generic-frontend-delivery', 'issue-fix-production', 'generic-product-delivery')
      AND payload::jsonb #>> '{Workflow,owner}' IN ('LoopForge', 'Bagel'));
 SQL
+check 045_loopool_lowercase_builtin_labels.sql <<'SQL'
+SELECT 1
+WHERE EXISTS (SELECT 1 FROM projects WHERE id = 'welcome' AND name = 'LooPool 体验项目')
+   OR EXISTS (SELECT 1 FROM generic_templates WHERE id IN ('generic-backend-delivery', 'generic-frontend-delivery', 'issue-fix-production', 'generic-product-delivery')
+     AND payload::jsonb #>> '{Workflow,owner}' = 'LooPool');
+SQL
 exit 0
 fi
 
@@ -206,5 +213,11 @@ SELECT 1 FROM DUAL
 WHERE EXISTS (SELECT 1 FROM projects WHERE id = 'welcome' AND name IN ('LoopForge 体验项目', 'Bagel 体验项目'))
    OR EXISTS (SELECT 1 FROM generic_templates WHERE id IN ('generic-backend-delivery', 'generic-frontend-delivery', 'issue-fix-production', 'generic-product-delivery')
      AND JSON_UNQUOTE(JSON_EXTRACT(payload, '$.Workflow.owner')) IN ('LoopForge', 'Bagel'));
+SQL
+check 045_loopool_lowercase_builtin_labels.sql <<'SQL'
+SELECT 1 FROM DUAL
+WHERE EXISTS (SELECT 1 FROM projects WHERE id = 'welcome' AND name = 'LooPool 体验项目')
+   OR EXISTS (SELECT 1 FROM generic_templates WHERE id IN ('generic-backend-delivery', 'generic-frontend-delivery', 'issue-fix-production', 'generic-product-delivery')
+     AND JSON_UNQUOTE(JSON_EXTRACT(payload, '$.Workflow.owner')) = 'LooPool');
 SQL
 exit 0
