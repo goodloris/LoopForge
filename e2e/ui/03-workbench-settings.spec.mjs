@@ -194,7 +194,9 @@ test('personal credentials: the 代码仓库 row opens read-only and swaps in th
   expect(errors).toEqual([]);
 });
 
-test('notification bots: create through the editor, list, delete', async ({ page }) => {
+// 通道管理 (notification bots) UI is hidden behind channelsEnabled=false in
+// web/app.js; the backend/API is unchanged. Re-enable these when the flag is on.
+test.skip('notification bots: create through the editor, list, delete', async ({ page }) => {
   const name = `E2E UI 机器人 ${stamp()}`;
   const botId = uid('ui-bot');
   const errors = watchErrors(page);
@@ -230,7 +232,8 @@ test('notification bots: create through the editor, list, delete', async ({ page
   expect(errors).toEqual([]);
 });
 
-test('bot page: a viewer is read-only, a member can add but not manage others\' bots', async ({ browser }) => {
+// 通道管理 (notification bots) UI is hidden behind channelsEnabled=false; backend unchanged.
+test.skip('bot page: a viewer is read-only, a member can add but not manage others\' bots', async ({ browser }) => {
   test.skip(!!tokenBSkip, tokenBSkip);
   const userB = await tokenOwner(cfg.tokenB);
   const bot = await createBot(`E2E UI 只读机器人 ${stamp()}`);

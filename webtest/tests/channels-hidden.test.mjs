@@ -10,9 +10,7 @@ test('the 通道管理 entry is gone from the sidebar, command palette and view 
   t.after(app.close);
 
   const navBtn = app.document.querySelector('.nav[data-view="bots"]');
-  assert.ok(navBtn, 'the bots nav button still exists in the DOM');
-  assert.equal(navBtn.hidden, true, 'the bots nav button is hidden');
-  assert.equal(navBtn.style.display, 'none', 'the bots nav button is display:none');
+  assert.equal(navBtn, null, 'the bots nav entry is removed from the sidebar');
 
   assert.equal(app.evaluate('!!viewTitles().bots'), false, 'bots has no routable title');
   assert.equal(

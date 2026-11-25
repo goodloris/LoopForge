@@ -1021,7 +1021,7 @@ window.addEventListener('storage',event=>{if(!event.key||event.key===THEME_KEY)a
 
 function bind(){
 	prepareMCPFormHints();
-  if(!channelsEnabled)$$('.nav[data-view="bots"]').forEach(btn=>{btn.hidden=true;btn.style.display='none'});
+  if(!channelsEnabled)$$('.nav[data-view="bots"]').forEach(btn=>btn.remove());
   $('#returnToQuickAccess')?.addEventListener('click',returnToQuickAccess);
   $$('.nav[data-view]').forEach(btn=>btn.onclick=async()=>{
     if(!(await confirmAssetLeave()))return;
