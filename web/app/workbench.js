@@ -1983,17 +1983,29 @@ async function loadPlatformAccounts(host){
     if(!rows.length){list.innerHTML=`<div class="platform-empty-state"><b>${accounts.length?'没有匹配的账号':'还没有账号'}</b></div>`;return}
     list.innerHTML=rows.map(a=>{
       const name=a.chineseName&&a.chineseName.toLowerCase()!==String(a.loginName).toLowerCase()?`${a.loginName}(${a.chineseName})`:a.loginName;
-      const badges=[a.admin?'<span class="platform-source-badge source-builtin">平台管理员</span>':'',a.password?'<span class="platform-source-badge source-default">用户名密码</span>':'<span class="platform-source-badge source-default">GitHub / 网关登录</span>',!codeBuddyIsDefault()?'':a.codeBuddyApiKeyConfigured?'<span class="platform-source-badge source-env">已配 CodeBuddy Key</span>':'<span class="platform-source-badge source-default">未配 CodeBuddy Key</span>'].join('');
+      const badges=[a.admin?'<span class="platform-source-badge source-builtin">平台管理员</span>':'',a.password?'<span class="platform-source-badge source-default">用户名密码</span>':'<span class="platform-source-badge source-default">GitHub / 网关登录</span>',a.feishuLogin?'<span class="platform-source-badge source-default">飞书登录</span>':'',!codeBuddyIsDefault()?'':a.codeBuddyApiKeyConfigured?'<span class="platform-source-badge source-env">已配 CodeBuddy Key</span>':'<span class="platform-source-badge source-default">未配 CodeBuddy Key</span>'].join('');
       const editing=resetting===a.userId;
       return `<div class="platform-admin-row platform-account-row" data-account-row="${Number(a.userId)}">
         <div class="platform-admin-user">
           <div class="platform-admin-avatar">${userAvatarHTML(a.loginName,100)}</div>
           <div class="platform-admin-info"><span class="platform-admin-name" data-i18n-skip>${escapeHTML(name)}</span><div class="platform-admin-meta">${badges}</div></div>
         </div>
-        <div class="platform-admin-actions">${a.password?(editing?`<form class="platform-account-reset" data-reset-form="${Number(a.userId)}"><input name="password" placeholder="新密码，至少 6 位" aria-label="新密码" maxlength="72" autocomplete="new-password" spellcheck="false"><button type="button" class="button ghost small" data-reset-generate>随机</button><button type="submit" class="button primary small">确认重置</button><button type="button" class="button ghost small" data-reset-cancel>取消</button></form>`:`<button type="button" class="button ghost small" data-reset-account="${Number(a.userId)}">重置密码</button>`):'<span class="platform-locked-tag" title="通过 GitHub 或网关登录的账号没有平台密码">无平台密码</span>'}</div>
+        <div class="platform-admin-actions">${a.password?(editing?`<form class="platform-account-reset" data-reset-form="${Number(a.userId)}"><input name="password" placeholder="新密码，至少 6 位" aria-label="新密码" maxlength="72" autocomplete="new-password" spellcheck="false"><button type="button" class="button ghost small" data-reset-generate>随机</button><button type="submit" class="button primary small">确认重置</button><button type="button" class="button ghost small" data-reset-cancel>取消</button></form>`:`<button type="button" class="button ghost small" data-reset-account="${Number(a.userId)}">重置密码</button>`):'<span class="platform-locked-tag" title="通过 GitHub 或网关登录的账号没有平台密码">无平台密码</span>'}${a.feishuLogin?`<button type="button" class="button ghost small" data-unbind-feishu="${Number(a.userId)}">解绑飞书登录</button>`:''}</div>
       </div>`;
     }).join('');
     list.querySelectorAll('[data-reset-account]').forEach(btn=>btn.onclick=()=>{resetting=Number(btn.dataset.resetAccount);render();list.querySelector('[data-reset-form] input')?.focus()});
+    // Unbinding Feishu sign-in keeps the account's Feishu grant, password and
+    // memberships; the server refuses when Feishu is its only sign-in.
+    list.querySelectorAll('[data-unbind-feishu]').forEach(btn=>btn.onclick=async()=>{
+      const id=Number(btn.dataset.unbindFeishu);
+      if(!await afConfirm({title:'解绑飞书登录',message:'解绑后该账号不能再用飞书登录；Agent 使用的飞书授权、密码和项目成员关系不变。确定解绑？',confirmText:'确认解绑',isDanger:true}))return;
+      btn.disabled=true;
+      try{
+        const account=await api(`/api/platform/accounts/${encodeURIComponent(id)}/feishu-login`,{method:'DELETE'});
+        accounts=accounts.map(a=>a.userId===id?(account||{...a,feishuLogin:false}):a);
+        render();toast('已解绑飞书登录','ok');
+      }catch(err){toast(err.message,'err');btn.disabled=false}
+    });
     const resetForm=list.querySelector('[data-reset-form]');
     if(resetForm){
       resetForm.querySelector('[data-reset-cancel]').onclick=()=>{resetting=null;render()};

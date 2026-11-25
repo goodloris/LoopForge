@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { loadApp, settle } from '../lib/load-app.mjs';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import vm from 'node:vm';
+import { JSDOM } from 'jsdom';
+import { loadApp, settle, WEB_ROOT } from '../lib/load-app.mjs';
 
 async function mountCard(t, reply) {
   const app = await loadApp();
@@ -131,4 +135,24 @@ test('returning from a login binding shows its toast', async (t) => {
   await settle(5);
   assert.equal(app.evaluate('window.feishuToasts.join()'), '飞书已连接，并已用于登录');
   assert.equal(app.evaluate('location.search'), '');
+});
+
+test('「同时用于登录」 warns that skipping it makes Feishu sign-in create another account', async (t) => {
+  const { app, panel } = await mountCard(t, { enabled: true, connected: false });
+  const label = panel.querySelector('[data-feishu-login]').closest('label');
+  assert.match(label.textContent, /不勾选时，之后用飞书登录会新建另一个账号/);
+
+  // English mode translates the whole label instead of falling back to Chinese.
+  const dom = new JSDOM('<html data-lang="en"><body></body></html>', { runScripts: 'outside-only', url: 'http://127.0.0.1/' });
+  t.after(() => dom.window.close());
+  for (const file of ['i18n-en.js', 'i18n.js']) {
+    new vm.Script(await readFile(path.join(WEB_ROOT, file), 'utf8'), { filename: file }).runInContext(dom.getInternalVMContext());
+  }
+  const host = dom.window.document.createElement('div');
+  host.innerHTML = app.evaluate(`feishuConnectBodyHTML({enabled:true,connected:false})`);
+  dom.window.document.body.append(host);
+  await new Promise((resolve) => dom.window.setTimeout(resolve, 0));
+  const english = host.querySelector('.feishu-login-opt').textContent;
+  assert.match(english, /If unchecked, signing in with Feishu later creates a separate account/);
+  assert.doesNotMatch(english, /[\u3400-\u9fff]/);
 });

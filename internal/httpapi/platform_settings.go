@@ -149,6 +149,37 @@ func (h *usersHandlers) resetPlatformAccountPassword(c *gin.Context) {
 	c.JSON(http.StatusOK, account)
 }
 
+// unbindPlatformAccountFeishuLogin removes an account's Feishu sign-in
+// identity so its owner can bind it to another account. The Feishu grant,
+// password, role and memberships are left alone; an account with no other way
+// to sign in is refused (repo.ErrLastSignInMethod).
+func (h *usersHandlers) unbindPlatformAccountFeishuLogin(c *gin.Context) {
+	if !h.platformAdminWrite(c) {
+		return
+	}
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "valid user id is required"})
+		return
+	}
+	if h.platformAccount(id).LoginName == "" {
+		c.JSON(http.StatusNotFound, gin.H{"error": "账号不存在"})
+		return
+	}
+	switch err := h.repo.UnbindIdentity(id, repo.IdentityProviderFeishu); {
+	case errors.Is(err, repo.ErrIdentityNotBound):
+		c.JSON(http.StatusNotFound, gin.H{"error": "该账号没有绑定飞书登录"})
+		return
+	case errors.Is(err, repo.ErrLastSignInMethod):
+		c.JSON(http.StatusConflict, gin.H{"error": "飞书是该账号唯一的登录方式，没有本地密码或其他登录方式，不能解绑。"})
+		return
+	case err != nil:
+		respond(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, h.platformAccount(id))
+}
+
 var sharedModelPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$`)
 
 // sharedCodeBuddyModels normalizes the allow list of the shared CodeBuddy

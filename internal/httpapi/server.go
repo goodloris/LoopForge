@@ -280,6 +280,7 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 	g.GET("/api/platform/accounts", api.users.platformAccounts)
 	g.POST("/api/platform/accounts", api.users.platformAccounts)
 	g.PUT("/api/platform/accounts/:id/password", api.users.resetPlatformAccountPassword)
+	g.DELETE("/api/platform/accounts/:id/feishu-login", api.users.unbindPlatformAccountFeishuLogin)
 	g.GET("/api/platform/codebuddy-key", api.users.platformCodeBuddyKey)
 	g.PUT("/api/platform/codebuddy-key", api.users.platformCodeBuddyKey)
 	g.DELETE("/api/platform/codebuddy-key", api.users.platformCodeBuddyKey)

@@ -55,9 +55,12 @@ type PlatformAccount struct {
 	ChineseName string `json:"chineseName,omitempty"`
 	Admin       bool   `json:"admin"`
 	// Password is false for users who sign in through GitHub or a gateway.
-	Password        bool       `json:"password"`
-	CodeBuddyAPIKey bool       `json:"codeBuddyApiKeyConfigured"`
-	CreatedAt       *time.Time `json:"createdAt,omitempty"`
+	Password        bool `json:"password"`
+	CodeBuddyAPIKey bool `json:"codeBuddyApiKeyConfigured"`
+	// FeishuLogin is true when the account has a Feishu sign-in identity
+	// (user_identities), which an admin may unbind.
+	FeishuLogin bool       `json:"feishuLogin"`
+	CreatedAt   *time.Time `json:"createdAt,omitempty"`
 }
 
 // ListPlatformAccounts lists every user, oldest first.
@@ -70,14 +73,16 @@ func (r *UsersRepo) ListPlatformAccounts() ([]PlatformAccount, error) {
 		CreatedAt    *time.Time
 		HasPassword  bool
 		HasKey       bool
+		HasFeishu    bool
 	}
 	err := r.DB.Raw(`SELECT u.id, u.login_name, u.chinese_name, u.platform_role, u.created_at,
 		(l.user_id IS NOT NULL) AS has_password,
-		(c.codebuddy_api_key IS NOT NULL AND c.codebuddy_api_key <> '') AS has_key
+		(c.codebuddy_api_key IS NOT NULL AND c.codebuddy_api_key <> '') AS has_key,
+		EXISTS (SELECT 1 FROM user_identities i WHERE i.user_id = u.id AND i.provider = ?) AS has_feishu
 		FROM users u
 		LEFT JOIN local_accounts l ON l.user_id = u.id
 		LEFT JOIN user_configs c ON c.user_id = u.id
-		ORDER BY u.id ASC`).Scan(&rows).Error
+		ORDER BY u.id ASC`, IdentityProviderFeishu).Scan(&rows).Error
 	if err != nil {
 		return nil, err
 	}
@@ -86,7 +91,7 @@ func (r *UsersRepo) ListPlatformAccounts() ([]PlatformAccount, error) {
 		out = append(out, PlatformAccount{
 			UserID: row.ID, LoginName: row.LoginName, ChineseName: row.ChineseName,
 			Admin:    IsAllowlistedPlatformAdmin(row.LoginName) || domain.IsPlatformAdmin(domain.User{PlatformRole: row.PlatformRole}),
-			Password: row.HasPassword, CodeBuddyAPIKey: row.HasKey, CreatedAt: row.CreatedAt,
+			Password: row.HasPassword, CodeBuddyAPIKey: row.HasKey, FeishuLogin: row.HasFeishu, CreatedAt: row.CreatedAt,
 		})
 	}
 	return out, nil
