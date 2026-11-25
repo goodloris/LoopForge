@@ -2016,8 +2016,12 @@ async function loadPlatformAccounts(host){
       const result=await api('/api/platform/accounts');
       accounts=Array.isArray(result?.accounts)?result.accounts:[];
       const intro=card.querySelector('[data-account-intro]');
+      // passwordSignupEnabled is missing on older servers: fall back to signupEnabled.
+      const passwordSignup=typeof result?.passwordSignupEnabled==='boolean'?result.passwordSignupEnabled:!!result?.signupEnabled;
       if(intro)intro.textContent=result?.signupEnabled
-        ?'登录页目前允许自助注册。也可以在这里直接创建账号，再把登录信息发给同事；同事忘记密码时可以在下面重置。'
+        ?(passwordSignup
+          ?'登录页目前允许自助注册。也可以在这里直接创建账号，再把登录信息发给同事；同事忘记密码时可以在下面重置。'
+          :'登录页的密码注册已关闭。如已启用飞书登录，飞书租户白名单内的成员首次登录时仍会自动开户；其他同事的账号在这里创建，再把登录信息发给对方。忘记密码时可以在下面重置。')
         :'登录页的自助注册已关闭，同事的账号要在这里创建：填好用户名和初始密码，点创建，再把登录信息发给对方。忘记密码时可以在下面重置。';
       render();
     }catch(e){list.innerHTML=`<p class="prop-hint">${escapeHTML(e.message||'加载账号失败')}</p>`}

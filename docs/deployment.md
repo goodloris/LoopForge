@@ -185,6 +185,18 @@ SSH handles clone, fetch and push. A conversation delivery returns the branch an
 
 The first account created in the browser becomes the platform administrator. After that, anyone who can reach the login page may sign up as a regular user while `AGENTFLOW_ALLOW_SIGNUP` is `true` (the default). Registered users can create requirements and run SOPs on your workers, so set `AGENTFLOW_ALLOW_SIGNUP=false` for any installation reachable from untrusted networks and create accounts explicitly instead.
 
+`AGENTFLOW_ALLOW_PASSWORD_SIGNUP` closes only the password sign-up form and can never reopen what `AGENTFLOW_ALLOW_SIGNUP` closes. Unset or empty inherits `AGENTFLOW_ALLOW_SIGNUP`; `false`/`0`/`no`/`off` hides the login page's 注册 entry and makes `POST /api/auth/register` answer 403, while Feishu auto-provisioning still follows `AGENTFLOW_ALLOW_SIGNUP` and the Feishu tenant allowlist:
+
+| `AGENTFLOW_ALLOW_SIGNUP` | `AGENTFLOW_ALLOW_PASSWORD_SIGNUP` | Password sign-up | New Feishu member |
+|---|---|---|---|
+| `true` (default) | unset | open | provisioned (tenant allowlist applies) |
+| `true` | `false` | closed | provisioned (tenant allowlist applies) |
+| `false` | any | closed | refused |
+
+Existing accounts keep signing in with their password, and administrators keep creating accounts below, whatever these switches say. `/api/auth/setup` and `/api/platform/accounts` report `signupEnabled` (any self-service path open) and `passwordSignupEnabled` (the password form open).
+
+"First account" means the deployment has no user at all, counted across every sign-in method (password, Feishu, GitHub, gateway, local login, API token owner). Only then does the login page ask for the administrator and the first registration become the administrator, even with sign-up closed. If someone signed in another way before the administrator was created, create the administrator with `loopforge-account -admin` instead.
+
 Platform administrators create accounts under **Platform administration → Member accounts** (平台管理 → 成员账号): enter a login name and an initial password, optionally grant administration, and hand the password to the teammate. The same page lists every account and resets the password of a password account; accounts that sign in through GitHub or a gateway cannot be given a password there. New accounts join the welcome project, like self sign-ups.
 
 LoopForge assumes a trusted team. Every signed-in account can list all projects, requirements and runs. Project settings and repositories can be changed only by the project owner or a platform administrator, and personal credentials only by their owner. Do not use one installation to separate untrusted tenants.
@@ -229,7 +241,7 @@ Behaviour:
 
 - **Tenant allowlist, deny by default.** `LOOPFORGE_FEISHU_ALLOWED_TENANTS` is a comma-separated list of `tenant_key`s. An empty or unset list rejects every sign-in, because auto-provisioning without a tenant limit would let any Feishu user register. A denied member sees their `tenant_key` on the error page and it is logged (`[feishu] sign-in denied: tenant_key ...`), so an administrator can add it to the allowlist.
 - **Identity binding.** A member is matched only by (`union_id`, `tenant_key`), falling back to (`open_id`, `tenant_key`) when the app has no union id. A Feishu sign-in never matches an existing account by login name, Chinese name or email, so it cannot take over a password account such as `admin`. Auto-provisioned accounts get a generated login name (`feishu-…`), the member's Chinese name and their Feishu avatar. The binding is a row in `user_identities` (`provider=feishu`, `tenant`=tenant_key, `subject`=union_id or open_id); other sign-in providers will use the same table. Existing installs apply `migrations/039_user_identities.sql` (MySQL) or `migrations/postgres/039_user_identities.sql` (PostgreSQL) by hand; startup AutoMigrate also creates it.
-- **Self-service signup.** Provisioning obeys `AGENTFLOW_ALLOW_SIGNUP`: when it is `false`, only already-bound Feishu members can sign in and new members are refused. The very first account on a fresh install becomes the administrator, the same rule password registration uses. New non-admin accounts join the welcome project.
+- **Self-service signup.** Provisioning obeys `AGENTFLOW_ALLOW_SIGNUP`: when it is `false`, only already-bound Feishu members can sign in and new members are refused. `AGENTFLOW_ALLOW_PASSWORD_SIGNUP=false` closes only password sign-up and does not affect Feishu provisioning, so a Feishu deployment can keep auto-provisioning allowlisted members while the login page offers no 注册 entry (see [Accounts](#accounts)). The very first account on a fresh install (no user at all) becomes the administrator, the same rule password registration uses. New non-admin accounts join the welcome project.
 - **State and sessions.** `/api/auth/feishu/start` draws a random 32-byte state, remembers it server-side for 10 minutes and also sets it in an HttpOnly `SameSite=Lax` cookie; `/api/auth/feishu/callback` requires the query state and the cookie to match and consumes the state once, so a missing, mismatched, expired or replayed state is rejected. A successful sign-in issues the same signed session cookie as password login. (The legacy enterprise-SSO `/api/auth/exchange` does not check an OAuth state; that is unchanged and out of scope here.)
 
 ### Verifying with a real Feishu app

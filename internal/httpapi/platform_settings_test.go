@@ -123,10 +123,11 @@ func TestPlatformAdminsManageAccounts(t *testing.T) {
 
 	w = client.call(owner, "GET", "/api/platform/accounts", "", "")
 	var listed struct {
-		Accounts      []repo.PlatformAccount
-		SignupEnabled bool
+		Accounts              []repo.PlatformAccount
+		SignupEnabled         bool
+		PasswordSignupEnabled bool
 	}
-	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &listed) != nil || listed.SignupEnabled {
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &listed) != nil || listed.SignupEnabled || listed.PasswordSignupEnabled {
 		t.Fatalf("list: %d %s", w.Code, w.Body.String())
 	}
 	byLogin := map[string]repo.PlatformAccount{}

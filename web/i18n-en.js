@@ -345,3 +345,7 @@ Object.assign(window.LF_I18N_EN, {
   "未登录": "Not signed in",
   "Kiro CLI 本机登录": "Kiro CLI machine login"
 });
+// 平台管理 → 成员账号 when only password sign-up is closed (AGENTFLOW_ALLOW_PASSWORD_SIGNUP=false).
+Object.assign(window.LF_I18N_EN, {
+  "登录页的密码注册已关闭。如已启用飞书登录，飞书租户白名单内的成员首次登录时仍会自动开户；其他同事的账号在这里创建，再把登录信息发给对方。忘记密码时可以在下面重置。": "Password sign-up is closed on the login page. If Feishu login is enabled, members of allowlisted Feishu tenants still get an account on their first sign-in; create other teammates' accounts here and send them the sign-in details. Reset the password below if they forget it."
+});

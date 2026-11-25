@@ -4,6 +4,10 @@ Platform releases use `vX.Y.Z` tags. This fork (goodloris/LoopForge) publishes `
 
 ## Unreleased
 
+- New `AGENTFLOW_ALLOW_PASSWORD_SIGNUP` closes only password self sign-up. Unset or empty inherits `AGENTFLOW_ALLOW_SIGNUP` (existing deployments behave as before); `false`/`0`/`no`/`off` makes `POST /api/auth/register` answer 403 and hides the login page's 注册 entry, while Feishu auto-provisioning still follows only `AGENTFLOW_ALLOW_SIGNUP` and the tenant allowlist. It cannot reopen sign-up when `AGENTFLOW_ALLOW_SIGNUP=false`. When Feishu sign-in can still create the account, the 403 reads 「自助注册已关闭，请使用飞书登录，或联系管理员创建账号」. `/api/auth/setup` and `/api/platform/accounts` add `passwordSignupEnabled`; `signupEnabled` keeps its meaning (any self-service path). 平台管理 → 成员账号 says when only password sign-up is closed. `compose.yaml` passes the variable through (empty by default).
+- The first-account rule counts every user, as Feishu provisioning already did: `needsSetup` and the administrator granted to the first password registration now require no user at all, instead of no password account. On a Feishu-only deployment (users but no password account) the login page no longer asks for setup and a password registration no longer becomes administrator. A fresh empty install is unchanged. If a new install got a user through another sign-in method before its administrator, create the administrator with `loopforge-account -admin`.
+- A registration refused because sign-up is closed no longer spends the per-IP password attempt budget.
+- No data migration and no SQL to run.
 - Platform GitHub Releases are now titled `LooPool vX.Y.Z` instead of `LoopForge vX.Y.Z`. LoopForge Local releases keep their title.
 
 ## 0.8.0 — LooPool, Feishu identities and upstream v0.4.1

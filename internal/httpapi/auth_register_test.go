@@ -3,7 +3,6 @@ package httpapi
 import (
 	"agentflow/internal/domain"
 	"agentflow/internal/engine"
-	"agentflow/internal/repo"
 	"agentflow/internal/runtime"
 	"bytes"
 	"encoding/json"
@@ -15,11 +14,7 @@ import (
 func TestRegisterFirstAccountBecomesAdminAndSignupToggle(t *testing.T) {
 	t.Setenv("AGENTFLOW_AUTH_REQUIRED", "true")
 	t.Setenv("AGENTFLOW_SCHEDULER_ENABLED", "false")
-	s, err := repo.OpenTest()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(s.Close)
+	s := openEmptyUserStore(t)
 	h := New(s, engine.New(s, runtime.NewManager(t.TempDir())), nil, "", "")
 	call := func(method, path, origin, body string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(method, "http://localhost"+path, bytes.NewBufferString(body))
