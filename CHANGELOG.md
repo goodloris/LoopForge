@@ -2,7 +2,19 @@
 
 Platform releases use `vX.Y.Z` tags. This fork (goodloris/LoopForge) publishes `ghcr.io/goodloris/loopforge` from 0.5.0 on; 0.4.0 and earlier were published upstream as `ghcr.io/tencent/loopforge`. LoopForge Local packages use `local-vX.Y.Z` tags and are published by manually running the `release-local` workflow.
 
-## Unreleased
+## 0.9.0 — Self-hosted GitLab delivery, Kiro credits and Loopool
+
+**Upgrading an existing installation (from 0.8.0)**:
+1. `git checkout v0.9.0 && ./start.sh pull`. No schema change blocks startup; startup AutoMigrate adds no new table this release, and nothing has to run before the platform starts.
+2. After startup, run `045_loopool_lowercase_builtin_labels.sql` (repeatable): it lowercases the capital P in the built-in display labels 044 wrote, so the welcome project reads 「Loopool 体验项目」 and the four built-in SOP templates' owner reads `Loopool`. It changes only values still at the `LooPool` capitalisation; a renamed project or edited owner is left alone, and 044 need not run first. Purely cosmetic — the labels a user reads — so it is safe to run any time after the upgrade, not before. New installs get the Loopool labels from the seed.
+   - MySQL: `docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" mysql -u loopforge loopforge' < migrations/045_loopool_lowercase_builtin_labels.sql`
+   - PostgreSQL: `docker compose exec -T postgres psql -X -v ON_ERROR_STOP=1 -U loopforge -d loopforge < migrations/postgres/045_loopool_lowercase_builtin_labels.sql`
+
+`045_loopool_lowercase_builtin_labels.sql` is the only migration added since 0.8.0 (the earlier manual migrations 036/037/041/042/044 are unchanged; an installation already on 0.8.0 has run the ones it needed). `./start.sh pull` and `scripts/manual-migration-hints.sh` print 045 while it is still pending.
+
+New optional environment variable `AGENTFLOW_ALLOW_PASSWORD_SIGNUP` (see below) closes only password self sign-up; unset it keeps the previous behaviour. Using a self-hosted GitLab needs no migration: an administrator authorizes the host under 平台管理 → Git HTTPS 主机授权 (platform type GitLab), and each user adds a GitLab access token with the `api` scope for that host in 个人配置.
+
+### Changes
 
 - New `AGENTFLOW_ALLOW_PASSWORD_SIGNUP` closes only password self sign-up. Unset or empty inherits `AGENTFLOW_ALLOW_SIGNUP` (existing deployments behave as before); `false`/`0`/`no`/`off` makes `POST /api/auth/register` answer 403 and hides the login page's 注册 entry, while Feishu auto-provisioning still follows only `AGENTFLOW_ALLOW_SIGNUP` and the tenant allowlist. It cannot reopen sign-up when `AGENTFLOW_ALLOW_SIGNUP=false`. When Feishu sign-in can still create the account, the 403 reads 「自助注册已关闭，请使用飞书登录，或联系管理员创建账号」. `/api/auth/setup` and `/api/platform/accounts` add `passwordSignupEnabled`; `signupEnabled` keeps its meaning (any self-service path). 平台管理 → 成员账号 says when only password sign-up is closed. `compose.yaml` passes the variable through (empty by default).
 - The first-account rule counts every user, as Feishu provisioning already did: `needsSetup` and the administrator granted to the first password registration now require no user at all, instead of no password account. On a Feishu-only deployment (users but no password account) the login page no longer asks for setup and a password registration no longer becomes administrator. A fresh empty install is unchanged. If a new install got a user through another sign-in method before its administrator, create the administrator with `loopforge-account -admin`.
@@ -34,6 +46,13 @@ Platform releases use `vX.Y.Z` tags. This fork (goodloris/LoopForge) publishes `
 - Feishu sign-in no longer auto-provisions a duplicate account for a member whose existing account already connected the same Feishu identity (active, expired or revoked grant) without binding it for sign-in; it shows a page naming that account and asking to bind 「同时用于登录」 there first. Nothing is bound automatically. A revoked or expired grant blocking auto-provisioning is intended: the normal way forward is to bind 「同时用于登录」 on that account, and if a genuinely separate new account is needed on this Feishu identity, a platform administrator deletes the original account first. No endpoint clears a grant on its own.
 - Clearer Feishu copy: the "identity already used by another account" page explains how to resolve it, and the 「同时用于登录」 checkbox warns that skipping it makes a later Feishu sign-in create another account.
 - 平台管理 → 成员账号 shows which accounts sign in with Feishu and lets administrators unbind it (`DELETE /api/platform/accounts/{id}/feishu-login`); an account whose only sign-in is Feishu is refused.
+- Kiro CLI 的订阅额度（credits）现在和 token 一样记录并展示：运行详情、运行节点、需求（泳道与汇总）、对话消息都显示 Kiro 轮次消耗的额度，洞察页有独立的额度卡片、趋势模式和按 SOP/节点/项目的拆分（`web/` 与 `chatbot/` 共用 `formatCredits`，保留两位小数）。修复了 `AddConversationRunUsage`/`accumulateConversationRun` 丢掉「只有额度」（Kiro）的对话轮次与工作区的问题。额度**只统计、不计入成本**（`omitempty`，永不定价），只按 token 展示的渲染逐字节不变（golden fixture 取自 main）。analytics 接口、`docs/api/openapi.yaml` 与 `docs/token-pricing.md` 同步。无迁移。
+
+### 已知限制
+
+- GitHub 上 0 提交的 PR：GitHub 的 PR create 对「两分支间无提交」返回 422（No commits between），平台当前按 `auto_merge_failed` 计为失败（本次只给 GitLab 补了「无提交则不开 MR」的前置校验，GitHub 未改）。
+- 控制事件（`mr.auto_merge_queued`、`mr.delivery_skipped`、`mr.auto_merge_failed`、`integration.skipped` 等）只写在 `run_events` 表里，`/api/runs/:id`、`/telemetry`、`/logs` 都不返回，界面上看不到；要排查得直接查库。
+- webtest 的「只按 token 展示」golden fixture 依赖 UTC：运行 `npm --prefix webtest test` 时需设 `TZ=UTC`，否则比对会因本地时区而失败。
 
 ## 0.8.0 — LooPool, Feishu identities and upstream v0.4.1
 
