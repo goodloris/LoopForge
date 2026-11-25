@@ -696,3 +696,55 @@ func (s *Service) syncGitLabWorkCommitsOnDefaultBranch(store MRDeliveryStore, pr
 		}
 	}
 }
+
+// pullGitLabIssues imports a GitLab repository's issues into the platform,
+// mirroring pullGitHubIssues. It reuses the per-host GitLab client (project
+// Owner credential + gitegress). GitLab's issues endpoint never returns merge
+// requests, so no PR filtering is needed. A missing credential is a clear
+// error so the caller logs a failed sync rather than silently importing zero.
+func (s *Service) pullGitLabIssues(store IssueStoreAdapter, repo domain.Repository) (int, error) {
+	cred, _, path, ok := s.gitlabCredentialForProject(repo.GongfengProjectID)
+	if !ok {
+		return 0, fmt.Errorf("GitLab 仓库 %s 未找到项目 Owner 的访问令牌（请为该主机配置 Git 访问令牌）", repo.GongfengProjectID)
+	}
+	g := s.newGitLabClient(repo.GongfengProjectID, cred, path)
+	count := 0
+	for page := 1; page <= 100; page++ {
+		var list []struct {
+			ID          int64     `json:"id"`
+			IID         int       `json:"iid"`
+			Title       string    `json:"title"`
+			Description string    `json:"description"`
+			State       string    `json:"state"`
+			WebURL      string    `json:"web_url"`
+			CreatedAt   time.Time `json:"created_at"`
+		}
+		if err := g.do("GET", g.projectPath("/issues?state=all&per_page=100&page="+strconv.Itoa(page)), nil, &list); err != nil {
+			return count, err
+		}
+		for _, item := range list {
+			id := fmt.Sprintf("gl-%s-%d", repo.ID, item.IID)
+			// Number stays 0 so the store assigns the next project number; the
+			// GitLab issue iid is the external ID (ExternalRef.ExternalIID).
+			issue := domain.Issue{ID: id, ProjectID: repo.ProjectID, RepositoryID: repo.ID, BaseBranch: repo.DefaultBranch, Kind: "issue", Title: item.Title, Description: item.Description, Priority: "medium", Source: "gitlab", Status: gongfengStateToStatus(item.State), CreatedAt: item.CreatedAt, UpdatedAt: time.Now().UTC(), ExternalRef: &domain.ExternalRef{Source: "gitlab", ExternalID: strconv.FormatInt(item.ID, 10), ExternalIID: item.IID, ExternalURL: item.WebURL, ExternalState: item.State, ExternalType: "issue", SyncedAt: time.Now().UTC()}}
+			issue.ExternalRef.SourceContentHash = githubBodyHash(item.Description)
+			if item.State == "closed" {
+				issue.CloseSource = "external"
+			}
+			if old, ok := store.Issue(id); ok {
+				applyExistingIssue(&issue, old)
+				if old.Clarification.Status != "" || (old.ExternalRef != nil && githubBodyHash(old.Description) != old.ExternalRef.SourceContentHash) {
+					issue.Description = old.Description
+				}
+			}
+			if err := store.PutIssue(issue); err != nil {
+				return count, err
+			}
+			count++
+		}
+		if len(list) < 100 {
+			return count, nil
+		}
+	}
+	return count, fmt.Errorf("GitLab import exceeded 100 pages; narrow the repository scope")
+}

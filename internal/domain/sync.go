@@ -202,7 +202,7 @@ func NormalizeScheduleSource(raw string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "", "all", "both":
 		return "", nil
-	case "github", "gongfeng", "tapd":
+	case "github", "gongfeng", "tapd", "gitlab":
 		return strings.ToLower(strings.TrimSpace(raw)), nil
 	default:
 		return "", fmt.Errorf("来源只能是工蜂、TAPD，或两边都同步")
