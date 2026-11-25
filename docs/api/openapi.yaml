@@ -623,6 +623,23 @@ paths:
               schema: {type: string}
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /api/auth/setup:
+    get:
+      tags: [Users]
+      operationId: authSetup
+      summary: Read the login page state (public)
+      responses:
+        "200":
+          description: Whether the deployment still needs its first account and which sign-in paths are offered
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  needsSetup: {type: boolean, description: The deployment has no user yet; the first registration becomes the administrator}
+                  signupEnabled: {type: boolean, description: Any self-service sign-up path is open (always true while needsSetup)}
+                  passwordSignupEnabled: {type: boolean, description: The password sign-up form is open (always true while needsSetup)}
+                  feishuEnabled: {type: boolean, description: Feishu sign-in is configured}
   /api/auth/photo/{spec}/{username}:
     get:
       tags: [System]
@@ -803,7 +820,9 @@ paths:
                 type: object
                 properties:
                   accounts: {type: array, items: {$ref: "#/components/schemas/PlatformAccount"}}
-                  signupEnabled: {type: boolean}
+                  signupEnabled: {type: boolean, description: Any self-service sign-up path is open (AGENTFLOW_ALLOW_SIGNUP)}
+                  passwordSignupEnabled: {type: boolean, description: The password sign-up form is open (AGENTFLOW_ALLOW_SIGNUP and AGENTFLOW_ALLOW_PASSWORD_SIGNUP)}
+                  feishuEnabled: {type: boolean, description: Feishu sign-in is configured}
         "403": {description: Platform administrator access required}
     post:
       tags: [Users]
@@ -5319,6 +5338,9 @@ components:
           format: int64
         costUsd:
           type: number
+        credits:
+          type: number
+          description: 'Subscription credits reported by CLIs metered in credits (Kiro CLI), which report no tokens. Never priced into costUsd/costCny. Omitted when zero.'
     Artifact:
       type: object
       required: [id, runId, nodeId, attempt, name, mediaType, size, sha256]
@@ -5770,6 +5792,8 @@ components:
         costReportedCny: {type: number, description: 'Recognized amount, including recognized parts of incompletely priced runs'}
         costCoveragePct: {type: number}
         costUnknownRuns: {type: integer}
+        totalCredits: {type: number, description: 'Subscription credits (Kiro CLI) in the filtered window, SOP runs plus conversation workspaces. Never priced, not part of any cost or coverage field. Omitted when zero.'}
+        conversationCredits: {type: number, description: 'Share of totalCredits used by conversation workspaces. Omitted when zero. Trend points (credits, conversationCredits), breakdowns (workflows, nodes, agents, executors, models, categories, issueSources: credits), projectUsage, runTraces, activity sessionUsage/collaborativeUsage and requirement snapshot lanes/overall carry a credits field the same way.'}
     AnalyticsDeliveryMR:
       type: object
       additionalProperties: true

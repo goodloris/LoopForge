@@ -1,5 +1,6 @@
 import { elapsedSeconds, formatElapsed } from "./api.js";
 import { engineLabel, replyEngineLabel } from "./engines.js";
+import { formatCredits } from "./usage-format.js";
 
 // Labels of the confirmation modes (see PermissionPicker).
 export const APPROVAL_LABELS = { confirm: "请求批准", assisted: "帮我批准", auto: "完全权限" };
@@ -117,10 +118,18 @@ export function messageInfo(message = {}, sessionExecutor = "") {
   const total = usage
     ? tokens.reduce((sum, part) => sum + part.value, 0)
     : null;
+  // Kiro CLI reports subscription credits instead of tokens for the turn.
+  const creditsValue = usage ? Number(usage.credits) : 0;
+  const credits =
+    Number.isFinite(creditsValue) && creditsValue > 0 ? creditsValue : null;
   return {
     rows,
     tokens,
     total,
     totalText: total === null ? NOT_REPORTED : formatTokens(total),
+    credits,
+    creditsText: credits === null ? "" : formatCredits(credits),
+    // A credits-only turn hides the all-zero token block.
+    showTokens: !(credits !== null && total === 0),
   };
 }

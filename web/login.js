@@ -34,7 +34,8 @@ fetch('/api/auth/setup')
       $('loginContact').hidden = false;
       return;
     }
-    signup = !!state.signupEnabled;
+    // passwordSignupEnabled drives the sign-up entry; older servers only send signupEnabled.
+    signup = typeof state.passwordSignupEnabled === 'boolean' ? state.passwordSignupEnabled : !!state.signupEnabled;
     if (state.needsSetup) mode = 'setup';
     else if (location.hash === '#register' && signup) mode = 'register';
     if (state.feishuEnabled) {

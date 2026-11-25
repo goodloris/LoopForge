@@ -36,7 +36,14 @@ func httpCredentialForCommand(ctx context.Context, args []string) (credential HT
 	}
 	remote, _ := ctx.Value(httpRemoteKey{}).(string)
 	for _, arg := range args {
-		if strings.HasPrefix(arg, "https://") || strings.HasPrefix(arg, "http://") || IsSSHReference(arg) {
+		// Only an explicit inline http(s) URL overrides the context remote.
+		// A push/fetch refspec like "HEAD:refs/heads/x" is scp-ambiguous
+		// (IsSSHReference reads "HEAD" as the host because the first colon
+		// precedes any slash), so matching SSH references here would discard
+		// the real HTTPS remote carried by the context and leave the command
+		// with no credential ("could not read Username"). HTTPS credentials
+		// only apply to http(s) remotes, so an inline SSH URL is irrelevant.
+		if strings.HasPrefix(arg, "https://") || strings.HasPrefix(arg, "http://") {
 			remote = arg
 			break
 		}

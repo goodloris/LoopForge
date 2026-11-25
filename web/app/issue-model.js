@@ -184,6 +184,7 @@ function clientIssueLanes(issue){
     lane.started=true;
     lane.runCount+=1;
     lane.tokens+=(run.usage?.totalTokens||0);
+    const credits=usageCredits(run.usage);if(credits>0)lane.credits=(lane.credits||0)+credits;
     lane.workflowId=run.workflowId;
     lane.workflowName=wf.name||run.workflowId;
     lane.latestRunId=run.id;

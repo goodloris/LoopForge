@@ -87,8 +87,10 @@ func (r *UsersRepo) IdentitiesOf(userID int64, provider string) []ExternalIdenti
 }
 
 // UserCount is the total number of user rows, across every identity adapter.
-// An external sign-in uses it to decide the first-ever account is the admin,
-// the same bootstrap rule password registration applies with LocalAccountCount.
+// Both self-service open-account paths use it to decide the first-ever account
+// is the admin: external sign-in (Feishu provisioning) and password
+// registration count every user alike, so a Feishu-only deployment's first
+// password registrant is no longer mistaken for the first account.
 func (r *UsersRepo) UserCount() int64 {
 	var n int64
 	r.DB.Model(&userRow{}).Count(&n)

@@ -562,12 +562,21 @@ function parseGitHubRepo(raw) {
   };
 }
 
-// Explicit SSH keeps its transport. Managed HTTPS links use the configured host.
-export function parseGongfengRepo(raw, host = "") {
-  return globalThis.LoopForgeGitSSH(raw) ||
+// Explicit SSH keeps its transport. Managed HTTPS links use the configured
+// host. A generic HTTPS repo on an administrator-authorized GitLab host
+// (gitHostChoices: [{host,platform}]) is upgraded to a first-class GitLab
+// repository, matching the server, so recognition and the already-bound check
+// use the same gitlab:<host>/<path> identity.
+export function parseGongfengRepo(raw, host = "", gitHostChoices = []) {
+  const base = globalThis.LoopForgeGitSSH(raw) ||
     globalThis.LoopForgeGongfengRepository(raw, host) ||
     globalThis.LoopForgeGitHTTPS(raw) ||
     parseGitHubRepo(raw);
+  if (base && base.provider === "https") {
+    const gitlab = globalThis.LoopForgeGitLabRepo?.(base, gitHostChoices);
+    if (gitlab) return gitlab;
+  }
+  return base;
 }
 
 function slugifyProjectId(value) {
@@ -700,6 +709,9 @@ export default function QuickAccessWizard({
   const { id: userId, loginName, chineseName, isPlatformAdmin, platformRole, isGuest } = user || {};
   const [credentialsPending, setCredentialsPending] = useState(false);
   const [gitHttpHosts, setGitHttpHosts] = useState([]);
+  // Administrator-authorized HTTPS hosts and their platform ({host,platform}),
+  // so a pasted repo on a GitLab host is recognized as a GitLab repository.
+  const [gitHostChoices, setGitHostChoices] = useState([]);
   const [gongfengHost, setGongfengHost] = useState("");
   const [sshCredentials, setSSHCredentials] = useState({ userId: null, keys: null, error: false });
   const [catalogProjects, setCatalogProjects] = useState(projects);
@@ -851,12 +863,15 @@ export default function QuickAccessWizard({
     [availableWorkflows, selectedWorkflowId],
   );
 
-  const parsedRepo = useMemo(() => parseGongfengRepo(repoUrl, gongfengHost), [repoUrl, gongfengHost]);
+  const parsedRepo = useMemo(() => parseGongfengRepo(repoUrl, gongfengHost, gitHostChoices), [repoUrl, gongfengHost, gitHostChoices]);
   useEffect(() => {
     if (!open) return;
     let current = true;
     api("/api/auth/gongfeng").then(status => {
       if (current) setGongfengHost(status?.host || "");
+    }).catch(() => {});
+    api("/api/git-https-hosts").then(rows => {
+      if (current) setGitHostChoices(Array.isArray(rows) ? rows : []);
     }).catch(() => {});
     return () => { current = false; };
   }, [open]);
@@ -1082,6 +1097,7 @@ export default function QuickAccessWizard({
   const gitAccess = (repo) => {
     if (repo?.provider === "ssh") return { label: "Git SSH", ready: hasSSHKey(repo) };
     if (repo?.provider === "https") return { label: "Git HTTPS", ready: gitHttpHosts.includes(repo.host) };
+    if (repo?.provider === "gitlab") return { label: "GitLab", ready: gitHttpHosts.includes(repo.host) };
     if (repo?.provider === "github") return { label: "GitHub", ready: gitHubReady };
     if (repo?.provider === "gongfeng") return { label: "工蜂", ready: gongfengReady };
     return { label: "Git", ready: hasGit };
@@ -1935,7 +1951,7 @@ export default function QuickAccessWizard({
                                     className="qa-input qa-mono"
                                     value={repoUrl}
                                     onChange={(e) => setRepoUrl(e.target.value)}
-                                    placeholder="https://github.com/owner/repo"
+                                    placeholder={gitHostChoices.some((h) => h.platform === "gitlab") ? `https://github.com/owner/repo 或 https://${gitHostChoices.find((h) => h.platform === "gitlab").host}/group/repo` : "https://github.com/owner/repo"}
                                   />
                                 </label>
                                 <div className="qa-field">

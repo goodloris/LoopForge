@@ -21,19 +21,53 @@ var (
 	loginPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{1,63}$`)
 )
 
-// signupEnabled reports whether visitors may create accounts after the first
-// administrator exists. Defaults to on; public deployments should disable it.
-func signupEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("AGENTFLOW_ALLOW_SIGNUP"))) {
+const (
+	signupClosedMessage       = "自助注册已关闭，请联系管理员创建账号"
+	signupClosedFeishuMessage = "自助注册已关闭，请使用飞书登录，或联系管理员创建账号"
+)
+
+// envSwitchOff reports whether the environment variable name is explicitly
+// turned off ("0", "false", "no" or "off", case-insensitive).
+func envSwitchOff(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
 	case "0", "false", "no", "off":
-		return false
+		return true
 	}
-	return true
+	return false
+}
+
+// signupEnabled reports whether visitors may create accounts after the first
+// administrator exists, through any self-service path (password sign-up or
+// Feishu auto-provisioning). Defaults to on; public deployments should
+// disable it.
+func signupEnabled() bool { return !envSwitchOff("AGENTFLOW_ALLOW_SIGNUP") }
+
+// passwordSignupEnabled reports whether the password sign-up form is open.
+// AGENTFLOW_ALLOW_PASSWORD_SIGNUP can only tighten AGENTFLOW_ALLOW_SIGNUP:
+// unset, empty or any other value inherits it.
+func passwordSignupEnabled() bool {
+	return signupEnabled() && !envSwitchOff("AGENTFLOW_ALLOW_PASSWORD_SIGNUP")
+}
+
+// passwordSignupClosedMessage points visitors at Feishu only when Feishu
+// sign-in can actually create their account.
+func passwordSignupClosedMessage() string {
+	if signupEnabled() && feishuSignInEnabled() {
+		return signupClosedFeishuMessage
+	}
+	return signupClosedMessage
 }
 
 func (h *authHandlers) authSetup(c *gin.Context) {
-	needsSetup := h.repo != nil && h.repo.LocalAccountCount() == 0
-	c.JSON(http.StatusOK, gin.H{"needsSetup": needsSetup, "signupEnabled": needsSetup || signupEnabled(), "feishuEnabled": feishuSignInEnabled()})
+	// The first account is decided by the total user count, the same rule
+	// Feishu provisioning uses (resolveFeishuUser).
+	needsSetup := h.repo != nil && h.repo.UserCount() == 0
+	c.JSON(http.StatusOK, gin.H{
+		"needsSetup":            needsSetup,
+		"signupEnabled":         needsSetup || signupEnabled(),
+		"passwordSignupEnabled": needsSetup || passwordSignupEnabled(),
+		"feishuEnabled":         feishuSignInEnabled(),
+	})
 }
 
 const welcomeProjectID = "welcome"
@@ -82,6 +116,12 @@ func (h *authHandlers) authRegister(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("密码需 %d–%d 个字符", repo.MinPasswordLength, repo.MaxPasswordLength)})
 		return
 	}
+	// A closed sign-up is refused before it spends the shared password budget.
+	// The check under registerMu below stays authoritative.
+	if !passwordSignupEnabled() && h.repo.UserCount() != 0 {
+		c.JSON(http.StatusForbidden, gin.H{"error": passwordSignupClosedMessage()})
+		return
+	}
 	// Only a valid request reaches the accounts, so only it spends the shared
 	// password budget (see passwordLimiter).
 	if !h.allowPasswordAttempt(c.RemoteIP()) {
@@ -89,10 +129,10 @@ func (h *authHandlers) authRegister(c *gin.Context) {
 		return
 	}
 	registerMu.Lock()
-	first := h.repo.LocalAccountCount() == 0
-	if !first && !signupEnabled() {
+	first := h.repo.UserCount() == 0
+	if !first && !passwordSignupEnabled() {
 		registerMu.Unlock()
-		c.JSON(http.StatusForbidden, gin.H{"error": "自助注册已关闭，请联系管理员创建账号"})
+		c.JSON(http.StatusForbidden, gin.H{"error": passwordSignupClosedMessage()})
 		return
 	}
 	u, err := h.repo.CreateLocalAccount(input.Login, input.Password, first)

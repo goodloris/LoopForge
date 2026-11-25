@@ -4,6 +4,7 @@ import (
 	"agentflow/internal/domain"
 	"agentflow/internal/gitwork"
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -163,6 +164,27 @@ func (e *Engine) mergeWorkBranchIntoIntegrate(id string, r domain.Run, rc domain
 		title := integrateMRTitle(r, rc, work, integrate)
 		ref, err := e.MergeIntoBranch(rc.GongfengProjectID, work, integrate, title, integrateMRDescription(r, work, integrate))
 		if err != nil {
+			// A GitLab project that requires a passing pipeline queues the
+			// merge instead of completing it now; that is not a failure. The
+			// host merges when the pipeline passes, and MR delivery polling
+			// advances it. The work branch is kept either way.
+			if errors.Is(err, domain.ErrMergeQueuedForPipeline) {
+				e.updateRun(id, func(c *domain.Run) {
+					e.event(c, "", "mr.auto_merge_queued", fmt.Sprintf("仓库 %s 的基线 MR（%s → %s）已设为流水线通过后自动合并：%v", rc.Name, work, integrate, err))
+				})
+				return nil
+			}
+			// A scheduled run may push the work branch yet produce no commits
+			// relative to the integration branch. Opening a 0-commit MR only
+			// to have it fail to merge is noise: skip it (no MR, no direct
+			// push) and record a readable event instead of a failure.
+			var notDeliverable *domain.BranchNotDeliverableError
+			if errors.As(err, &notDeliverable) {
+				e.updateRun(id, func(c *domain.Run) {
+					e.event(c, "", "integration.skipped", fmt.Sprintf("仓库 %s 的工作分支 %s 相对 %s 没有新提交，未开集成 MR", rc.Name, work, integrate))
+				})
+				return nil
+			}
 			e.updateRun(id, func(c *domain.Run) {
 				msg := fmt.Sprintf("已推送仓库 %s 的工作分支 %s，基线 MR（%s → %s）自动合并失败（不会直推基线）: %v", rc.Name, work, work, integrate, err)
 				e.event(c, "", "mr.auto_merge_failed", msg)
@@ -192,13 +214,13 @@ func integrateMRTitle(r domain.Run, rc domain.RepositoryContext, work, integrate
 		if def == "" {
 			def = work
 		}
-		return fmt.Sprintf("LoopForge: 对齐 %s → %s", def, integrate)
+		return fmt.Sprintf("LooPool: 对齐 %s → %s", def, integrate)
 	}
 	label := integrationCommitLabel(r)
 	if label == "" || label == "scheduled SOP work" {
-		return fmt.Sprintf("LoopForge: %s → %s", work, integrate)
+		return fmt.Sprintf("LooPool: %s → %s", work, integrate)
 	}
-	return fmt.Sprintf("LoopForge: %s → %s", label, integrate)
+	return fmt.Sprintf("LooPool: %s → %s", label, integrate)
 }
 
 func integrateMRDescription(r domain.Run, work, integrate string) string {
