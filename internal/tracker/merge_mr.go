@@ -29,6 +29,9 @@ func (s *Service) EnsureAndMergeBranchMR(project, sourceBranch, targetBranch, ti
 	if strings.HasPrefix(project, "github:") {
 		return s.githubMergeBranch(project, sourceBranch, targetBranch, title, description)
 	}
+	if strings.HasPrefix(project, domain.MRProjectGitLab) {
+		return s.gitlabMergeBranch(strings.TrimSpace(project), strings.TrimSpace(sourceBranch), strings.TrimSpace(targetBranch), strings.TrimSpace(title), strings.TrimSpace(description))
+	}
 	project = strings.TrimSpace(project)
 	src := strings.TrimSpace(sourceBranch)
 	tgt := strings.TrimSpace(targetBranch)
@@ -56,7 +59,7 @@ func (s *Service) EnsureAndMergeBranchMR(project, sourceBranch, targetBranch, ti
 		}
 		createTitle := strings.TrimSpace(title)
 		if createTitle == "" {
-			createTitle = fmt.Sprintf("LoopForge: %s → %s", src, tgt)
+			createTitle = fmt.Sprintf("LooPool: %s → %s", src, tgt)
 		}
 		createDesc := strings.TrimSpace(description)
 		if createDesc == "" {
@@ -141,6 +144,9 @@ func (s *Service) FindBranchMR(project, sourceBranch string) (domain.DeliveryMR,
 	if strings.HasPrefix(project, "github:") {
 		return s.githubFindBranch(project, sourceBranch)
 	}
+	if strings.HasPrefix(project, domain.MRProjectGitLab) {
+		return s.gitlabFindBranch(strings.TrimSpace(project), strings.TrimSpace(sourceBranch))
+	}
 	project = strings.TrimSpace(project)
 	src := strings.TrimSpace(sourceBranch)
 	if project == "" || src == "" {
@@ -200,6 +206,9 @@ func (s *Service) FindBranchMRsInto(q domain.BranchMRQuery) ([]domain.DeliveryMR
 			return nil, fmt.Errorf("以%s查询 GitHub 失败：%w", identity, err)
 		}
 		return githubPullsInto(pulls, project, src, target), nil
+	}
+	if strings.HasPrefix(project, domain.MRProjectGitLab) {
+		return s.gitlabFindBranchInto(q)
 	}
 	client, source, err := s.gongfengClientForRun(project, q)
 	if err != nil {

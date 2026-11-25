@@ -74,6 +74,28 @@ globalThis.LoopForgeGitHTTPS = function parseHTTPSRepository(raw) {
   }catch{return null}
 };
 
+// LoopForgeGitLabRepo upgrades a generic HTTPS repository to a first-class
+// GitLab repository when its host is one the administrator authorized as
+// GitLab. hosts is [{host,platform}] from bootstrap's gitHttpsHosts. It mirrors
+// the backend's authorizedExternalRepo: the identity becomes
+// "gitlab:<host>/<path>" (matching what the server stores), so the same repo
+// pasted again is recognized as already bound. Any other host returns null and
+// the caller keeps the generic 'https' transport.
+globalThis.LoopForgeGitLabPlatform = function gitLabPlatformForHost(host, hosts) {
+  const scope = globalThis.LoopForgeGitHTTPSHost(`https://${host}`) || String(host || '').toLowerCase();
+  for (const entry of (hosts || [])) {
+    const entryHost = globalThis.LoopForgeGitHTTPSHost(`https://${entry.host}`) || String(entry.host || '').toLowerCase();
+    if (entryHost && entryHost === scope) return entry.platform;
+  }
+  return '';
+};
+globalThis.LoopForgeGitLabRepo = function upgradeGitLabRepository(httpsInfo, hosts) {
+  if (!httpsInfo || httpsInfo.provider !== 'https' || !httpsInfo.host) return null;
+  if (globalThis.LoopForgeGitLabPlatform(httpsInfo.host, hosts) !== 'gitlab') return null;
+  const path = httpsInfo.project.slice(httpsInfo.host.length + 1);
+  return {provider:'gitlab', host:httpsInfo.host, project:'gitlab:'+httpsInfo.host+'/'+path, name:httpsInfo.name, cloneUrl:httpsInfo.cloneUrl, webUrl:httpsInfo.webUrl};
+};
+
 // The managed host is supplied by the deployment. Explicit old links remain
 // readable so existing repositories can be opened and edited.
 globalThis.LoopForgeGongfengRepository = function parseManagedRepository(raw, host = '') {
