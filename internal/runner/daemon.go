@@ -60,6 +60,8 @@ type Daemon struct {
 	workspaceTerminals   runtime.TerminalPool
 	checkpointTransfers  runtime.CheckpointTransfers
 	workspaceGates       sync.Map // run ID -> *sync.RWMutex; fences manual writes locally
+	previewLocks         sync.Map // preview env ID -> *sync.Mutex; serializes deploy/teardown
+	previewAuth          *previewAuth
 }
 
 type Config struct {
@@ -83,6 +85,12 @@ type Config struct {
 	// ManagedCLIRoot explicitly opts platform runners into managed CLI coordination.
 	// Empty leaves ordinary user runners unchanged; it is never inferred from PATH.
 	ManagedCLIRoot string
+	// Compose preview environments (docs/proposals/compose-preview-environments.md §6).
+	PreviewRoot         string // LOOPFORGE_PREVIEW_ROOT, default /srv/lfpreview
+	PreviewCaddy        string // LOOPFORGE_PREVIEW_CADDY, Caddy container name, default lf-caddy
+	PreviewAuthAddr     string // LOOPFORGE_PREVIEW_AUTH_ADDR, verify listener; empty disables it
+	PreviewSecret       string // LOOPFORGE_PREVIEW_SECRET, shared with the control plane, >= 32 bytes
+	PreviewAuthUpstream string // LOOPFORGE_PREVIEW_AUTH_UPSTREAM, verify address written into Caddy routes
 }
 
 type daemonState struct {
@@ -131,6 +139,10 @@ func New(cfg Config) (*Daemon, error) {
 		home, _ := os.UserHomeDir()
 		cfg.DefaultWorkspaceRoot = filepath.Join(home, ".agentflow-runner", "workspace")
 	}
+	cfg.PreviewRoot = firstPreviewSetting(cfg.PreviewRoot, defaultPreviewRoot)
+	cfg.PreviewCaddy = firstPreviewSetting(cfg.PreviewCaddy, defaultPreviewCaddy)
+	cfg.PreviewAuthUpstream = firstPreviewSetting(cfg.PreviewAuthUpstream, defaultPreviewAuthUpstream)
+	cfg.PreviewAuthAddr = strings.TrimSpace(cfg.PreviewAuthAddr)
 	if cfg.Name == "" {
 		host, _ := os.Hostname()
 		cfg.Name = host
@@ -155,6 +167,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		return err
 	}
 	d.refreshRuntimes(ctx)
+	d.startPreviewAuth(ctx)
 	claimCtx, cancelClaim := context.WithCancel(ctx)
 	defer cancelClaim()
 	d.cancelClaimLoop = cancelClaim
@@ -578,6 +591,10 @@ func (d *Daemon) executeTask(ctx context.Context, task domain.RunnerTask) {
 		result = d.executeIntegrate(ctx, task)
 	case task.Action == domain.RunnerTaskActionAlignBaseline:
 		result = d.executeAlignBaseline(ctx, task)
+	case task.Action == domain.RunnerTaskActionPreviewDeploy:
+		result = d.executePreviewDeploy(ctx, task)
+	case task.Action == domain.RunnerTaskActionPreviewTeardown:
+		result = d.executePreviewTeardown(ctx, task)
 	case task.Action != "":
 		// Never fall through to the shell/Agent paths for an action this
 		// build does not know.
@@ -1447,7 +1464,7 @@ func (d *Daemon) defaultWorkspace(taskID string) string {
 }
 
 // runnerVersion is reported at registration; it matches the module build.
-var runnerVersion = domain.RunnerVersionFeishu
+var runnerVersion = domain.RunnerVersionComposePreview
 
 // Version returns the runner build version reported at registration.
 func Version() string { return runnerVersion }
