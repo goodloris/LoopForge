@@ -10,7 +10,7 @@ const PREVIEW_DEFAULT_COMPOSE_FILE='.loopforge/preview/compose.yaml';
 function isPreviewBuildNode(id){return id===PREVIEW_BUILD_NODE_ID||id===PREVIEW_DEPLOY_NODE_ID}
 function workflowPreviewKind(wf){return String(workflowPreviewContract(wf)?.kind||'').trim().toLowerCase()==='compose'?'compose':'static'}
 function previewNodeFor(wf,position){
-  if(workflowPreviewKind(wf)==='compose')return {id:PREVIEW_DEPLOY_NODE_ID,name:'部署预览环境',type:'script',scriptLanguage:'shell',script:'# 平台步骤：部署 Compose 预览环境（由 LoopForge 执行，不运行此脚本）',executionScope:'run',onFailure:'fail',maxAttempts:1,position};
+  if(workflowPreviewKind(wf)==='compose')return {id:PREVIEW_DEPLOY_NODE_ID,name:'部署预览环境',type:'script',scriptLanguage:'shell',script:'# 平台步骤：部署 Compose 预览环境（由平台执行，不运行此脚本）',executionScope:'run',onFailure:'fail',maxAttempts:1,position};
   return {id:PREVIEW_BUILD_NODE_ID,name:'构建静态站点',type:'agent',agentId:PREVIEW_BUILD_AGENT_ID,executorId:workflowPreviewExecutor(wf),executionScope:'run',onFailure:'fail',retryStrategy:'targeted_fix',maxAttempts:2,maxReworks:1,position,artifactOutputs:[{name:'frontend-preview',path:'dist/index.html',required:true}]};
 }
 // Switching kinds swaps the preview node in place: same position and edges.

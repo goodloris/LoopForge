@@ -20,7 +20,7 @@ func PreviewDeployNode(position Position) WorkflowNode {
 		Name:           "部署预览环境",
 		Type:           "script",
 		ScriptLanguage: "shell",
-		Script:         "# 平台步骤：部署 Compose 预览环境（由 LoopForge 执行，不运行此脚本）",
+		Script:         "# 平台步骤：部署 Compose 预览环境（由平台执行，不运行此脚本）",
 		ExecutionScope: ExecutionScopeRun,
 		OnFailure:      "fail",
 		MaxAttempts:    1,
