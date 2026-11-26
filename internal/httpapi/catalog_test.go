@@ -2,10 +2,12 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -67,7 +69,26 @@ func TestExecutorModelsCatalogListsPerCLI(t *testing.T) {
 	if cb.Models[0].ID != "fast-model" || cb.Models[0].Family != "codebuddy" {
 		t.Fatalf("CodeBuddy routing model = %+v", cb.Models[0])
 	}
+	// An anonymous caller has no Codex / Claude Code credential, so the
+	// built-in lists must not be presented as supported (state none). The
+	// keys stay present with an empty array for the wizard cache.
+	for _, key := range []string{"codex", "claude"} {
+		catalog, ok := catalogs[key]
+		if !ok || catalog.Models == nil || len(catalog.Models) != 0 || catalog.Source != "none" ||
+			catalog.Availability != executorModelsNone || catalog.Notice == "" || !catalog.CustomModel || len(catalog.Efforts) == 0 {
+			t.Fatalf("%s anonymous catalog = %+v", key, catalog)
+		}
+	}
+	raw := requestEmptyJSON[map[string]json.RawMessage](t, h, http.MethodGet, "/api/executor-models", http.StatusOK)
+	if !strings.Contains(string(raw["codex"]), `"models":[]`) || !strings.Contains(string(raw["claude"]), `"models":[]`) {
+		t.Fatalf("empty catalogs must serialize models as []: codex=%s claude=%s", raw["codex"], raw["claude"])
+	}
+	// The full built-in catalog (order and names) stays on ?builtin=1.
+	catalogs = requestEmptyJSON[map[string]executorModelCatalog](t, h, http.MethodGet, "/api/executor-models?builtin=1", http.StatusOK)
 	codex := catalogs["codex"]
+	if codex.Availability != "" || codex.Source != "" {
+		t.Fatalf("builtin catalog must not carry availability: %+v", codex)
+	}
 	if len(codex.Models) < 2 || codex.Models[0].ID != "gpt-6.1-sol" || codex.Models[1].ID != "gpt-6.1-terra" || codex.Models[1].Name != "GPT-6.1 Terra" {
 		t.Fatalf("codex catalog = %+v", codex.Models)
 	}
@@ -850,10 +871,185 @@ func TestExecutorModelsCatalogUsesOnlyTheEditorsSavedModels(t *testing.T) {
 	if !catalogs["codex"].CustomModel || len(catalogs["codex"].Efforts) == 0 {
 		t.Fatalf("built-in Codex options disappeared: %+v", catalogs["codex"])
 	}
+	for _, key := range []string{"codex", "claude"} {
+		if catalogs[key].Source != "personal" || catalogs[key].Availability != executorModelsVerified || catalogs[key].Notice != "" {
+			t.Fatalf("%s saved catalog not marked verified: %+v", key, catalogs[key])
+		}
+	}
+	// workbench-owner only has a CodeBuddy key (workbenchFixture): no Codex
+	// credential and no runner, so its Codex list is empty (state none)
+	// instead of the built-in list, and never the other user's models.
 	other, _ := assistant.repo.UserByLoginName("workbench-owner")
 	c, rec = workbenchContext(other, "GET", "/api/executor-models", bytes.NewBuffer(nil))
 	handler.executorModels(c)
-	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "gateway/second") || !strings.Contains(rec.Body.String(), "gpt-6.1-sol") {
-		t.Fatalf("other user did not receive built-in models: %d %s", rec.Code, rec.Body)
+	var others map[string]executorModelCatalog
+	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &others) != nil || strings.Contains(rec.Body.String(), "gateway/second") {
+		t.Fatalf("other user catalog: %d %s", rec.Code, rec.Body)
+	}
+	if codex := others["codex"]; codex.Availability != executorModelsNone || len(codex.Models) != 0 || !codex.CustomModel {
+		t.Fatalf("other user Codex catalog = %+v", codex)
+	}
+}
+
+// The role catalog lists only the Codex / Claude Code models the editor can
+// use, and says so when it cannot verify them.
+func TestExecutorModelsAvailabilityStates(t *testing.T) {
+	assistant, owner := workbenchFixture(t)
+	handler := &catalogHandlers{deps: assistant.deps}
+	const claudeKey, claudeBase = "availability-claude-key", "https://claude-gateway.example"
+	discover := assistantEngineDiscover
+	assistantEngineDiscover = func(_ context.Context, anthropic bool, key, baseURL string) ([]assistantDiscoveredModel, error) {
+		if !anthropic || key != claudeKey || baseURL != claudeBase {
+			t.Errorf("unexpected discovery anthropic=%t base=%s", anthropic, baseURL)
+			return nil, nil
+		}
+		return []assistantDiscoveredModel{{ID: "claude-opus-5-5", Name: "Claude Opus 5.5"}}, nil
+	}
+	t.Cleanup(func() {
+		assistantEngineDiscover = discover
+		assistantDiscoveryCache.Delete(assistantDiscoveryKey(runtime.AgentCLIProtocolMessages, claudeKey, claudeBase))
+	})
+	put := func(u domain.User) domain.User {
+		t.Helper()
+		if err := assistant.repo.PutUser(u); err != nil {
+			t.Fatal(err)
+		}
+		stored, _ := assistant.repo.UserByLoginName(u.LoginName)
+		return stored
+	}
+	get := func(u domain.User, query string) map[string]executorModelCatalog {
+		t.Helper()
+		c, rec := workbenchContext(u, http.MethodGet, "/api/executor-models"+query, bytes.NewBuffer(nil))
+		handler.executorModels(c)
+		var out map[string]executorModelCatalog
+		if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &out) != nil {
+			t.Fatalf("catalog: %d %s", rec.Code, rec.Body)
+		}
+		if strings.Contains(rec.Body.String(), claudeKey) || strings.Contains(rec.Body.String(), claudeBase) {
+			t.Fatal("catalog leaked a credential")
+		}
+		return out
+	}
+	ids := func(models []executorModelInfo) []string {
+		out := make([]string, 0, len(models))
+		for _, model := range models {
+			out = append(out, model.ID)
+		}
+		return out
+	}
+
+	// AC-1 / AC-2: saved catalog and Base URL probe are verified lists.
+	verified := put(domain.User{
+		LoginName: "availability-verified", CodexModels: []domain.CLIModel{{ID: "gateway-a"}},
+		ClaudeCodeAPIKey: claudeKey, ClaudeCodeBaseURL: claudeBase,
+	})
+	catalogs := get(verified, "")
+	if codex := catalogs["codex"]; codex.Source != "personal" || codex.Availability != executorModelsVerified ||
+		strings.Join(ids(codex.Models), ",") != "gateway-a" || codex.Notice != "" {
+		t.Fatalf("verified Codex catalog = %+v", codex)
+	}
+	if claude := catalogs["claude"]; claude.Source != "personal" || claude.Availability != executorModelsVerified ||
+		strings.Join(ids(claude.Models), ",") != "claude-opus-5-5" {
+		t.Fatalf("probed Claude catalog = %+v", claude)
+	}
+
+	// AC-3: a key on the official endpoint cannot be verified.
+	keyOnly := put(domain.User{LoginName: "availability-key-only", CodexAPIKey: "official-key"})
+	catalogs = get(keyOnly, "")
+	codex := catalogs["codex"]
+	if codex.Source != "builtin" || codex.Availability != executorModelsUnverified || codex.Notice == "" ||
+		codex.Default != "" || !slices.Contains(ids(codex.Models), "gpt-6.2-astra") || !codex.CustomModel {
+		t.Fatalf("unverified Codex catalog = %+v", codex)
+	}
+	if claude := catalogs["claude"]; claude.Availability != executorModelsNone || len(claude.Models) != 0 {
+		t.Fatalf("Claude without credential = %+v", claude)
+	}
+
+	// AC-5: a runner on local login is unverified; a runner on personal
+	// credentials is not a login, and a runner without the CLI does not count.
+	runnerUser := put(domain.User{LoginName: "availability-runner"})
+	if err := assistant.repo.PutRunner(domain.Runner{ID: "availability-runner-1", Name: "laptop", OwnerUserID: runnerUser.ID, Runtimes: []domain.RunnerRuntime{
+		{Provider: "codex", AuthMode: domain.RuntimeAuthLocal},
+		{Provider: "claude-code", AuthMode: domain.RuntimeAuthPersonal},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := assistant.repo.PutRunner(domain.Runner{ID: "availability-runner-2", Name: "empty", OwnerUserID: owner.ID}); err != nil {
+		t.Fatal(err)
+	}
+	catalogs = get(runnerUser, "")
+	if catalogs["codex"].Availability != executorModelsUnverified || len(catalogs["codex"].Models) == 0 {
+		t.Fatalf("runner login Codex catalog = %+v", catalogs["codex"])
+	}
+	if catalogs["claude"].Availability != executorModelsNone || len(catalogs["claude"].Models) != 0 {
+		t.Fatalf("runner personal-mode Claude catalog = %+v", catalogs["claude"])
+	}
+
+	// AC-4 / AC-14: no credential and only a runner without these CLIs: none;
+	// every other CLI is exactly the built-in catalog.
+	catalogs = get(owner, "")
+	builtin := get(owner, "?builtin=1")
+	for _, key := range []string{"codex", "claude"} {
+		if catalogs[key].Availability != executorModelsNone || len(catalogs[key].Models) != 0 || !strings.Contains(catalogs[key].Notice, "个人配置") {
+			t.Fatalf("%s none catalog = %+v", key, catalogs[key])
+		}
+		if len(builtin[key].Models) == 0 || builtin[key].Availability != "" {
+			t.Fatalf("?builtin=1 %s must keep the full list: %+v", key, builtin[key])
+		}
+	}
+	for _, key := range []string{"kiro", "cursor", "agy", "kimi", "dsh", "zcode"} {
+		got, _ := json.Marshal(catalogs[key])
+		want, _ := json.Marshal(builtin[key])
+		if string(got) != string(want) {
+			t.Errorf("%s catalog changed:\n got %s\nwant %s", key, got, want)
+		}
+	}
+}
+
+// AC-12: the generic template role editor applies the same model check.
+func TestGenericTemplateAgentModelValidation(t *testing.T) {
+	t.Setenv("AGENTFLOW_PLATFORM_ADMINS", "example-admin")
+	t.Setenv("AGENTFLOW_SESSION_SECRET", "generic-admin-session-secret")
+	h, s := newGenericTemplateServer(t)
+	if err := s.PutUser(domain.User{LoginName: "example-admin", CodexModels: []domain.CLIModel{{ID: "gateway-a"}}}); err != nil {
+		t.Fatal(err)
+	}
+	admin, _ := s.UserByLoginName("example-admin")
+	path := "/api/workflows/" + repo.GenericBackendDeliveryWorkflowID + "/agents"
+	listed := requestEmptyJSON[[]domain.AgentDefinition](t, h, http.MethodGet, path, http.StatusOK)
+	if len(listed) == 0 {
+		t.Fatal("generic template has no roles")
+	}
+	role := listed[0]
+	role.ExecutorID, role.Model = "codex", "gpt-6.2-astra"
+	rejected := requestJSONAuthed[map[string]string](t, h, admin, http.MethodPut, path, role, http.StatusBadRequest)
+	if !strings.Contains(rejected["error"], "gpt-6.2-astra") || !strings.Contains(rejected["error"], "不在当前可用模型内") {
+		t.Fatalf("rejection = %#v", rejected)
+	}
+	template, _ := s.GenericTemplateByWorkflow(repo.GenericBackendDeliveryWorkflowID)
+	for _, agent := range template.Agents {
+		if agent.ID == role.ID && agent.Model == "gpt-6.2-astra" {
+			t.Fatal("a rejected model was stored")
+		}
+	}
+	body := map[string]any{}
+	raw, _ := json.Marshal(role)
+	_ = json.Unmarshal(raw, &body)
+	body["customModel"] = true
+	saved := requestJSONAuthed[agentSaveResponse](t, h, admin, http.MethodPut, path, body, http.StatusOK)
+	if saved.Model != "gpt-6.2-astra" || len(saved.Warnings) == 0 {
+		t.Fatalf("manual model save = %+v", saved)
+	}
+	// Unchanged executor + model: other edits pass without a warning.
+	role.Version = saved.Version
+	role.Model, role.Description = "gpt-6.2-astra", "edited"
+	again := requestJSONAuthed[agentSaveResponse](t, h, admin, http.MethodPut, path, role, http.StatusOK)
+	if len(again.Warnings) != 0 || again.Description != "edited" {
+		t.Fatalf("unchanged model save = %+v", again)
+	}
+	role.Version = again.Version
+	role.Model = "gateway-a"
+	if ok := requestJSONAuthed[agentSaveResponse](t, h, admin, http.MethodPut, path, role, http.StatusOK); ok.Model != "gateway-a" || len(ok.Warnings) != 0 {
+		t.Fatalf("verified model save = %+v", ok)
 	}
 }

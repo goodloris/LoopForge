@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"slices"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -90,6 +91,9 @@ func TestModelEffortsSurviveProbeSaveAndSelection(t *testing.T) {
 		!slices.Equal(got[0].Efforts, effortOptions([]string{"low", "xhigh"})) || len(got[1].Efforts) != 0 ||
 		!slices.Equal(got[2].Efforts, effortOptions([]string{"low", "medium", "high", "xhigh"})) {
 		t.Fatalf("role catalog lost per-model efforts: %+v", got)
+	}
+	if codex := catalogs["codex"]; codex.Source != "personal" || codex.Availability != executorModelsVerified {
+		t.Fatalf("saved Codex catalog not verified: %+v", codex)
 	}
 }
 
@@ -227,6 +231,11 @@ func TestBuiltinModelEffortsMatchTheCatalogAndTurnValidation(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &role); response.Code != http.StatusOK || err != nil {
 		t.Fatalf("role catalog: %d %s", response.Code, response.Body)
 	}
+	// AC-13: owner has no Codex / Claude Code credential (state none on the
+	// wizard catalog), yet ?builtin=1 still serves the full built-in lists.
+	if role["codex"].Availability != "" || role["claude"].Availability != "" || len(role["codex"].Models) == 0 || len(role["claude"].Models) == 0 {
+		t.Fatalf("?builtin=1 was filtered: codex=%+v claude=%+v", role["codex"], role["claude"])
+	}
 	xhigh := []string{"low", "medium", "high", "xhigh"}
 	max := []string{"low", "medium", "high", "xhigh", "max"}
 	ultra := []string{"low", "medium", "high", "xhigh", "max", "ultra"}
@@ -287,5 +296,113 @@ func TestBuiltinModelEffortsMatchTheCatalogAndTurnValidation(t *testing.T) {
 				t.Fatalf("session rejected the bare model ID with executor %s: %d %s", model.engine, response.Code, response.Body)
 			}
 		})
+	}
+}
+
+// AC-6 ~ AC-11: saving a role checks Codex / Claude Code models against the
+// saver's availability; stored roles keep working when their model is unchanged.
+func TestAgentSaveValidatesExecutorModel(t *testing.T) {
+	h, owner := workbenchFixture(t)
+	gateway := []domain.CLIModel{{ID: "gateway-a", Name: "Gateway A"}}
+	if _, err := h.repo.UpdateUserCredentials(owner.ID, repo.UserCredentialUpdate{CodexModels: &gateway}); err != nil {
+		t.Fatal(err)
+	}
+	owner, _ = h.repo.User(owner.ID)
+	catalog := &catalogHandlers{deps: h.deps}
+	save := func(body map[string]any) (int, map[string]any, string) {
+		t.Helper()
+		raw, _ := json.Marshal(body)
+		c, rec := workbenchContext(owner, http.MethodPut, "/api/agents", bytes.NewBuffer(raw))
+		catalog.agents(c)
+		var out map[string]any
+		_ = json.Unmarshal(rec.Body.Bytes(), &out)
+		return rec.Code, out, rec.Body.String()
+	}
+	role := func(id, executor, model string) map[string]any {
+		return map[string]any{"id": id, "name": id, "projectId": "workbench", "executorId": executor, "model": model}
+	}
+	warnings := func(out map[string]any) []any {
+		list, _ := out["warnings"].([]any)
+		return list
+	}
+
+	// AC-8: a listed model saves without warnings.
+	if code, out, body := save(role("listed", "codex", "gateway-a")); code != http.StatusOK || len(warnings(out)) != 0 || out["model"] != "gateway-a" {
+		t.Fatalf("listed model: %d %s", code, body)
+	}
+
+	// AC-6: an unlisted model is refused and nothing is stored.
+	code, out, body := save(role("unlisted", "codex", "gpt-6.2-astra"))
+	message, _ := out["error"].(string)
+	if code != http.StatusBadRequest || !strings.Contains(message, "Codex") || !strings.Contains(message, "gpt-6.2-astra") || !strings.Contains(message, "不在当前可用模型内") {
+		t.Fatalf("unlisted model: %d %s", code, body)
+	}
+	if _, stored := h.repo.Agent("unlisted"); stored {
+		t.Fatal("a refused role was stored")
+	}
+
+	// AC-7: the same model typed by hand is kept with a risk warning; the
+	// request flag is not part of the stored role.
+	manual := role("unlisted", "codex", "gpt-6.2-astra")
+	manual["customModel"] = true
+	code, out, body = save(manual)
+	if code != http.StatusOK || len(warnings(out)) == 0 || !strings.Contains(body, "运行时可能失败") || strings.Contains(body, `"customModel"`) {
+		t.Fatalf("manual model: %d %s", code, body)
+	}
+	if stored, ok := h.repo.Agent("unlisted"); !ok || stored.Model != "gpt-6.2-astra" {
+		t.Fatalf("manual model not stored: %+v", stored)
+	}
+	for _, revision := range h.repo.Revisions("agent", "unlisted") {
+		if strings.Contains(string(revision.Payload), "customModel") {
+			t.Fatal("customModel leaked into a revision snapshot")
+		}
+	}
+
+	// AC-9: a stored role whose model is no longer listed saves other edits.
+	if err := h.repo.PutAgent(domain.AgentDefinition{ID: "legacy", Name: "Legacy", ProjectID: "workbench", ExecutorID: "codex", Model: "retired-model", Version: 1}); err != nil {
+		t.Fatal(err)
+	}
+	legacy := role("legacy", "codex", "retired-model")
+	legacy["description"] = "only the description changed"
+	if code, out, body := save(legacy); code != http.StatusOK || len(warnings(out)) != 0 || out["model"] != "retired-model" {
+		t.Fatalf("unchanged legacy model: %d %s", code, body)
+	}
+	if code, _, body := save(role("legacy", "codex", "another-retired")); code != http.StatusBadRequest {
+		t.Fatalf("changing to another unlisted model: %d %s", code, body)
+	}
+
+	// AC-11: malformed IDs are refused even when typed by hand.
+	for _, bad := range []string{"has space", `quo"te`, "-x", "back\\slash", strings.Repeat("m", 129)} {
+		body := role("malformed", "codex", bad)
+		body["customModel"] = true
+		if code, out, raw := save(body); code != http.StatusBadRequest || !strings.Contains(out["error"].(string), "模型 ID 无效") {
+			t.Errorf("malformed %q: %d %s", bad, code, raw)
+		}
+	}
+
+	// AC-10: without a verified list the save goes through with a warning.
+	code, out, body = save(role("claude-none", "claude", "claude-fable-5-2"))
+	if code != http.StatusOK || len(warnings(out)) == 0 || !strings.Contains(body, "未能验证") {
+		t.Fatalf("Claude without credential: %d %s", code, body)
+	}
+	if _, err := h.repo.UpdateUserCredentials(owner.ID, repo.UserCredentialUpdate{ClaudeCodeAPIKey: "official-key"}); err != nil {
+		t.Fatal(err)
+	}
+	owner, _ = h.repo.User(owner.ID)
+	code, out, body = save(role("claude-key", "claude", "claude-fable-5-2"))
+	if code != http.StatusOK || len(warnings(out)) == 0 || strings.Contains(body, "official-key") {
+		t.Fatalf("Claude on the official endpoint: %d %s", code, body)
+	}
+
+	// AC-14: other CLIs, the CLI default and an empty model are unchanged.
+	for _, check := range []map[string]any{
+		role("codebuddy-any", "codebuddy", "any-model"),
+		role("kiro-any", "kiro", "any-model"),
+		role("codex-default", "codex", "default"),
+		role("codex-empty", "codex", ""),
+	} {
+		if code, out, body := save(check); code != http.StatusOK || len(warnings(out)) != 0 {
+			t.Errorf("%s: %d %s", check["id"], code, body)
+		}
 	}
 }

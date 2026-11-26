@@ -1924,6 +1924,16 @@ paths:
     put:
       tags: [Assets]
       operationId: upsertAgent
+      description: >-
+        Saves an Agent. For executorId codex or claude, a new or changed model is checked
+        against the caller's availability (see GET /api/executor-models). When the caller's
+        list is verified and lacks the model, the request is refused with 400 unless the body
+        also carries `customModel: true` (a hand-typed model ID; not stored). Without a verified
+        list the save succeeds. Either way the response may add `warnings` (string array) next to
+        the stored Agent fields. An unchanged executor + model on an existing Agent is not
+        re-checked. Model IDs must not be empty, exceed 128 characters, start with `-` or contain
+        whitespace, quotes or backslashes. PUT /api/workflows/{id}/agents (generic template roles)
+        applies the same check.
       requestBody:
         $ref: "#/components/requestBodies/Agent"
       responses:
@@ -2375,7 +2385,17 @@ paths:
     get:
       tags: [Assets]
       operationId: listExecutorModels
-      description: Returns, per built-in CLI, the selectable model IDs, the default model and the reasoning-effort levels. An Agent's model should be one of these IDs.
+      description: >-
+        Returns, per built-in CLI, the selectable model IDs, the default model and the
+        reasoning-effort levels for the signed-in user. For `codex` and `claude` the entry also
+        carries `source` and `availability`: `verified` (source `personal`) lists only the
+        user's saved catalog or the models probed from their Base URL; `unverified` (source
+        `builtin`) is the built-in list, shown because the user has an official-endpoint key or a
+        runner on account login that the server cannot check; `none` (source `none`, `models: []`)
+        means no credential and no runner login. `notice` explains the last two states and never
+        contains a key or Base URL. `customModel: true` means a hand-typed model ID is accepted.
+        `?builtin=1` returns the full built-in catalog without availability filtering.
+        Other CLIs are unchanged.
       responses:
         "200":
           description: Model catalog keyed by CLI id

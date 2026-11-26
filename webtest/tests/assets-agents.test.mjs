@@ -267,3 +267,103 @@ test('a personal catalog does not rewrite an existing role effort during a name 
   assert.equal(saved.name, 'Renamed');
   assert.equal(saved.effort, 'xhigh');
 });
+
+test('role model picker shows only verified models and explains unverified or missing catalogs', async (t) => {
+  const app = await loadApp();
+  t.after(app.close);
+  const catalogs = {
+    codebuddy: { models: [], efforts: [] },
+    codex: { source: 'personal', availability: 'verified', customModel: true, models: [{ id: 'gateway-a', name: 'Gateway A' }], efforts: [] },
+    claude: { source: 'builtin', availability: 'unverified', notice: '未能验证这些 Claude Code 模型在你的账号下可用', customModel: true, models: [{ id: 'claude-opus-5-5', name: 'Claude Opus 5.5' }], efforts: [] },
+  };
+  app.router.get('/api/executor-models', catalogs);
+  app.evaluate(`
+    state.data.executors=[{id:'codex',name:'Codex'},{id:'claude',name:'Claude Code'}];
+    state.data.assistantDefaults={executor:'codex'};
+    openAgentWizard();
+  `);
+  await settle();
+  const f = app.document.querySelector('#agentForm');
+  const menu = () => [...app.document.querySelectorAll('#agentModelPicker [role=option]')];
+  const notice = () => app.document.querySelector('#agentModelNotice');
+  // Verified: only the saved list, first model preselected, no hint.
+  assert.deepEqual(menu().map(row => row.dataset.id), ['gateway-a', '__custom__']);
+  assert.equal(app.evaluate(`agentEffectiveModel($('#agentForm'))`), 'gateway-a');
+  assert.equal(notice().hidden, true);
+  // Typing a model by hand warns about the risk.
+  menu().find(row => row.dataset.id === '__custom__').click();
+  assert.equal(notice().hidden, false);
+  assert.match(notice().textContent, /不在当前可用清单中/);
+
+  // Unverified: every built-in entry is marked, nothing is preselected.
+  f.elements.executorId.value = 'claude';
+  f.elements.executorId.dispatchEvent(new app.window.Event('change', { bubbles: true }));
+  await settle();
+  assert.deepEqual(menu().map(row => row.querySelector('.ai-model-name')?.textContent).filter(Boolean).slice(0, 1), ['Claude Opus 5.5（未验证）']);
+  assert.equal(app.evaluate(`agentEffectiveModel($('#agentForm'))`), '');
+  assert.match(notice().textContent, /未能验证/);
+
+  // None: empty list with guidance and manual input.
+  catalogs.claude = { source: 'none', availability: 'none', notice: '未配置 Claude Code 凭据：请在个人配置中填写 API Key', customModel: true, models: [], efforts: [] };
+  app.router.get('/api/executor-models', catalogs);
+  app.evaluate(`openAgentWizard({id:'legacy-role',name:'Legacy',prompt:'Legacy',executorId:'codex',model:'retired-model'})`);
+  await settle();
+  // A stored model outside the verified list stays selectable and warned.
+  assert.equal(app.evaluate(`agentEffectiveModel($('#agentForm'))`), 'retired-model');
+  assert.match(notice().textContent, /不在当前可用清单中/);
+  f.elements.executorId.value = 'claude';
+  f.elements.executorId.dispatchEvent(new app.window.Event('change', { bubbles: true }));
+  await settle();
+  assert.deepEqual(menu().map(row => row.dataset.id).filter(id => id !== 'retired-model'), ['__custom__']);
+  assert.match(notice().textContent, /个人配置/);
+});
+
+test('historical models keep their label when the CLI accepts no manual IDs', async (t) => {
+  const app = await loadApp();
+  t.after(app.close);
+  app.router.get('/api/executor-models', {
+    codebuddy: { models: [{ id: 'cb-model', name: 'CB model' }], efforts: [] }, codex: { models: [] }, claude: { models: [] },
+  });
+  app.evaluate(`
+    state.data.executors=[{id:'codebuddy',name:'CodeBuddy'}];
+    openAgentWizard({id:'old-role',name:'Old',prompt:'Old',executorId:'codebuddy',model:'old-model'});
+  `);
+  await settle();
+  const names = [...app.document.querySelectorAll('#agentModelPicker [role=option] .ai-model-name')].map(node => node.textContent);
+  assert.ok(names.includes('old-model（历史模型）'), names.join(','));
+});
+
+test('role save sends the manual-model flag, shows warnings and server refusals', async (t) => {
+  const app = await loadApp();
+  t.after(app.close);
+  app.router.get('/api/executor-models', {
+    codebuddy: { models: [], efforts: [] }, claude: { models: [], efforts: [] },
+    codex: { source: 'personal', availability: 'verified', customModel: true, models: [{ id: 'gateway-a', name: 'Gateway A' }], efforts: [] },
+  });
+  let reply = call => ({ status: 200, body: { ...call.body, warnings: ['手动输入的 Codex 模型 my-model 不在你的可用清单内，运行时可能失败'] } });
+  app.router.put('/api/agents', call => reply(call));
+  app.evaluate(`
+    state.data.executors=[{id:'codex',name:'Codex'}];
+    openAgentWizard({id:'manual-role',name:'Manual',prompt:'Manual',executorId:'codex',model:'gateway-a'});
+  `);
+  await settle();
+  app.document.querySelector('#agentModelPicker [data-id="__custom__"]').click();
+  app.document.querySelector('#agentModelCustomField input[name="model"]').value = 'my-model';
+  await app.evaluate(`persistAgent($('#agentForm'))`);
+  const sent = app.router.calls.filter(call => call.path === '/api/agents' && call.method === 'PUT').at(-1).body;
+  assert.equal(sent.model, 'my-model');
+  assert.equal(sent.customModel, true);
+  const toasts = () => [...app.document.querySelectorAll('.toast-item-msg, #toast')].map(node => node.textContent).join('\n');
+  assert.match(toasts(), /运行时可能失败/);
+  const stored = app.evaluate(`JSON.stringify(state.data.agents.find(a=>a.id==='manual-role'))`);
+  assert.doesNotMatch(stored, /customModel|warnings/);
+
+  // A listed model is sent without the flag; a refusal is shown verbatim.
+  reply = () => ({ status: 400, body: { error: 'Codex 模型 gateway-a 不在当前可用模型内，请从列表选择' } });
+  app.evaluate(`openAgentWizard({id:'manual-role',name:'Manual',prompt:'Manual',executorId:'codex',model:'gateway-a'})`);
+  await settle();
+  await app.evaluate(`persistAgent($('#agentForm'))`);
+  const second = app.router.calls.filter(call => call.path === '/api/agents' && call.method === 'PUT').at(-1).body;
+  assert.equal(second.customModel, undefined);
+  assert.match(toasts(), /不在当前可用模型内/);
+});

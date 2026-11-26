@@ -384,10 +384,12 @@ func (h *catalogHandlers) agents(c *gin.Context) {
 		return
 	}
 	if c.Request.Method == http.MethodPut {
-		var v domain.AgentDefinition
-		if decode(c, &v) && v.ID != "" {
+		var req agentSaveRequest
+		if decode(c, &req) && req.ID != "" {
+			v := req.AgentDefinition
 			v.ID, v.ProjectID = strings.TrimSpace(v.ID), strings.TrimSpace(v.ProjectID)
-			if existing, ok := h.repo.Agent(v.ID); ok {
+			existing, hasExisting := h.repo.Agent(v.ID)
+			if hasExisting {
 				if v.ProjectID == "" {
 					v.ProjectID = strings.TrimSpace(existing.ProjectID)
 				}
@@ -411,11 +413,20 @@ func (h *catalogHandlers) agents(c *gin.Context) {
 				c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 				return
 			}
+			var previous *domain.AgentDefinition
+			if hasExisting {
+				previous = &existing
+			}
+			warnings, err := checkAgentModelAvailability(c.Request.Context(), h.currentStoredUser(c), h.repo, v, previous, req.CustomModel)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
 			if err := domain.ValidateVerificationGates(v.Verification); err != nil {
 				c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 				return
 			}
-			if existing, ok := h.repo.Agent(v.ID); ok && existing.Shared && !v.Shared && h.sharedScheduleReferences("agent", v.ID) {
+			if hasExisting && existing.Shared && !v.Shared && h.sharedScheduleReferences("agent", v.ID) {
 				c.JSON(http.StatusConflict, map[string]string{"error": "该角色仍被共享任务引用，不能取消共享"})
 				return
 			}
@@ -427,9 +438,33 @@ func (h *catalogHandlers) agents(c *gin.Context) {
 				return
 			}
 			stored, _ := h.repo.Agent(v.ID)
-			c.JSON(200, stored)
+			c.JSON(200, agentSaveResponse{AgentDefinition: stored, Warnings: warnings})
 		}
 	}
+}
+
+// agentSaveRequest is the role save body. CustomModel marks a model ID the
+// editor typed by hand; it is not part of AgentDefinition, so it is never
+// stored nor written to revisions.
+type agentSaveRequest struct {
+	domain.AgentDefinition
+	CustomModel bool `json:"customModel,omitempty"`
+}
+
+// agentSaveResponse is the saved role plus non-blocking model warnings.
+type agentSaveResponse struct {
+	domain.AgentDefinition
+	Warnings []string `json:"warnings,omitempty"`
+}
+
+// currentStoredUser is the signed-in user's stored record, or the zero user.
+func (h *catalogHandlers) currentStoredUser(c *gin.Context) domain.User {
+	if current, ok := h.requestUser(c.Request, true); ok {
+		if stored, found := h.repo.User(current.ID); found {
+			return stored
+		}
+	}
+	return domain.User{}
 }
 
 func validateCatalogAgentExecutor(agent *domain.AgentDefinition) error {
@@ -1350,11 +1385,24 @@ func (h *catalogHandlers) workflow(c *gin.Context) {
 			c.JSON(http.StatusConflict, map[string]string{"error": "只有平台管理员可以编辑通用模板角色"})
 			return
 		}
-		var agent domain.AgentDefinition
-		if !decode(c, &agent) {
+		var req agentSaveRequest
+		if !decode(c, &req) {
 			return
 		}
+		agent := req.AgentDefinition
 		if err := validateCatalogAgentExecutor(&agent); err != nil {
+			c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		var previous *domain.AgentDefinition
+		for i := range template.Agents {
+			if template.Agents[i].ID == strings.TrimSpace(agent.ID) {
+				previous = &template.Agents[i]
+				break
+			}
+		}
+		warnings, err := checkAgentModelAvailability(c.Request.Context(), h.currentStoredUser(c), h.repo, agent, previous, req.CustomModel)
+		if err != nil {
 			c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
@@ -1371,7 +1419,7 @@ func (h *catalogHandlers) workflow(c *gin.Context) {
 			respond(c, err)
 			return
 		}
-		c.JSON(200, saved)
+		c.JSON(200, agentSaveResponse{AgentDefinition: saved, Warnings: warnings})
 	case "/api/workflows/:id/publish":
 		if v.Generic {
 			if !h.isPlatformAdmin(c.Request) {
