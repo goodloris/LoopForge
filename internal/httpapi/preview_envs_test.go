@@ -44,7 +44,14 @@ func TestPreviewEnvHandlersAccessAndTicket(t *testing.T) {
 	}
 	ready := domain.PreviewEnvironment{ID: domain.PreviewEnvID("pe-issue", "repo"), ProjectID: "pe-proj", IssueID: "pe-issue", RepositoryID: "repo", LastRunID: "pe-run", Status: domain.PreviewEnvReady, AdminPassword: "secret-pw"}
 	deploying := domain.PreviewEnvironment{ID: domain.PreviewEnvID("pe-issue", "repo2"), ProjectID: "pe-proj", IssueID: "pe-issue", RepositoryID: "repo2", Status: domain.PreviewEnvDeploying}
-	for _, env := range []domain.PreviewEnvironment{ready, deploying} {
+	if err := st.PutRun(domain.Run{ID: "pe-solo-run", Status: "succeeded", ExecutionContext: domain.TelemetryContext{ResponsibleUserID: users["pe-viewer"].ID}, Nodes: map[string]*domain.NodeRun{}}); err != nil {
+		t.Fatal(err)
+	}
+	// No project: only platform admins and the run's responsible user. A
+	// project that no longer exists: nobody but admins.
+	solo := domain.PreviewEnvironment{ID: domain.PreviewEnvID("pe-solo-run", "repo"), RepositoryID: "repo", LastRunID: "pe-solo-run", Status: domain.PreviewEnvReady, AdminPassword: "solo-pw"}
+	orphan := domain.PreviewEnvironment{ID: domain.PreviewEnvID("orphan", "repo"), ProjectID: "gone", LastRunID: "pe-solo-run", Status: domain.PreviewEnvReady, AdminPassword: "orphan-pw"}
+	for _, env := range []domain.PreviewEnvironment{ready, deploying, solo, orphan} {
 		if err := st.PutPreviewEnvironment(env); err != nil {
 			t.Fatal(err)
 		}
@@ -106,12 +113,38 @@ func TestPreviewEnvHandlersAccessAndTicket(t *testing.T) {
 		t.Fatal("ticket verified for another environment")
 	}
 
+	for user, want := range map[string]int{"pe-viewer": http.StatusOK, "pe-outsider": http.StatusForbidden} {
+		if rec := call(user, h.ticket, http.MethodPost, solo.ID); rec.Code != want {
+			t.Fatalf("%s ticket for a project-less env = %d", user, rec.Code)
+		}
+	}
+	if rec := call("pe-viewer", h.ticket, http.MethodPost, orphan.ID); rec.Code != http.StatusForbidden {
+		t.Fatalf("ticket for an env of a deleted project = %d", rec.Code)
+	}
+	for user, visible := range map[string]bool{"pe-viewer": true, "pe-outsider": false} {
+		got := list(user, h.runEnvs, "pe-solo-run")
+		seen := map[string]string{}
+		for _, item := range got.Items {
+			seen[item.ID] = item.AdminPassword
+		}
+		if (seen[solo.ID] == "solo-pw") != visible || seen[orphan.ID] != "" {
+			t.Fatalf("%s project-less list = %+v", user, got.Items)
+		}
+	}
+
 	// Delete: writers only; deploying environments conflict.
 	if rec := call("pe-viewer", h.destroy, http.MethodDelete, ready.ID); rec.Code != http.StatusForbidden {
 		t.Fatalf("viewer delete = %d", rec.Code)
 	}
 	if rec := call("pe-owner", h.destroy, http.MethodDelete, deploying.ID); rec.Code != http.StatusConflict {
 		t.Fatalf("deploying delete = %d", rec.Code)
+	}
+	// A deploy whose deployer died (claim past the stale window) can be torn down.
+	if err := st.DB.Table("preview_environments").Where("id = ?", deploying.ID).Update("updated_at", time.Now().UTC().Add(-2*time.Hour)).Error; err != nil {
+		t.Fatal(err)
+	}
+	if rec := call("pe-owner", h.destroy, http.MethodDelete, deploying.ID); rec.Code != http.StatusAccepted {
+		t.Fatalf("stale deploying delete = %d %s", rec.Code, rec.Body.String())
 	}
 	rec = call("pe-owner", h.destroy, http.MethodDelete, ready.ID)
 	var destroyed domain.PreviewEnvironment

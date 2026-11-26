@@ -8,7 +8,7 @@ const code = fs.readFileSync(path.join(__dirname, 'app/flows.js'), 'utf8');
 const head = code.slice(0, code.indexOf('function flowReadOnly('));
 const context = {state: {data: {}, selectedNode: ''}, executorModelCatalogs: () => ({}), escapeHTML: String};
 vm.createContext(context);
-vm.runInContext(head + '\nthis.api={workflowPreviewKind,setWorkflowPreviewKind,ensurePreviewContract,syncPreviewBuildGraph,isPreviewBuildNode};', context);
+vm.runInContext(head + '\nthis.api={previewDeployParallelAgents,workflowPreviewKind,setWorkflowPreviewKind,ensurePreviewContract,syncPreviewBuildGraph,isPreviewBuildNode};', context);
 const api = context.api;
 
 function placed(kind) {
@@ -61,3 +61,10 @@ assert.equal(wf.nodes[1].id, 'af-preview-deploy');
 assert.deepEqual(wf.edges.map(e => `${e.id}:${e.source}>${e.target}`), ['af-preview-deploy-edge-1:a>af-preview-deploy']);
 assert.equal(api.workflowPreviewKind({preview: {enabled: true}}), 'static');
 assert.ok(api.isPreviewBuildNode('af-preview-deploy') && api.isPreviewBuildNode('af-preview-build'));
+
+// Designer diagnostics: agents beside the deploy node (neither up- nor downstream) are flagged.
+const graphNodes = [{id: 'plan', type: 'agent'}, {id: 'fe', type: 'agent'}, {id: 'be', type: 'agent'}, {id: 'af-preview-deploy', type: 'script'}, {id: 'review', type: 'agent'}];
+const joined = [{source: 'plan', target: 'fe'}, {source: 'plan', target: 'be'}, {source: 'fe', target: 'af-preview-deploy'}, {source: 'be', target: 'af-preview-deploy'}, {source: 'af-preview-deploy', target: 'review'}];
+assert.deepEqual(api.previewDeployParallelAgents(graphNodes, joined, 'af-preview-deploy').map(n => n.id), []);
+const forked = joined.filter(e => !(e.source === 'be' && e.target === 'af-preview-deploy'));
+assert.deepEqual(api.previewDeployParallelAgents(graphNodes, forked, 'af-preview-deploy').map(n => n.id), ['be']);

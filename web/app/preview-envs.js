@@ -17,6 +17,16 @@ function previewEnvRepoName(env){
   const repo=(state?.data?.repositories||[]).find(r=>r.id===env.repositoryId);
   return repo?.name||env.repositoryId||'—';
 }
+// Deploys stuck past the server's takeover window (deploy timeout + margin).
+const PREVIEW_ENV_DEPLOY_STALE_MS=40*60*1000;
+// Destroy is offered for ready/failed environments, as a retry for a failed
+// teardown, and for a deploy whose deployer is gone; empty means no button.
+function previewEnvDestroyLabel(env,now=Date.now()){
+  if(env.status==='ready'||env.status==='failed')return previewEnvT('销毁','Destroy');
+  if(env.status==='destroying'&&env.lastError)return previewEnvT('重试销毁','Retry teardown');
+  if(env.status==='deploying'&&now-Date.parse(env.updatedAt||'')>PREVIEW_ENV_DEPLOY_STALE_MS)return previewEnvT('销毁','Destroy');
+  return '';
+}
 function previewEnvCardHTML(env,adminUser){
   const id=escapeHTML(env.id);
   const sha=env.sha?`<code title="${escapeHTML(env.sha)}">${escapeHTML(env.sha.slice(0,8))}</code>`:'—';
@@ -27,7 +37,7 @@ function previewEnvCardHTML(env,adminUser){
     :`<span class="muted">${escapeHTML(previewEnvT('仅项目成员可见','Visible to project members'))}</span>`;
   const actions=[
     env.status==='ready'&&env.adminPassword?`<button type="button" class="button primary small" data-preview-env-open="${id}">${escapeHTML(previewEnvT('打开预览','Open preview'))}</button>`:'',
-    live&&env.status!=='deploying'?`<button type="button" class="button danger-outline small" data-preview-env-destroy="${id}">${escapeHTML(previewEnvT('销毁','Destroy'))}</button>`:''
+    previewEnvDestroyLabel(env)?`<button type="button" class="button danger-outline small" data-preview-env-destroy="${id}">${escapeHTML(previewEnvDestroyLabel(env))}</button>`:''
   ].join('');
   const error=env.lastError?`<p class="preview-env-error">${escapeHTML(env.lastError)}</p>`:'';
   return `<article class="preview-env-card" data-preview-env="${id}"><header><b>${escapeHTML(previewEnvRepoName(env))}</b>${previewEnvBadgeHTML(env.status)}</header><div class="detail-grid"><div class="detail-fact"><span>${escapeHTML(previewEnvT('提交','Commit'))}</span><b>${sha}</b></div><div class="detail-fact"><span>${escapeHTML(previewEnvT('分支','Branch'))}</span><b>${escapeHTML(env.branch||'—')}</b></div><div class="detail-fact"><span>URL</span><b>${url}</b></div><div class="detail-fact"><span>${escapeHTML(previewEnvT('管理员账号','Admin account'))}</span><b>${password}</b></div></div>${error}${actions?`<div class="preview-env-actions">${actions}</div>`:''}</article>`;

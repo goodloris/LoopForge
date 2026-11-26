@@ -30,6 +30,9 @@ const (
 	composePreviewTeardownTimeout = 10 * time.Minute
 	// A teardown still destroying after this long is assumed lost and retried.
 	composePreviewTeardownStale = 15 * time.Minute
+	// A deploy still deploying after this long lost its deployer (restart,
+	// crash) and may be claimed again by a deploy, the sweep or DELETE.
+	composePreviewDeployStale = composePreviewDeployTimeout + 10*time.Minute
 	composePreviewSweepInterval = time.Minute
 	// PreviewAdminUser is the application account the injected password belongs to.
 	PreviewAdminUser = "preview"
@@ -71,6 +74,11 @@ func (c ComposePreviewConfig) Problem() string {
 	}
 	if u, err := url.Parse(c.URL("pe-0000000000")); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
 		return "Compose 预览环境未启用：AGENTFLOW_COMPOSE_PREVIEW_BASE_URL 不是 http(s) 地址"
+	}
+	// Each environment needs its own host: the Caddy route and the
+	// host-only gateway cookie are keyed by it.
+	if c.Host("pe-aaaaaaaaaa") == c.Host("pe-bbbbbbbbbb") {
+		return "Compose 预览环境未启用：AGENTFLOW_COMPOSE_PREVIEW_BASE_URL 的 {id} 必须在主机名里，例如 http://{id}.preview.example:8088"
 	}
 	if len(c.Secret) < previewenv.MinSecretLen {
 		return fmt.Sprintf("Compose 预览环境未启用：AGENTFLOW_COMPOSE_PREVIEW_SECRET 至少 %d 字节", previewenv.MinSecretLen)
@@ -129,6 +137,9 @@ func (e *Engine) composePreviewRunner(cfg ComposePreviewConfig) (domain.Runner, 
 	if reason := runner.ComposePreviewUnsupportedReason(); reason != "" {
 		return domain.Runner{}, errors.New(reason)
 	}
+	if runner.Status != domain.RunnerStatusOnline {
+		return domain.Runner{}, fmt.Errorf("预览执行机器 %s 当前不在线，请启动它后重试本节点", cfg.RunnerID)
+	}
 	return runner, nil
 }
 
@@ -152,8 +163,13 @@ func (e *Engine) executeComposePreviewNode(ctx context.Context, runID string, no
 	}
 	var heads []domain.RunnerWorkBranchHead
 	if len(composePreviewRepositories(run)) > 0 {
+		if WorkspaceRunID(run) != run.ID {
+			fail(errors.New("「部署预览环境」不能放在子 SOP 里：子 SOP 共享父任务的工作区，请把预览节点放到父 SOP 中所有改代码节点之后"))
+			return
+		}
 		identity := resolveGitIdentity(e.repo, run.ExecutionContext.ResponsibleUserID)
-		heads, err = e.PushConversationWorkspace(ctx, runID, run.ExecutionContext.ResponsibleUserID, identity.name, identity.email, "Loopool: 部署预览环境", "")
+		// An empty message uses the push's default commit message rule.
+		heads, err = e.PushConversationWorkspace(ctx, runID, run.ExecutionContext.ResponsibleUserID, identity.name, identity.email, "", "")
 		if err != nil {
 			fail(fmt.Errorf("推送工作分支失败：%w", err))
 			return
@@ -223,7 +239,10 @@ func (e *Engine) deployComposePreviews(ctx context.Context, run domain.Run, node
 			failures = append(failures, fmt.Sprintf("%s：%v", rc.Name, err))
 			continue
 		}
-		lines = append(lines, fmt.Sprintf("- %s：%s（%s，管理员 %s / %s）", rc.Name, env.URL, shortSHA(env.SHA), PreviewAdminUser, env.AdminPassword))
+		// The admin password stays out of run-level views (node output,
+		// events, upstream handoff); project readers get it from the
+		// preview environment card.
+		lines = append(lines, fmt.Sprintf("- %s：%s（%s，管理员账号 %s，密码见预览环境卡片）", rc.Name, env.URL, shortSHA(env.SHA), PreviewAdminUser))
 	}
 	if len(failures) > 0 {
 		return "", fmt.Errorf("Compose 预览部署失败：%s", strings.Join(failures, "；"))
@@ -243,27 +262,24 @@ func (e *Engine) deployComposePreview(ctx context.Context, run domain.Run, nodeI
 		owner = run.ID
 	}
 	envID := domain.PreviewEnvID(owner, rc.RepositoryID)
-	env, found := e.repo.PreviewEnvironment(envID)
-	if !found || env.AdminPassword == "" {
-		password, err := randomPreviewPassword()
-		if err != nil {
-			return env, err
-		}
-		env.AdminPassword = password
+	password, err := randomPreviewPassword()
+	if err != nil {
+		return domain.PreviewEnvironment{}, err
 	}
-	env.ID = envID
-	env.ProjectID = run.ExecutionContext.ProjectID
-	env.IssueID = strings.TrimSpace(run.ExecutionContext.IssueID)
-	env.RepositoryID = rc.RepositoryID
-	env.RunnerID = runner.ID
-	env.LastRunID = run.ID
-	env.Branch = writableWorkBranch(rc)
-	env.URL = cfg.URL(envID)
-	env.Status = domain.PreviewEnvDeploying
-	env.LastError = ""
-	env.DestroyedAt = time.Time{}
-	if err := e.repo.PutPreviewEnvironment(env); err != nil {
+	env, claimed, err := e.repo.ClaimPreviewEnvironmentDeploy(domain.PreviewEnvironment{
+		ID: envID, ProjectID: run.ExecutionContext.ProjectID, IssueID: strings.TrimSpace(run.ExecutionContext.IssueID),
+		RepositoryID: rc.RepositoryID, RunnerID: runner.ID, LastRunID: run.ID, Branch: writableWorkBranch(rc),
+		URL: cfg.URL(envID), AdminPassword: password,
+	}, time.Now().Add(-composePreviewDeployStale))
+	if err != nil {
 		return env, err
+	}
+	if !claimed {
+		busy := "部署"
+		if env.Status == domain.PreviewEnvDestroying {
+			busy = "销毁"
+		}
+		return env, fmt.Errorf("预览环境 %s 正在%s，稍后重试本节点", envID, busy)
 	}
 	e.observe(run.ID, nodeID, domain.TelemetryEvent{Category: "preview", Name: "preview.env.deploying", Phase: "start", Message: rc.Name + " → " + env.URL, Attributes: map[string]any{"envId": envID, "sha": sha, "runnerId": runner.ID}})
 	userID := run.ExecutionContext.ResponsibleUserID
@@ -297,14 +313,21 @@ func (e *Engine) deployComposePreview(ctx context.Context, run domain.Run, nodeI
 		if decodeErr := json.Unmarshal([]byte(final.Result), &result); decodeErr == nil && strings.TrimSpace(result.SHA) != "" {
 			sha = strings.TrimSpace(result.SHA)
 		}
-		env.Status, env.SHA, env.DeployedAt = domain.PreviewEnvReady, sha, time.Now().UTC()
+		env.Status, env.SHA, env.LastError = domain.PreviewEnvReady, sha, ""
 	} else {
 		env.Status, env.LastError = domain.PreviewEnvFailed, err.Error()
 	}
-	// The environment row must reflect the outcome even when the node context
-	// was cancelled while waiting.
-	if putErr := e.repo.PutPreviewEnvironment(env); putErr != nil && err == nil {
-		err = putErr
+	// Written even when the node context was cancelled while waiting, but
+	// only while this run still holds the deploying claim.
+	if ok, finishErr := e.repo.FinishPreviewEnvironmentDeploy(envID, run.ID, env.Status, env.SHA, env.LastError); finishErr != nil {
+		if err == nil {
+			err = finishErr
+		}
+	} else if !ok {
+		log.Printf("compose preview %s: deploy outcome of run %s dropped, the environment was claimed by another operation", envID, run.ID)
+		if err == nil {
+			err = fmt.Errorf("预览环境 %s 在部署期间被其他操作接管，请重试本节点", envID)
+		}
 	}
 	e.observe(run.ID, nodeID, domain.TelemetryEvent{Category: "preview", Name: "preview.env." + env.Status, Phase: "finish", Message: rc.Name + " → " + env.URL, Attributes: map[string]any{"envId": envID, "sha": env.SHA}})
 	return env, err
@@ -379,7 +402,8 @@ func shortSHA(sha string) string {
 // whether this call started the teardown; deploying environments and fresh
 // teardowns are not claimed.
 func (e *Engine) StartPreviewTeardown(envID string) (domain.PreviewEnvironment, bool, error) {
-	env, claimed, err := e.repo.ClaimPreviewEnvironmentTeardown(envID, time.Now().Add(-composePreviewTeardownStale))
+	now := time.Now()
+	env, claimed, err := e.repo.ClaimPreviewEnvironmentTeardown(envID, now.Add(-composePreviewTeardownStale), now.Add(-composePreviewDeployStale))
 	if err != nil || !claimed {
 		current, _ := e.repo.PreviewEnvironment(envID)
 		return current, false, err
@@ -415,39 +439,39 @@ func (e *Engine) teardownPreviewEnvironment(ctx context.Context, env domain.Prev
 			Preview:     &domain.RunnerPreviewSpec{EnvID: env.ID},
 		}, composePreviewTeardownTimeout)
 	}
+	lastError := ""
 	if err != nil {
-		env.LastError = "销毁失败：" + err.Error()
+		lastError = "销毁失败：" + err.Error()
 		log.Printf("compose preview teardown %s: %v", env.ID, err)
-	} else {
-		env.Status, env.LastError, env.DestroyedAt = domain.PreviewEnvDestroyed, "", time.Now().UTC()
 	}
-	if putErr := e.repo.PutPreviewEnvironment(env); putErr != nil {
-		log.Printf("compose preview teardown %s: %v", env.ID, putErr)
+	if ok, finishErr := e.repo.FinishPreviewEnvironmentTeardown(env.ID, err == nil, lastError); finishErr != nil {
+		log.Printf("compose preview teardown %s: %v", env.ID, finishErr)
+	} else if !ok {
+		log.Printf("compose preview teardown %s: outcome dropped, the environment left destroying meanwhile", env.ID)
 	}
 }
 
 // previewTeardownDue reports whether env's requirement has ended: the
-// requirement is done/cancelled/closed or gone, or its delivery MRs were all
-// merged or closed. Environments without a requirement are only destroyed by
-// hand, and an environment whose last run is still active is left alone (a
-// rerun of a reopened requirement may still carry the old MR state).
+// requirement is done/cancelled/closed or deleted, or its delivery MRs were
+// all merged or closed. The MR rule is skipped while the environment's last
+// run is still active, since a rerun of a reopened requirement can still
+// carry the old MR state. Environments without a requirement are only
+// destroyed by hand. A failed lookup skips the environment this round.
 func (e *Engine) previewTeardownDue(env domain.PreviewEnvironment) bool {
-	if env.IssueID == "" {
+	if env.IssueID == "" || env.Status == domain.PreviewEnvDestroyed {
 		return false
 	}
-	switch env.Status {
-	case domain.PreviewEnvReady, domain.PreviewEnvFailed, domain.PreviewEnvDestroying:
-	default:
+	exists, err := e.repo.IssueExists(env.IssueID)
+	if err != nil {
+		log.Printf("compose preview sweep %s: issue lookup: %v", env.ID, err)
 		return false
 	}
-	if env.LastRunID != "" {
-		if run, err := e.repo.RunHeader(env.LastRunID); err == nil && !domain.TerminalRunStatus(run.Status) {
-			return false
-		}
+	if !exists {
+		return true
 	}
 	issue, ok := e.repo.Issue(env.IssueID)
 	if !ok {
-		return true
+		return false
 	}
 	switch issue.Status {
 	case "done", "cancelled", "closed":
@@ -455,9 +479,19 @@ func (e *Engine) previewTeardownDue(env domain.PreviewEnvironment) bool {
 	}
 	switch domain.AggregateDeliveryMRState(issue.DeliveryMRList()) {
 	case "merged", "integrated", "closed":
-		return true
+	default:
+		return false
 	}
-	return false
+	if env.LastRunID != "" {
+		run, err := e.repo.RunHeader(env.LastRunID)
+		if err != nil {
+			return false
+		}
+		if run.ID != "" && !domain.TerminalRunStatus(run.Status) {
+			return false
+		}
+	}
+	return true
 }
 
 // SweepPreviewTeardowns is the single place that reacts to a requirement
@@ -466,7 +500,9 @@ func (e *Engine) previewTeardownDue(env domain.PreviewEnvironment) bool {
 func (e *Engine) SweepPreviewTeardowns() int {
 	started := 0
 	for _, env := range e.repo.LivePreviewEnvironments() {
-		if !e.previewTeardownDue(env) {
+		// A teardown that already started is retried once stale (the claim
+		// checks), whatever the requirement's state.
+		if env.Status != domain.PreviewEnvDestroying && !e.previewTeardownDue(env) {
 			continue
 		}
 		if _, ok, err := e.StartPreviewTeardown(env.ID); err != nil {

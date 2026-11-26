@@ -316,6 +316,8 @@ Configure provider credentials in the platform UI, not the host's global CLI con
 
 An SOP whose preview contract is `{"enabled": true, "kind": "compose"}` (optional `composeFile`, default `.loopforge/preview/compose.yaml`) gets a synthetic **部署预览环境** step where the static build step would go. It pushes each changed work branch, skips repositories whose pushed commit has no compose file, and deploys the rest as isolated `docker compose` projects on one dedicated preview runner. Run and requirement pages show each environment with its status, commit, URL and the `preview` account password; **打开预览** opens it through a one-time ticket. Environments are torn down automatically within about a minute once the requirement is done, cancelled or closed, or its delivery MRs are all merged or closed, and by hand from the card or `DELETE /api/preview-envs/{id}`. Design: [docs/proposals/compose-preview-environments.md](proposals/compose-preview-environments.md).
 
+Place the deploy step at the join after every step that changes code: it commits and pushes the whole run workspace, so a step running beside it could have half-finished changes pushed (the SOP designer warns about this). It cannot run inside a sub-SOP, which shares its parent's workspace; put it in the parent SOP. Runs on an execution machine need the shared workspace layout, as for pushing from a conversation. The preview runner must be online when the step starts, otherwise the step fails at once.
+
 Set all three on the platform (API and worker); with any of them missing the feature stays off and the deploy step fails with the missing names:
 
 | Variable | Value |

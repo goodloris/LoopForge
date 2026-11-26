@@ -41,6 +41,12 @@ function load(extra = {}) {
   html = ctx.previewEnvCardsHTML({items: [{...ready, status: 'deploying'}]});
   assert.doesNotMatch(html, /data-preview-env-(open|destroy)/);
   assert.match(ctx.previewEnvCardsHTML({enabled: false, reason: '缺少 X', items: []}), /缺少 X/);
+  // A failed teardown offers a retry; a deploy stuck past the takeover window can be destroyed.
+  html = ctx.previewEnvCardsHTML({items: [{...ready, status: 'destroying', lastError: '销毁失败：x'}]});
+  assert.match(html, /data-preview-env-destroy="pe-0123456789">重试销毁</);
+  assert.doesNotMatch(ctx.previewEnvCardsHTML({items: [{...ready, status: 'destroying'}]}), /data-preview-env-destroy/);
+  html = ctx.previewEnvCardsHTML({items: [{...ready, status: 'deploying', updatedAt: new Date(Date.now() - 41 * 60 * 1000).toISOString()}]});
+  assert.match(html, /data-preview-env-destroy/);
   assert.match(ctx.previewEnvCardsHTML(null), /workspace-spinner/);
   assert.match(ctx.previewEnvCardsHTML({error: 'boom'}), /boom/);
 

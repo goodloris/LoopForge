@@ -113,7 +113,7 @@ func PublicOperations() []Operation {
 		{Name: "runs_resume", Description: "Resume a paused Run with optional human context", Method: "POST", Path: "/api/runs/{id}/resume"},
 		{Name: "preview_envs_run_list", Description: "List the compose preview environments last deployed by a Run, with status, SHA, URL and the admin password of the preview account", Method: "GET", Path: "/api/runs/{id}/preview-envs", ReadOnly: true},
 		{Name: "preview_envs_issue_list", Description: "List the compose preview environments of an issue, one per repository", Method: "GET", Path: "/api/issues/{id}/preview-envs", ReadOnly: true},
-		{Name: "preview_envs_ticket", Description: "Mint a one-time ticket for a ready compose preview environment and return the URL that opens it (valid 120 seconds)", Method: "POST", Path: "/api/preview-envs/{id}/ticket", ReadOnly: true},
+		{Name: "preview_envs_ticket", Description: "Issue an access credential: mint a one-time ticket (valid 120 seconds) for a ready compose preview environment and return the URL that opens it. Requires project read access", Method: "POST", Path: "/api/preview-envs/{id}/ticket"},
 		{Name: "preview_envs_delete", Description: "Tear down a compose preview environment on the preview runner (requires project write access)", Method: "DELETE", Path: "/api/preview-envs/{id}"},
 		{Name: "runs_refresh_sop", Description: "Update a stopped Run to the latest SOP definition", Method: "POST", Path: "/api/runs/{id}/refresh-sop"},
 		{Name: "sync_config_get", Description: "Get external tracker sync configuration", Method: "GET", Path: "/api/sync/config", ReadOnly: true},

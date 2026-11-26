@@ -2828,7 +2828,7 @@ paths:
     get:
       tags: [Runs]
       operationId: listRunPreviewEnvironments
-      description: Compose preview environments last deployed by this run. Readable by signed-in users; items include the generated admin password of the `preview` application account.
+      description: Compose preview environments last deployed by this run. Any signed-in user may list them; adminPassword (the `preview` application account) is returned only to readers of the owning project, or for environments without a project to platform administrators and the run's responsible user.
       responses:
         "200":
           $ref: "#/components/responses/PreviewEnvironmentList"
@@ -2842,7 +2842,7 @@ paths:
     get:
       tags: [Issues]
       operationId: listIssuePreviewEnvironments
-      description: Compose preview environments of this requirement, one per repository, including destroyed ones.
+      description: Compose preview environments of this requirement, one per repository, including destroyed ones. adminPassword is returned only to readers of the owning project.
       responses:
         "200":
           $ref: "#/components/responses/PreviewEnvironmentList"
@@ -2856,7 +2856,7 @@ paths:
     post:
       tags: [Runs]
       operationId: createPreviewEnvironmentTicket
-      description: Mint a one-time ticket (valid 120 seconds) and return the environment URL that carries it. The preview gateway exchanges the ticket for an 8-hour cookie scoped to that environment host. Requires project read access; the environment must be ready.
+      description: Issues an access credential. Mints a one-time ticket (valid 120 seconds) and returns the environment URL that carries it; the preview gateway exchanges the ticket for an 8-hour cookie scoped to that environment host. Requires project read access (platform administrators or the run's responsible user for environments without a project); the environment must be ready.
       responses:
         "200":
           description: URL that opens the preview
@@ -2869,6 +2869,8 @@ paths:
                   url: {type: string, description: "<environment URL>/?__lf=<ticket>"}
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
@@ -2896,7 +2898,7 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
-          description: The environment is still deploying
+          description: A deploy is still in progress (deploys stuck past their timeout can be taken over)
   /api/runs/{runId}/telemetry:
     parameters:
       - $ref: "#/components/parameters/RunId"

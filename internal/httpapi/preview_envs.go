@@ -20,19 +20,30 @@ type previewEnvHandlers struct {
 	*deps
 }
 
-// projectReader mirrors requireProjectWriter's identity rules with the
-// membership read predicate: service tokens, unauthenticated deployments and
-// unowned projects are allowed.
-func (h *previewEnvHandlers) projectReader(c *gin.Context, projectID string) bool {
-	if !authRequired() || projectID == "" {
+// envReader decides who may see an environment's admin password and open it:
+// readers of its project (owner, members including viewers, platform
+// administrators). An environment whose project is gone is refused; one
+// without a project is limited to platform administrators and the
+// responsible user of its last run. Unauthenticated deployments and service
+// tokens are allowed, as in requireProjectWriter.
+func (h *previewEnvHandlers) envReader(c *gin.Context, env domain.PreviewEnvironment) bool {
+	if !authRequired() {
 		return true
 	}
 	user, ok := h.requestUser(c.Request, true)
 	if !ok {
 		return true
 	}
-	p, found := h.repo.Project(projectID)
-	return !found || workbenchProjectAllowsUser(p, user.ID, h.isPlatformAdmin(c.Request))
+	admin := h.isPlatformAdmin(c.Request)
+	if env.ProjectID == "" {
+		if admin {
+			return true
+		}
+		run, err := h.repo.RunHeader(env.LastRunID)
+		return err == nil && run.ID != "" && user.ID > 0 && run.ExecutionContext.ResponsibleUserID == user.ID
+	}
+	p, found := h.repo.Project(env.ProjectID)
+	return found && workbenchProjectAllowsUser(p, user.ID, admin)
 }
 
 type previewEnvList struct {
@@ -46,13 +57,8 @@ func (h *previewEnvHandlers) list(c *gin.Context, items []domain.PreviewEnvironm
 	if items == nil {
 		items = []domain.PreviewEnvironment{}
 	}
-	readable := map[string]bool{}
 	for i := range items {
-		project := items[i].ProjectID
-		if _, seen := readable[project]; !seen {
-			readable[project] = h.projectReader(c, project)
-		}
-		if !readable[project] {
+		if !h.envReader(c, items[i]) {
 			items[i].AdminPassword = ""
 		}
 	}
@@ -86,7 +92,7 @@ func (h *previewEnvHandlers) ticket(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "preview environment not found"})
 		return
 	}
-	if !h.projectReader(c, env.ProjectID) {
+	if !h.envReader(c, env) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "只有项目成员、项目 Owner 或平台管理员可以打开该预览环境"})
 		return
 	}
@@ -102,9 +108,10 @@ func (h *previewEnvHandlers) ticket(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"url": url})
 }
 
-// destroy starts a teardown and answers 202 with the environment. A
-// deploying environment answers 409; one already destroying or destroyed is
-// returned as it is.
+// destroy starts a teardown and answers 202 with the environment. A deploy
+// still in progress answers 409; an environment already destroying (and not
+// yet stale) or destroyed is returned as it is. Stale deploying and
+// destroying claims are taken over.
 func (h *previewEnvHandlers) destroy(c *gin.Context) {
 	env, ok := h.repo.PreviewEnvironment(c.Param("id"))
 	if !ok {
@@ -114,13 +121,13 @@ func (h *previewEnvHandlers) destroy(c *gin.Context) {
 	if !h.requireProjectWriter(c, env.ProjectID) {
 		return
 	}
-	if env.Status == domain.PreviewEnvDeploying {
-		c.JSON(http.StatusConflict, gin.H{"error": "预览环境正在部署，完成后再销毁"})
-		return
-	}
-	current, _, err := h.engine.StartPreviewTeardown(env.ID)
+	current, claimed, err := h.engine.StartPreviewTeardown(env.ID)
 	if err != nil {
 		respond(c, err)
+		return
+	}
+	if !claimed && current.Status == domain.PreviewEnvDeploying {
+		c.JSON(http.StatusConflict, gin.H{"error": "预览环境正在部署，完成后再销毁"})
 		return
 	}
 	c.JSON(http.StatusAccepted, current)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -11,6 +12,8 @@ import (
 	"time"
 
 	"agentflow/internal/domain"
+	"agentflow/internal/repo"
+	"agentflow/internal/runtime"
 )
 
 // fakePreviewRunner completes queued preview tasks with answer and records them.
@@ -129,6 +132,8 @@ func TestComposePreviewConfigProblem(t *testing.T) {
 		{RunnerID: "r", BaseURL: "http://fixed:8088", Secret: cfg.Secret},
 		{RunnerID: "r", BaseURL: "ftp://{id}.x", Secret: cfg.Secret},
 		{RunnerID: "r", BaseURL: cfg.BaseURL, Secret: []byte("short")},
+		// {id} in the path gives every environment the same host.
+		{RunnerID: "r", BaseURL: "http://preview.example:8088/{id}", Secret: cfg.Secret},
 	} {
 		if bad.Problem() == "" {
 			t.Errorf("accepted %+v", bad)
@@ -151,6 +156,12 @@ func TestComposePreviewRunnerGate(t *testing.T) {
 	if _, err := e.composePreviewRunner(cfg); err == nil || !strings.Contains(err.Error(), domain.RunnerVersionComposePreview) {
 		t.Fatalf("old runner err = %v", err)
 	}
+	if err := e.repo.PutRunner(domain.Runner{ID: cfg.RunnerID, Status: domain.RunnerStatusOffline, RunnerVersion: domain.RunnerVersionComposePreview}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.composePreviewRunner(cfg); err == nil || !strings.Contains(err.Error(), "不在线") {
+		t.Fatalf("offline runner err = %v", err)
+	}
 	if err := e.repo.PutRunner(domain.Runner{ID: cfg.RunnerID, Status: domain.RunnerStatusOnline, RunnerVersion: domain.RunnerVersionComposePreview}); err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +179,11 @@ func TestDeployComposePreviews(t *testing.T) {
 	}
 	bare, withSHA, withoutSHA := previewTestRepo(t)
 	fail := false
+	var takeover func()
 	fake := startFakePreviewRunner(t, e, func(task domain.RunnerTask) (string, string, string) {
+		if takeover != nil {
+			takeover()
+		}
 		if fail {
 			return domain.RunnerTaskFailed, "", "compose up: boom"
 		}
@@ -188,7 +203,7 @@ func TestDeployComposePreviews(t *testing.T) {
 	if !ok || env.Status != domain.PreviewEnvReady || env.SHA != withSHA || env.URL != cfg.URL(envID) || env.AdminPassword == "" || env.LastRunID != run.ID || env.Branch != "with" {
 		t.Fatalf("env = %+v %v", env, ok)
 	}
-	if !strings.Contains(out, env.URL) || !strings.Contains(out, "repo-b：已跳过") {
+	if !strings.Contains(out, env.URL) || !strings.Contains(out, "repo-b：已跳过") || strings.Contains(out, env.AdminPassword) {
 		t.Fatalf("output = %s", out)
 	}
 	if _, ok := e.repo.PreviewEnvironment(domain.PreviewEnvID("issue-1", "repo-b")); ok {
@@ -229,8 +244,29 @@ func TestDeployComposePreviews(t *testing.T) {
 		t.Fatalf("failed env = %+v", failed)
 	}
 
-	// Unchanged repositories have no head and are skipped without dispatch.
+	// A deploy whose environment is taken over meanwhile (a teardown claim)
+	// does not write its outcome over the new state.
+	fail = false
+	takeover = func() {
+		cur, _ := e.repo.PreviewEnvironment(envID)
+		cur.Status = domain.PreviewEnvDestroying
+		_ = e.repo.PutPreviewEnvironment(cur)
+	}
+	if _, err := e.deployComposePreviews(ctx, run, domain.PreviewDeployNodeID, cfg, runner, previewHeads(run, withSHA, withoutSHA)); err == nil || !strings.Contains(err.Error(), "接管") {
+		t.Fatalf("takeover err = %v", err)
+	}
+	takeover = nil
+	if cur, _ := e.repo.PreviewEnvironment(envID); cur.Status != domain.PreviewEnvDestroying {
+		t.Fatalf("takeover overwritten: %+v", cur)
+	}
+	// While it is destroying, a deploy is refused instead of reviving it.
 	before := len(fake.dispatched())
+	if _, err := e.deployComposePreviews(ctx, run, domain.PreviewDeployNodeID, cfg, runner, previewHeads(run, withSHA, withoutSHA)); err == nil || !strings.Contains(err.Error(), "正在销毁") || len(fake.dispatched()) != before {
+		t.Fatalf("deploy over destroying err = %v", err)
+	}
+
+	// Unchanged repositories have no head and are skipped without dispatch.
+	before = len(fake.dispatched())
 	out, err = e.deployComposePreviews(ctx, run, domain.PreviewDeployNodeID, cfg, runner, nil)
 	if err != nil || !strings.Contains(out, "没有改动") || len(fake.dispatched()) != before {
 		t.Fatalf("no heads: %v %s", err, out)
@@ -255,16 +291,24 @@ func TestComposePreviewTeardownSweep(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	merged := []domain.DeliveryMR{{URL: "https://github.com/o/r/pull/1", State: "merged"}}
 	put(domain.Issue{ID: "open", Status: "in_review"})
 	put(domain.Issue{ID: "done", Status: "done"})
-	put(domain.Issue{ID: "merged", Status: "in_review", DeliveryMRs: []domain.DeliveryMR{{URL: "https://github.com/o/r/pull/1", State: "merged"}}})
+	put(domain.Issue{ID: "merged", Status: "in_review", DeliveryMRs: merged})
+	put(domain.Issue{ID: "merged-rerun", Status: "in_review", DeliveryMRs: merged})
+	if err := e.repo.PutRun(domain.Run{ID: "waiting-run", Status: "waiting", Nodes: map[string]*domain.NodeRun{}}); err != nil {
+		t.Fatal(err)
+	}
 	envs := map[string]domain.PreviewEnvironment{
-		"pe-open":      {IssueID: "open", Status: domain.PreviewEnvReady},
-		"pe-done":      {IssueID: "done", Status: domain.PreviewEnvReady},
-		"pe-merged":    {IssueID: "merged", Status: domain.PreviewEnvFailed},
-		"pe-deploying": {IssueID: "done", Status: domain.PreviewEnvDeploying},
-		"pe-norun":     {Status: domain.PreviewEnvReady},
-		"pe-gone":      {IssueID: "deleted-issue", Status: domain.PreviewEnvReady},
+		"pe-open":        {IssueID: "open", Status: domain.PreviewEnvReady},
+		"pe-done":        {IssueID: "done", Status: domain.PreviewEnvReady, LastRunID: "waiting-run"}, // a finished requirement wins over a waiting run
+		"pe-merged":      {IssueID: "merged", Status: domain.PreviewEnvFailed},
+		"pe-merged-busy": {IssueID: "merged-rerun", Status: domain.PreviewEnvReady, LastRunID: "waiting-run"}, // MR state is ignored while the run is active
+		"pe-deploying":   {IssueID: "done", Status: domain.PreviewEnvDeploying},
+		"pe-crashed":     {IssueID: "done", Status: domain.PreviewEnvDeploying},
+		"pe-norun":       {Status: domain.PreviewEnvReady},
+		"pe-stuck":       {Status: domain.PreviewEnvDestroying, LastError: "销毁失败：x"}, // no requirement, failed teardown
+		"pe-gone":        {IssueID: "deleted-issue", Status: domain.PreviewEnvReady},
 	}
 	for id, env := range envs {
 		env.ID, env.RunnerID = id, cfg.RunnerID
@@ -272,18 +316,25 @@ func TestComposePreviewTeardownSweep(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if started := e.SweepPreviewTeardowns(); started != 3 {
+	// Restart / lost teardown: those claims are old.
+	for id, age := range map[string]time.Duration{"pe-crashed": composePreviewDeployStale + time.Minute, "pe-stuck": composePreviewTeardownStale + time.Minute} {
+		if err := e.repo.DB.Table("preview_environments").Where("id = ?", id).Update("updated_at", time.Now().UTC().Add(-age)).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if started := e.SweepPreviewTeardowns(); started != 5 {
 		t.Fatalf("sweep started %d teardowns", started)
 	}
 	want := map[string]string{"pe-open": domain.PreviewEnvReady, "pe-done": domain.PreviewEnvDestroyed, "pe-merged": domain.PreviewEnvDestroyed,
-		"pe-deploying": domain.PreviewEnvDeploying, "pe-norun": domain.PreviewEnvReady, "pe-gone": domain.PreviewEnvDestroyed}
+		"pe-merged-busy": domain.PreviewEnvReady, "pe-deploying": domain.PreviewEnvDeploying, "pe-crashed": domain.PreviewEnvDestroyed,
+		"pe-norun": domain.PreviewEnvReady, "pe-stuck": domain.PreviewEnvDestroyed, "pe-gone": domain.PreviewEnvDestroyed}
 	deadline := time.Now().Add(10 * time.Second)
 	for id, status := range want {
 		for {
 			env, _ := e.repo.PreviewEnvironment(id)
 			if env.Status == status {
-				if status == domain.PreviewEnvDestroyed && env.DestroyedAt.IsZero() {
-					t.Fatalf("%s destroyed without timestamp", id)
+				if status == domain.PreviewEnvDestroyed && (env.DestroyedAt.IsZero() || env.LastError != "") {
+					t.Fatalf("%s destroyed = %+v", id, env)
 				}
 				break
 			}
@@ -294,13 +345,41 @@ func TestComposePreviewTeardownSweep(t *testing.T) {
 		}
 	}
 	for _, task := range fake.dispatched() {
-		if task.Action != domain.RunnerTaskActionPreviewTeardown || task.Preview.EnvID == "pe-open" {
+		if task.Action != domain.RunnerTaskActionPreviewTeardown || want[task.Preview.EnvID] != domain.PreviewEnvDestroyed {
 			t.Fatalf("unexpected task %+v", task)
 		}
 	}
-	// Destroyed environments are not swept again; ready ones of open issues stay.
 	if started := e.SweepPreviewTeardowns(); started != 0 {
 		t.Fatalf("second sweep started %d", started)
+	}
+}
+
+func TestComposePreviewTeardownOutcomeIsFenced(t *testing.T) {
+	e, _ := cvEEngine(t)
+	cfg := previewTestConfig()
+	e.SetComposePreview(cfg)
+	if err := e.repo.PutRunner(domain.Runner{ID: cfg.RunnerID, Status: domain.RunnerStatusOnline, RunnerVersion: domain.RunnerVersionComposePreview}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.repo.PutPreviewEnvironment(domain.PreviewEnvironment{ID: "pe-f", RunnerID: cfg.RunnerID, Status: domain.PreviewEnvReady}); err != nil {
+		t.Fatal(err)
+	}
+	never := time.Now().Add(-time.Hour)
+	claimed, ok, err := e.repo.ClaimPreviewEnvironmentTeardown("pe-f", never, never)
+	if !ok || err != nil {
+		t.Fatal(ok, err)
+	}
+	// The row is redeployed while the teardown runs; the teardown's late
+	// outcome must not overwrite the redeploy.
+	_ = startFakePreviewRunner(t, e, func(domain.RunnerTask) (string, string, string) {
+		cur, _ := e.repo.PreviewEnvironment("pe-f")
+		cur.Status, cur.LastRunID = domain.PreviewEnvReady, "run-new"
+		_ = e.repo.PutPreviewEnvironment(cur)
+		return domain.RunnerTaskSuccess, "{}", ""
+	})
+	e.teardownPreviewEnvironment(context.Background(), claimed)
+	if cur, _ := e.repo.PreviewEnvironment("pe-f"); cur.Status != domain.PreviewEnvReady || cur.LastRunID != "run-new" {
+		t.Fatalf("stale teardown overwrote the redeploy: %+v", cur)
 	}
 }
 
@@ -331,5 +410,91 @@ func TestExecuteComposePreviewNodeOutcome(t *testing.T) {
 	e.executeComposePreviewNode(context.Background(), "run-node-empty", node, 1, 0)
 	if r, _ := e.repo.RunState("run-node-empty"); r.Nodes[node.ID].Status != "succeeded" || !strings.Contains(r.Nodes[node.ID].Output, "没有可部署的代码仓库") {
 		t.Fatalf("empty node = %+v", r.Nodes[node.ID])
+	}
+}
+
+// The full node path: push the local checkout, deploy, and check that no
+// run-level view carries the admin password (B1).
+func TestComposePreviewNodeKeepsPasswordOutOfRunViews(t *testing.T) {
+	st, err := repo.OpenTest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(st.Close)
+	e := New(st, runtime.NewManager(t.TempDir()))
+	cfg := previewTestConfig()
+	e.SetComposePreview(cfg)
+	if err := st.PutRunner(domain.Runner{ID: cfg.RunnerID, Status: domain.RunnerStatusOnline, RunnerVersion: domain.RunnerVersionComposePreview}); err != nil {
+		t.Fatal(err)
+	}
+	bare, _, _ := previewTestRepo(t)
+	_ = startFakePreviewRunner(t, e, func(task domain.RunnerTask) (string, string, string) {
+		raw, _ := json.Marshal(domain.RunnerPreviewResult{Status: domain.PreviewEnvReady, SHA: task.Preview.SHA})
+		return domain.RunnerTaskSuccess, string(raw), ""
+	})
+	node := domain.PreviewDeployNode(domain.Position{})
+	rc := domain.RepositoryContext{RepositoryID: "repo-a", Name: "repo-a", CloneURL: bare, BaseBranch: "without", WorkBranch: "feature", WorkspaceDir: "repo-a"}
+	run := domain.Run{ID: "run-b1", Status: "running", Repositories: []domain.RepositoryContext{rc},
+		ExecutionContext: domain.TelemetryContext{ExecutionMode: domain.ExecutionModeCloud, ProjectID: "proj", IssueID: "issue-b1"},
+		WorkflowSnapshot: domain.WorkflowDefinition{Preview: &domain.PreviewContract{Enabled: true, Kind: domain.PreviewKindCompose}, Nodes: []domain.WorkflowNode{node}},
+		Nodes:            map[string]*domain.NodeRun{node.ID: {Status: "running", Attempt: 1}}}
+	if err := st.PutRun(run); err != nil {
+		t.Fatal(err)
+	}
+	// The run workspace holds a checkout of "with" on the work branch plus an
+	// uncommitted change, as an implement node leaves it.
+	dir := filepath.Join(e.RunWorkspace(run.ID), "repo-a")
+	if out, err := exec.Command("git", "clone", "-q", "-b", "with", bare, dir).CombinedOutput(); err != nil {
+		t.Fatalf("clone: %v %s", err, out)
+	}
+	testGit(t, dir, "checkout", "-q", "-b", "feature")
+	testGit(t, dir, "config", "user.email", "test@example.com")
+	testGit(t, dir, "config", "user.name", "Test")
+	if err := os.WriteFile(filepath.Join(dir, "change.txt"), []byte("x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e.executeComposePreviewNode(context.Background(), run.ID, node, 1, 0)
+
+	env, ok := st.PreviewEnvironment(domain.PreviewEnvID("issue-b1", "repo-a"))
+	if !ok || env.Status != domain.PreviewEnvReady || env.AdminPassword == "" {
+		t.Fatalf("env = %+v %v", env, ok)
+	}
+	state, _ := st.RunState(run.ID)
+	if nr := state.Nodes[node.ID]; nr.Status != "succeeded" || !strings.Contains(nr.Output, env.URL) {
+		t.Fatalf("node = %+v", nr)
+	}
+	e.flushAllObservations()
+	view, _ := st.RunView(run.ID)
+	stream, _ := st.RunStreamView(run.ID)
+	telemetry, err := st.QueryRunTelemetry(run.ID, "", "", 0, 0, false, false, 1000)
+	if err != nil || len(telemetry.Events) == 0 {
+		t.Fatalf("telemetry = %+v %v", telemetry, err)
+	}
+	for name, v := range map[string]any{"state": state, "view": view, "stream": stream, "telemetry": telemetry} {
+		raw, _ := json.Marshal(v)
+		if strings.Contains(string(raw), env.AdminPassword) {
+			t.Fatalf("run %s exposes the admin password", name)
+		}
+	}
+}
+
+func TestComposePreviewNodeRefusesSubSOP(t *testing.T) {
+	e, _ := cvEEngine(t)
+	cfg := previewTestConfig()
+	e.SetComposePreview(cfg)
+	if err := e.repo.PutRunner(domain.Runner{ID: cfg.RunnerID, Status: domain.RunnerStatusOnline, RunnerVersion: domain.RunnerVersionComposePreview}); err != nil {
+		t.Fatal(err)
+	}
+	node := domain.PreviewDeployNode(domain.Position{})
+	run := domain.Run{ID: "child", Status: "running", ExecutionContext: domain.TelemetryContext{WorkspaceRunID: "parent"},
+		Repositories:     []domain.RepositoryContext{{RepositoryID: "r", Name: "r", CloneURL: "https://example.test/r.git", WorkBranch: "w"}},
+		WorkflowSnapshot: domain.WorkflowDefinition{Preview: &domain.PreviewContract{Enabled: true, Kind: domain.PreviewKindCompose}, Nodes: []domain.WorkflowNode{node}},
+		Nodes:            map[string]*domain.NodeRun{node.ID: {Status: "running", Attempt: 1}}}
+	if err := e.repo.PutRun(run); err != nil {
+		t.Fatal(err)
+	}
+	e.executeComposePreviewNode(context.Background(), run.ID, node, 1, 0)
+	if r, _ := e.repo.RunState(run.ID); r.Nodes[node.ID].Status != "failed" || !strings.Contains(r.Nodes[node.ID].Error, "子 SOP") {
+		t.Fatalf("sub-SOP node = %+v", r.Nodes[node.ID])
 	}
 }
