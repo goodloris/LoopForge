@@ -145,7 +145,7 @@ func (d *Daemon) previewDeploy(ctx context.Context, inv *domain.RunnerInvocation
 	if len(problems) > 0 {
 		return failed(sha, "", fmt.Errorf("compose preview validation failed:\n  - %s", strings.Join(problems, "\n  - ")))
 	}
-	override, err := previewComposeOverride(envID, target, previewNetworkModes(cfg))
+	override, err := previewComposeOverride(envID, target)
 	if err != nil {
 		return failed(sha, "", err)
 	}
@@ -286,6 +286,14 @@ func (d *Daemon) previewTeardown(ctx context.Context, envID string) (domain.Runn
 		return domain.RunnerPreviewResult{Status: domain.PreviewEnvFailed}, fmt.Errorf("docker compose down: %v\n%s", err, tailString(out, previewOutputLimit))
 	}
 	var notes []string
+	// --rmi local keeps built images with a custom tag (image: x:${LF_PREVIEW_ID}).
+	if ids, err := previewImageIDs(ctx, envID); err != nil {
+		notes = append(notes, err.Error())
+	} else if len(ids) > 0 {
+		if out, err := previewDocker(ctx, nil, append([]string{"image", "rm", "-f"}, ids...)...); err != nil {
+			notes = append(notes, fmt.Sprintf("image rm: %s", tailString(strings.TrimSpace(out), previewOutputLimit)))
+		}
+	}
 	if err := os.Remove(d.previewRoutePath(envID)); err == nil {
 		if err := d.reloadPreviewCaddy(ctx); err != nil {
 			// The route is gone from disk; the next reload drops it.
@@ -337,8 +345,30 @@ func previewLeftover(ctx context.Context, envID string) (domain.RunnerPreviewLef
 	if left.Volumes, err = count("volume", "ls"); err != nil {
 		return left, err
 	}
-	left.Networks, err = count("network", "ls")
+	if left.Networks, err = count("network", "ls"); err != nil {
+		return left, err
+	}
+	ids, err := previewImageIDs(ctx, envID)
+	left.Images = len(ids)
 	return left, err
+}
+
+// previewImageIDs lists images built for the preview, which the override
+// labels with lf.preview and the compose project.
+func previewImageIDs(ctx context.Context, envID string) ([]string, error) {
+	ids := []string{}
+	for _, filter := range []string{"label=" + previewLabel + "=" + envID, "label=com.docker.compose.project=" + previewProject(envID)} {
+		out, err := previewDocker(ctx, nil, "image", "ls", "-q", "--no-trunc", "--filter", filter)
+		if err != nil {
+			return nil, fmt.Errorf("docker image ls: %v (%s)", err, strings.TrimSpace(out))
+		}
+		for _, id := range strings.Fields(out) {
+			if !slices.Contains(ids, id) {
+				ids = append(ids, id)
+			}
+		}
+	}
+	return ids, nil
 }
 
 // previewComposeEnv is the whole environment of compose processes: what the

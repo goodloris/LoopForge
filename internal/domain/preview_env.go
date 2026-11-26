@@ -87,4 +87,6 @@ type RunnerPreviewLeftover struct {
 	Containers int `json:"containers"`
 	Volumes    int `json:"volumes"`
 	Networks   int `json:"networks"`
+	// Images built by the preview (labelled by the runner's override).
+	Images int `json:"images"`
 }

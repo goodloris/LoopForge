@@ -36,13 +36,15 @@ func TestPreviewDockerLifecycle(t *testing.T) {
 	writeFile(t, filepath.Join(repo, ".loopforge/preview/compose.yaml"), `x-loopforge-preview: {service: web, port: 80}
 services:
   web:
-    image: nginx:alpine
+    build: {context: ../.., dockerfile: .loopforge/preview/Dockerfile}
+    image: lf-preview/it:${LF_PREVIEW_ID}
     expose: ["80"]
     environment: {PREVIEW: "${LF_PREVIEW_ID}"}
     volumes: [html:/usr/share/nginx/html]
 volumes:
   html: {}
 `)
+	writeFile(t, filepath.Join(repo, ".loopforge/preview/Dockerfile"), "FROM nginx:alpine\n")
 	for _, args := range [][]string{{"init", "-q", "-b", "main"}, {"add", "."}, {"-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "init"}} {
 		if out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v %s", args, err, out)
@@ -93,8 +95,13 @@ volumes:
 		}
 		var resp *http.Response
 		for i := 0; i < 20; i++ { // Caddy applies the reload asynchronously
-			if resp, err = client.Do(req); err == nil && resp.StatusCode != http.StatusNotFound {
+			// 404 until Caddy applies the reload, 502/503 while the first upstream dial settles.
+			if resp, err = client.Do(req); err == nil && resp.StatusCode != http.StatusNotFound &&
+				resp.StatusCode != http.StatusBadGateway && resp.StatusCode != http.StatusServiceUnavailable {
 				break
+			}
+			if err == nil {
+				resp.Body.Close()
 			}
 			time.Sleep(250 * time.Millisecond)
 		}
@@ -117,6 +124,9 @@ volumes:
 		t.Fatalf("with cookie: %d %q", resp.StatusCode, body)
 	}
 
+	if ids, err := previewImageIDs(ctx, envID); err != nil || len(ids) != 1 {
+		t.Fatalf("built image not labelled: %v %v", ids, err)
+	}
 	down, err := d.previewTeardown(ctx, envID)
 	if err != nil || down.Status != domain.PreviewEnvDestroyed || down.Leftover == nil || *down.Leftover != (domain.RunnerPreviewLeftover{}) {
 		t.Fatalf("teardown: %+v %v", down, err)

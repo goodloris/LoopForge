@@ -95,6 +95,30 @@ func TestPreviewAuthVerify(t *testing.T) {
 	}
 }
 
+func TestPreviewAuthRedirectStaysOnHost(t *testing.T) {
+	secret := []byte(strings.Repeat("k", previewenv.MinSecretLen))
+	auth := newPreviewAuth(secret)
+	for _, forwarded := range []string{"//evil.com/x", "/\\evil.com", "https://evil.com/x", "evil.com", "/a\r\nSet-Cookie:x"} {
+		ticket, _ := previewenv.MintTicket(secret, "pe-a", time.Now())
+		sep := "?"
+		if strings.Contains(forwarded, "?") {
+			sep = "&"
+		}
+		req := httptest.NewRequest(http.MethodGet, "/verify?env=pe-a", nil)
+		req.Header.Set("X-Forwarded-Uri", forwarded+sep+previewenv.TicketParam+"="+ticket)
+		rec := httptest.NewRecorder()
+		auth.ServeHTTP(rec, req)
+		if rec.Code != http.StatusFound || rec.Header().Get("Location") != "/" {
+			t.Errorf("%q: %d Location=%q", forwarded, rec.Code, rec.Header().Get("Location"))
+		}
+	}
+	for in, want := range map[string]string{"/": "/", "/orders?page=2#f": "/orders?page=2#f", "/a//b": "/a//b", "": "/", "/\t": "/"} {
+		if got := previewRedirectPath(in); got != want {
+			t.Errorf("previewRedirectPath(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestStartPreviewAuthNeedsStrongSecret(t *testing.T) {
 	d := &Daemon{cfg: Config{PreviewAuthAddr: "127.0.0.1:0", PreviewSecret: "short"}}
 	d.startPreviewAuth(t.Context())

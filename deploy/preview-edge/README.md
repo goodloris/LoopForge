@@ -44,9 +44,14 @@ LOOPFORGE_PREVIEW_AUTH_UPSTREAM=host.docker.internal:9001   # 写进路由的 ve
   `host.docker.internal:host-gateway` 解析到 docker0 网关，Caddy 在自己的 compose 网络里也能经主机路由访问它。
 - 每个预览有自己的 `internal` 网络 `lf-edge-<envId>`，只有 Caddy 同时接入，预览之间互不可达；
   仓库自带的所有网络也被覆盖为 `internal`，运行期没有出站（构建期仍可联网）。
-- runner 拒绝：`ports`、`privileged`、`cap_add`、`devices`、`container_name`、`userns_mode`、
-  `cgroup_parent`、`security_opt`、host/`container:` 命名空间、非 named volume 挂载、external 网络/卷、
-  带 `driver_opts` 的卷，以及指向仓库外的 `env_file`、configs/secrets 文件、构建上下文和 Dockerfile。
+- runner 按白名单校验 `docker compose config --no-normalize` 的结果，未列出的键一律拒绝并点名：
+  - 顶层：`name`、`services`、`networks`、`volumes`、`x-*`（不支持 configs/secrets/models）；
+  - 服务：`image`、`build`、`command`、`entrypoint`、`environment`、`env_file`、`expose`、`depends_on`、
+    `volumes`（仅本文件声明的 named volume）、`networks`（仅本文件声明的网络，只允许 `aliases`）、`healthcheck`、
+    `restart`、`working_dir`、`user`、`labels`、`init`、`stop_signal`、`stop_grace_period`、`tty`、`stdin_open`、`read_only`、`x-*`；
+  - build：`context`、`dockerfile`、`args`、`target`、`additional_contexts`（仅仓库内路径）、`labels`；
+  - 顶层网络只允许 `labels`、`internal`；顶层卷只允许 `labels`（禁止 `name`/`external`/`driver`/`driver_opts`）；
+  - `env_file`、构建上下文、Dockerfile 必须在仓库内（解析符号链接）。
 - compose 进程只拿到 `PATH`/`HOME`/`DOCKER_*` 等 docker CLI 必需变量和平台注入的
   `LF_PREVIEW_ID`、`PREVIEW_ADMIN_PASSWORD`，runner 自己的令牌与密钥不会进入 `${VAR}` 插值。
 - runner 能调用 Docker 即等同主机 root：预览主机应专用，不要与生产或个人开发机混用。
@@ -57,6 +62,6 @@ LOOPFORGE_PREVIEW_AUTH_UPSTREAM=host.docker.internal:9001   # 写进路由的 ve
 - 老内核（如 3.10）上 alpine 镜像里 pnpm 写 SQLite 会被默认 seccomp 拒绝：仓库的预览 Dockerfile
   用 glibc 基础镜像（如 `node:22-bookworm-slim`）。
 - `internal` 网络下应用运行期不能访问外网（第三方 API、对象存储等），需要的话等后续 egress 策略。
-- `teardown` 用 `--rmi local` 只删没有自定义 tag 的镜像；compose 里写了 `image: xxx:${LF_PREVIEW_ID}`
-  的构建镜像会留下，定期 `docker image prune` 或按 tag 清理。
+- 构建镜像由 runner 的覆盖文件打上 `lf.preview=<envId>` 与 `com.docker.compose.project=lf-<envId>` 标签，
+  teardown 按标签删除（含自定义 tag），残留计入 `leftover.images`；被拉取的基础镜像不删。
 - 改了 `LOOPFORGE_PREVIEW_AUTH_UPSTREAM` 后，已有路由要重新部署才会更新。

@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -52,7 +53,7 @@ func (a *previewAuth) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				Name: previewenv.CookieName, Value: value, Path: "/",
 				MaxAge: int(previewenv.CookieTTL / time.Second), HttpOnly: true, SameSite: http.SameSiteLaxMode,
 			})
-			w.Header().Set("Location", rest)
+			w.Header().Set("Location", previewRedirectPath(rest))
 			w.WriteHeader(http.StatusFound)
 			return
 		}
@@ -60,6 +61,20 @@ func (a *previewAuth) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusUnauthorized)
 	_, _ = w.Write([]byte("preview login required: open it from LoopForge\n"))
+}
+
+// previewRedirectPath keeps the 302 on the preview host: X-Forwarded-Uri can
+// be forged, and "//evil.com" or "/\\evil.com" would leave it.
+func previewRedirectPath(uri string) string {
+	if !strings.HasPrefix(uri, "/") || strings.HasPrefix(uri, "//") || strings.HasPrefix(uri, "/\\") {
+		return "/"
+	}
+	for _, r := range uri {
+		if r < 0x20 || r == 0x7f {
+			return "/"
+		}
+	}
+	return uri
 }
 
 func (a *previewAuth) touch(envID string, now time.Time) {
