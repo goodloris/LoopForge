@@ -43,6 +43,9 @@ const (
 	RunnerTaskActionPushWorkBranch = "push_work_branch"
 	RunnerTaskActionIntegrate      = "integrate"
 	RunnerTaskActionAlignBaseline  = "align_baseline"
+	// Compose preview environments (docs/proposals/compose-preview-environments.md).
+	RunnerTaskActionPreviewDeploy   = "preview_deploy"
+	RunnerTaskActionPreviewTeardown = "preview_teardown"
 )
 
 // RunnerVersionWorkBranchSync is the first runner version that executes the
@@ -155,6 +158,27 @@ const RunnerVersionFeishu = "0.11.3"
 
 func (r Runner) SupportsFeishu() bool {
 	return versionAtLeast(r.RunnerVersion, RunnerVersionFeishu)
+}
+
+// RunnerVersionComposePreview is the first runner that executes the
+// preview_deploy and preview_teardown actions.
+const RunnerVersionComposePreview = "0.12.0"
+
+func (r Runner) SupportsComposePreview() bool {
+	return versionAtLeast(r.RunnerVersion, RunnerVersionComposePreview)
+}
+
+// ComposePreviewUnsupportedReason is the upgrade hint shown when a compose
+// preview task targets an older runner; empty when the runner supports it.
+func (r Runner) ComposePreviewUnsupportedReason() string {
+	if r.SupportsComposePreview() {
+		return ""
+	}
+	version := strings.TrimSpace(r.RunnerVersion)
+	if version == "" {
+		version = "未知"
+	}
+	return fmt.Sprintf("执行机器版本 %s 过低，需升级至 %s 及以上才能部署 Compose 预览环境", version, RunnerVersionComposePreview)
 }
 
 func (r Runner) SupportsSharedPush() bool {
@@ -433,6 +457,10 @@ type RunnerTask struct {
 	// PreviewArchive is set on archive_preview tasks. Upload tokens are
 	// stripped from management responses.
 	PreviewArchive *RunnerPreviewArchiveSpec `json:"previewArchive,omitempty"`
+	// Preview is set on preview_deploy / preview_teardown tasks. The
+	// repository and git credentials come from Invocation, as for
+	// align_baseline; Result is a JSON RunnerPreviewResult.
+	Preview *RunnerPreviewSpec `json:"preview,omitempty"`
 }
 
 // RunnerSandboxRequirements freezes the union needed by every run node, so
@@ -463,6 +491,12 @@ func PublicRunnerTask(task RunnerTask) RunnerTask {
 		copySpec := *task.PreviewArchive
 		copySpec.UploadToken = ""
 		task.PreviewArchive = &copySpec
+	}
+	if task.Preview != nil {
+		// Env carries injected secrets such as PREVIEW_ADMIN_PASSWORD.
+		copySpec := *task.Preview
+		copySpec.Env = nil
+		task.Preview = &copySpec
 	}
 	if task.Invocation == nil {
 		return task
