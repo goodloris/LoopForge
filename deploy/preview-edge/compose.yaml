@@ -1,0 +1,17 @@
+# One-time edge stack on the preview host. See README.md.
+name: lf-preview-edge
+services:
+  caddy:
+    image: caddy:2.8
+    # The runner addresses Caddy by this name (LOOPFORGE_PREVIEW_CADDY).
+    container_name: lf-caddy
+    ports: ["${LF_PREVIEW_EDGE_PORT:-8088}:80"]
+    # Lets forward_auth reach the runner's verify listener on the host.
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${LOOPFORGE_PREVIEW_ROOT:-/srv/lfpreview}/caddy/routes:/etc/caddy/routes:ro
+      - caddy-data:/data
+    restart: unless-stopped
+volumes:
+  caddy-data: {}

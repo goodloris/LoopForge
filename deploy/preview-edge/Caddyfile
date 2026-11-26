@@ -1,0 +1,13 @@
+# Edge Caddy for LoopForge compose preview environments.
+# The runner writes one site per preview into routes/<envId>.caddy and reloads.
+{
+	auto_https off
+	admin localhost:2019
+}
+
+import /etc/caddy/routes/*.caddy
+
+# Any Host without a preview route.
+:80 {
+	respond "unknown preview" 404
+}

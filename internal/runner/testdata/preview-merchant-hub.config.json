@@ -1,0 +1,94 @@
+{
+  "name": "lf-pe-0123456789",
+  "services": {
+    "seed": {
+      "build": {
+        "context": "/src",
+        "dockerfile": ".loopforge/preview/Dockerfile"
+      },
+      "command": [
+        "if [ -n \"$$PREVIEW_ADMIN_PASSWORD\" ]; then\n  printf '%s\\n' \"$$PREVIEW_ADMIN_PASSWORD\" | mhub admin create preview --role admin --password-stdin\nelse\n  mhub admin create preview --role admin\nfi || echo \"preview admin already exists\"\n"
+      ],
+      "entrypoint": [
+        "/bin/sh",
+        "-c"
+      ],
+      "environment": {
+        "HUB_ENVIRONMENT": "sandbox",
+        "PREVIEW_ADMIN_PASSWORD": "pw"
+      },
+      "image": "lf-preview/merchant-hub:pe-0123456789",
+      "restart": "no",
+      "volumes": [
+        {
+          "type": "volume",
+          "source": "data",
+          "target": "/data",
+          "volume": {}
+        }
+      ]
+    },
+    "web": {
+      "build": {
+        "context": "/src",
+        "dockerfile": ".loopforge/preview/Dockerfile"
+      },
+      "command": null,
+      "depends_on": {
+        "seed": {
+          "condition": "service_completed_successfully",
+          "required": true
+        }
+      },
+      "entrypoint": null,
+      "environment": {
+        "HUB_ENVIRONMENT": "sandbox",
+        "HUB_LOG_LEVEL": "info"
+      },
+      "expose": [
+        "8080"
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "wget",
+          "-qO-",
+          "http://127.0.0.1:8080/readyz"
+        ],
+        "timeout": "2s",
+        "interval": "3s",
+        "retries": 40
+      },
+      "image": "lf-preview/merchant-hub:pe-0123456789",
+      "volumes": [
+        {
+          "type": "volume",
+          "source": "data",
+          "target": "/data",
+          "volume": {}
+        }
+      ]
+    }
+  },
+  "volumes": {
+    "data": {}
+  },
+  "x-app": {
+    "build": {
+      "context": "../..",
+      "dockerfile": ".loopforge/preview/Dockerfile"
+    },
+    "environment": {
+      "HUB_ENVIRONMENT": "sandbox",
+      "HUB_LOG_LEVEL": "info"
+    },
+    "image": "lf-preview/merchant-hub:pe-0123456789",
+    "volumes": [
+      "data:/data"
+    ]
+  },
+  "x-loopforge-preview": {
+    "port": 8080,
+    "service": "web"
+  }
+}
