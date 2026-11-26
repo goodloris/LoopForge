@@ -35,9 +35,14 @@ func TestPreviewContractCompose(t *testing.T) {
 	if err := custom.Validate(); err != nil || custom.ComposeFile != "deploy/preview.yaml" {
 		t.Fatalf("custom compose file = %q, %v", custom.ComposeFile, err)
 	}
-	for _, bad := range []string{"../x.yaml", "a/../../x.yaml"} {
+	for _, bad := range []string{"../x.yaml", "a/../../x.yaml", ".", "./", "/./", "C:", "c:/x.yaml", "D:\\x.yaml"} {
 		if err := (&PreviewContract{Enabled: true, Kind: "compose", ComposeFile: bad}).Validate(); err == nil {
 			t.Errorf("composeFile %q accepted", bad)
+		}
+	}
+	for _, good := range []string{"./deploy/compose.yaml", "a.b/c:d.yaml", "/"} {
+		if err := (&PreviewContract{Enabled: true, Kind: "compose", ComposeFile: good}).Validate(); err != nil {
+			t.Errorf("composeFile %q rejected: %v", good, err)
 		}
 	}
 	if err := (&PreviewContract{Enabled: true, Kind: "service"}).Validate(); err == nil {

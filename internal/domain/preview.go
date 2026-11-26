@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"path"
 	"slices"
 	"strings"
 	"time"
@@ -181,7 +182,11 @@ func (c *PreviewContract) Validate() error {
 	}
 	c.Normalize()
 	if c.Compose() {
-		if strings.HasPrefix(c.ComposeFile, "/") || slices.Contains(strings.Split(c.ComposeFile, "/"), "..") {
+		// ComposeFileOrDefault already dropped leading slashes; reject paths
+		// that name the repository root, escape it, or carry a drive letter.
+		file := c.ComposeFile
+		drive := len(file) >= 2 && file[1] == ':' && ('a' <= file[0]|0x20 && file[0]|0x20 <= 'z')
+		if drive || path.Clean(file) == "." || slices.Contains(strings.Split(file, "/"), "..") {
 			return fmt.Errorf("compose preview composeFile %q is invalid", c.ComposeFile)
 		}
 		return nil

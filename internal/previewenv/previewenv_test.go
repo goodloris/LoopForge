@@ -56,6 +56,7 @@ func TestTicketRejections(t *testing.T) {
 		{"no dot", secret, body, "pe-abc", t0, ErrMalformed},
 		{"bad base64", secret, "!!." + sig, "pe-abc", t0, ErrMalformed},
 		{"weak secret", []byte("short"), ticket, "pe-abc", t0, ErrWeakSecret},
+		{"empty env", secret, ticket, "", t0, ErrMalformed},
 	}
 	for _, tc := range cases {
 		if err := VerifyTicket(tc.secret, tc.ticket, tc.env, tc.now, NewNonces()); !errors.Is(err, tc.want) {
@@ -87,6 +88,7 @@ func TestCookieRoundTripAndRejections(t *testing.T) {
 		"wrong env":        {cookie, "pe-xyz", t0, ErrEnvMismatch},
 		"ticket as cookie": {ticket, "pe-abc", t0, ErrBadSig},
 		"empty":            {"", "pe-abc", t0, ErrMalformed},
+		"empty env":        {cookie, "", t0, ErrMalformed},
 	} {
 		if err := VerifyCookie(secret, tc.cookie, tc.env, tc.now); !errors.Is(err, tc.want) {
 			t.Errorf("%s: got %v, want %v", name, err, tc.want)

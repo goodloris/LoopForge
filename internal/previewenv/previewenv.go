@@ -111,6 +111,9 @@ func verify(secret []byte, purpose, token, envID string, now time.Time, parts in
 	if len(secret) < MinSecretLen {
 		return nil, 0, ErrWeakSecret
 	}
+	if envID == "" {
+		return nil, 0, ErrMalformed
+	}
 	body, sig, ok := strings.Cut(token, ".")
 	if !ok {
 		return nil, 0, ErrMalformed
