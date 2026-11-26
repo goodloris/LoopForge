@@ -80,4 +80,10 @@ function load(extra = {}) {
   await delCtx.destroyPreviewEnv('pe-0123456789', () => reloads++);
   assert.deepEqual(delCtx.calls, [['/api/preview-envs/pe-0123456789', 'DELETE']]);
   assert.equal(reloads, 1);
+
+  // A refused teardown (409) shows the server's reason and still refreshes the card.
+  const busyCtx = load({afConfirm: async () => true, api: async () => { throw new Error('预览环境正在销毁，请等待完成'); }});
+  await busyCtx.destroyPreviewEnv('pe-0123456789', () => reloads++);
+  assert.match(busyCtx.toasts[0][0], /正在销毁/);
+  assert.equal(reloads, 2);
 })().catch(err => { console.error(err); process.exit(1); });

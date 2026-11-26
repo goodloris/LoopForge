@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS preview_environments (
   url VARCHAR(1024) NOT NULL DEFAULT '',
   admin_password VARCHAR(128) NOT NULL DEFAULT '',
   last_error TEXT NULL,
+  claim_nonce VARCHAR(32) NOT NULL DEFAULT '',
   deployed_at DATETIME(3) NULL,
   destroyed_at DATETIME(3) NULL,
   created_at DATETIME(3) NULL,

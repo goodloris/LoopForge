@@ -250,7 +250,7 @@ func TestDeployComposePreviews(t *testing.T) {
 	takeover = func() {
 		cur, _ := e.repo.PreviewEnvironment(envID)
 		cur.Status = domain.PreviewEnvDestroying
-		_ = e.repo.PutPreviewEnvironment(cur)
+		_ = repo.SeedPreviewEnvironment(e.repo, cur, "teardown-claim")
 	}
 	if _, err := e.deployComposePreviews(ctx, run, domain.PreviewDeployNodeID, cfg, runner, previewHeads(run, withSHA, withoutSHA)); err == nil || !strings.Contains(err.Error(), "接管") {
 		t.Fatalf("takeover err = %v", err)
@@ -263,6 +263,23 @@ func TestDeployComposePreviews(t *testing.T) {
 	before := len(fake.dispatched())
 	if _, err := e.deployComposePreviews(ctx, run, domain.PreviewDeployNodeID, cfg, runner, previewHeads(run, withSHA, withoutSHA)); err == nil || !strings.Contains(err.Error(), "正在销毁") || len(fake.dispatched()) != before {
 		t.Fatalf("deploy over destroying err = %v", err)
+	}
+
+	// R3: a restarted attempt of the same run takes over its own fresh
+	// deploying claim; another run is told to retry later.
+	if err := repo.SeedPreviewEnvironment(e.repo, domain.PreviewEnvironment{ID: envID, ProjectID: "proj", IssueID: "issue-1", RepositoryID: "repo-a", LastRunID: run.ID, Status: domain.PreviewEnvDeploying, AdminPassword: env.AdminPassword}, "crashed-attempt"); err != nil {
+		t.Fatal(err)
+	}
+	other := run
+	other.ID = "run-other"
+	if _, err := e.deployComposePreviews(ctx, other, domain.PreviewDeployNodeID, cfg, runner, previewHeads(other, withSHA, withoutSHA)); err == nil || !strings.Contains(err.Error(), "正在部署") {
+		t.Fatalf("other run over a fresh claim err = %v", err)
+	}
+	if _, err := e.deployComposePreviews(ctx, run, domain.PreviewDeployNodeID, cfg, runner, previewHeads(run, withSHA, withoutSHA)); err != nil {
+		t.Fatalf("same-run retry: %v", err)
+	}
+	if cur, _ := e.repo.PreviewEnvironment(envID); cur.Status != domain.PreviewEnvReady || cur.AdminPassword != env.AdminPassword {
+		t.Fatalf("same-run retry env = %+v", cur)
 	}
 
 	// Unchanged repositories have no head and are skipped without dispatch.
@@ -309,10 +326,11 @@ func TestComposePreviewTeardownSweep(t *testing.T) {
 		"pe-norun":       {Status: domain.PreviewEnvReady},
 		"pe-stuck":       {Status: domain.PreviewEnvDestroying, LastError: "销毁失败：x"}, // no requirement, failed teardown
 		"pe-gone":        {IssueID: "deleted-issue", Status: domain.PreviewEnvReady},
+		"pe-retry-later": {Status: domain.PreviewEnvDestroying, LastError: "销毁失败：y"}, // just failed: the sweep backs off
 	}
 	for id, env := range envs {
 		env.ID, env.RunnerID = id, cfg.RunnerID
-		if err := e.repo.PutPreviewEnvironment(env); err != nil {
+		if err := repo.SeedPreviewEnvironment(e.repo, env, ""); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -327,7 +345,8 @@ func TestComposePreviewTeardownSweep(t *testing.T) {
 	}
 	want := map[string]string{"pe-open": domain.PreviewEnvReady, "pe-done": domain.PreviewEnvDestroyed, "pe-merged": domain.PreviewEnvDestroyed,
 		"pe-merged-busy": domain.PreviewEnvReady, "pe-deploying": domain.PreviewEnvDeploying, "pe-crashed": domain.PreviewEnvDestroyed,
-		"pe-norun": domain.PreviewEnvReady, "pe-stuck": domain.PreviewEnvDestroyed, "pe-gone": domain.PreviewEnvDestroyed}
+		"pe-norun": domain.PreviewEnvReady, "pe-stuck": domain.PreviewEnvDestroyed, "pe-gone": domain.PreviewEnvDestroyed,
+		"pe-retry-later": domain.PreviewEnvDestroying}
 	deadline := time.Now().Add(10 * time.Second)
 	for id, status := range want {
 		for {
@@ -361,11 +380,11 @@ func TestComposePreviewTeardownOutcomeIsFenced(t *testing.T) {
 	if err := e.repo.PutRunner(domain.Runner{ID: cfg.RunnerID, Status: domain.RunnerStatusOnline, RunnerVersion: domain.RunnerVersionComposePreview}); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.repo.PutPreviewEnvironment(domain.PreviewEnvironment{ID: "pe-f", RunnerID: cfg.RunnerID, Status: domain.PreviewEnvReady}); err != nil {
+	if err := repo.SeedPreviewEnvironment(e.repo, domain.PreviewEnvironment{ID: "pe-f", RunnerID: cfg.RunnerID, Status: domain.PreviewEnvReady}, ""); err != nil {
 		t.Fatal(err)
 	}
 	never := time.Now().Add(-time.Hour)
-	claimed, ok, err := e.repo.ClaimPreviewEnvironmentTeardown("pe-f", never, never)
+	claimed, ok, err := e.repo.ClaimPreviewEnvironmentTeardown("pe-f", "t-1", never, never)
 	if !ok || err != nil {
 		t.Fatal(ok, err)
 	}
@@ -374,10 +393,10 @@ func TestComposePreviewTeardownOutcomeIsFenced(t *testing.T) {
 	_ = startFakePreviewRunner(t, e, func(domain.RunnerTask) (string, string, string) {
 		cur, _ := e.repo.PreviewEnvironment("pe-f")
 		cur.Status, cur.LastRunID = domain.PreviewEnvReady, "run-new"
-		_ = e.repo.PutPreviewEnvironment(cur)
+		_ = repo.SeedPreviewEnvironment(e.repo, cur, "deploy-claim")
 		return domain.RunnerTaskSuccess, "{}", ""
 	})
-	e.teardownPreviewEnvironment(context.Background(), claimed)
+	e.teardownPreviewEnvironment(context.Background(), claimed, "t-1")
 	if cur, _ := e.repo.PreviewEnvironment("pe-f"); cur.Status != domain.PreviewEnvReady || cur.LastRunID != "run-new" {
 		t.Fatalf("stale teardown overwrote the redeploy: %+v", cur)
 	}

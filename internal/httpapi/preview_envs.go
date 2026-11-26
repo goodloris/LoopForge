@@ -108,17 +108,24 @@ func (h *previewEnvHandlers) ticket(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"url": url})
 }
 
-// destroy starts a teardown and answers 202 with the environment. A deploy
-// still in progress answers 409; an environment already destroying (and not
-// yet stale) or destroyed is returned as it is. Stale deploying and
-// destroying claims are taken over.
+// destroy starts a teardown and answers 202 with the environment. Writers of
+// its project may destroy it; an environment without a project follows
+// envReader (platform administrators and the run's responsible user). When
+// nothing was claimed it answers 409 with the reason: a deploy or a teardown
+// still in progress, or already destroyed. A failed teardown and stale
+// deploying/destroying claims are taken over.
 func (h *previewEnvHandlers) destroy(c *gin.Context) {
 	env, ok := h.repo.PreviewEnvironment(c.Param("id"))
 	if !ok {
 		c.JSON(http.StatusNotFound, gin.H{"error": "preview environment not found"})
 		return
 	}
-	if !h.requireProjectWriter(c, env.ProjectID) {
+	if env.ProjectID == "" {
+		if !h.envReader(c, env) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "只有平台管理员或运行责任人可以销毁该预览环境"})
+			return
+		}
+	} else if !h.requireProjectWriter(c, env.ProjectID) {
 		return
 	}
 	current, claimed, err := h.engine.StartPreviewTeardown(env.ID)
@@ -126,8 +133,16 @@ func (h *previewEnvHandlers) destroy(c *gin.Context) {
 		respond(c, err)
 		return
 	}
-	if !claimed && current.Status == domain.PreviewEnvDeploying {
-		c.JSON(http.StatusConflict, gin.H{"error": "预览环境正在部署，完成后再销毁"})
+	if !claimed {
+		reason := map[string]string{
+			domain.PreviewEnvDeploying:  "预览环境正在部署，完成后再销毁",
+			domain.PreviewEnvDestroying: "预览环境正在销毁，请等待完成",
+			domain.PreviewEnvDestroyed:  "预览环境已销毁",
+		}[current.Status]
+		if reason == "" {
+			reason = "预览环境当前状态为 " + current.Status + "，无法销毁"
+		}
+		c.JSON(http.StatusConflict, gin.H{"error": reason, "status": current.Status})
 		return
 	}
 	c.JSON(http.StatusAccepted, current)

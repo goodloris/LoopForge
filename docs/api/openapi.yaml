@@ -2883,10 +2883,10 @@ paths:
     delete:
       tags: [Runs]
       operationId: deletePreviewEnvironment
-      description: Start tearing the environment down on the preview runner (preview_teardown) and return it as destroying. Requires project write access. Environments are also torn down automatically once the requirement's MRs are merged or closed or the requirement is done, cancelled or closed.
+      description: Start tearing the environment down on the preview runner (preview_teardown) and return it as destroying. Requires project write access; environments without a project are limited to platform administrators and the run's responsible user. Environments are also torn down automatically once the requirement's MRs are merged or closed or the requirement is done, cancelled or closed.
       responses:
         "202":
-          description: Teardown started, or the environment as it already is (destroying/destroyed)
+          description: Teardown started
           content:
             application/json:
               schema:
@@ -2898,7 +2898,7 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
-          description: A deploy is still in progress (deploys stuck past their timeout can be taken over)
+          description: Nothing was claimed — a deploy or teardown is still in progress, or the environment is already destroyed (error explains which). Failed teardowns and claims stuck past their timeout are taken over.
   /api/runs/{runId}/telemetry:
     parameters:
       - $ref: "#/components/parameters/RunId"

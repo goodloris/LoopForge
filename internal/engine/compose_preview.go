@@ -262,7 +262,13 @@ func (e *Engine) deployComposePreview(ctx context.Context, run domain.Run, nodeI
 		owner = run.ID
 	}
 	envID := domain.PreviewEnvID(owner, rc.RepositoryID)
-	password, err := randomPreviewPassword()
+	password, err := randomHex(12)
+	if err != nil {
+		return domain.PreviewEnvironment{}, err
+	}
+	// The nonce identifies this attempt: a later attempt of the same run
+	// may take the claim over, and then this attempt's outcome is dropped.
+	nonce, err := randomHex(16)
 	if err != nil {
 		return domain.PreviewEnvironment{}, err
 	}
@@ -270,7 +276,7 @@ func (e *Engine) deployComposePreview(ctx context.Context, run domain.Run, nodeI
 		ID: envID, ProjectID: run.ExecutionContext.ProjectID, IssueID: strings.TrimSpace(run.ExecutionContext.IssueID),
 		RepositoryID: rc.RepositoryID, RunnerID: runner.ID, LastRunID: run.ID, Branch: writableWorkBranch(rc),
 		URL: cfg.URL(envID), AdminPassword: password,
-	}, time.Now().Add(-composePreviewDeployStale))
+	}, nonce, time.Now().Add(-composePreviewDeployStale))
 	if err != nil {
 		return env, err
 	}
@@ -319,7 +325,7 @@ func (e *Engine) deployComposePreview(ctx context.Context, run domain.Run, nodeI
 	}
 	// Written even when the node context was cancelled while waiting, but
 	// only while this run still holds the deploying claim.
-	if ok, finishErr := e.repo.FinishPreviewEnvironmentDeploy(envID, run.ID, env.Status, env.SHA, env.LastError); finishErr != nil {
+	if ok, finishErr := e.repo.FinishPreviewEnvironmentDeploy(envID, nonce, env.Status, env.SHA, env.LastError); finishErr != nil {
 		if err == nil {
 			err = finishErr
 		}
@@ -382,8 +388,8 @@ func (e *Engine) composeFileAt(ctx context.Context, run domain.Run, rc domain.Re
 	return strings.TrimSpace(out) != "", nil
 }
 
-func randomPreviewPassword() (string, error) {
-	raw := make([]byte, 12)
+func randomHex(n int) (string, error) {
+	raw := make([]byte, n)
 	if _, err := rand.Read(raw); err != nil {
 		return "", err
 	}
@@ -399,23 +405,27 @@ func shortSHA(sha string) string {
 
 // StartPreviewTeardown claims envID for teardown and tears it down in the
 // background. It returns the environment as stored after the claim and
-// whether this call started the teardown; deploying environments and fresh
-// teardowns are not claimed.
+// whether this call started the teardown; deploys and teardowns still in
+// progress are not claimed.
 func (e *Engine) StartPreviewTeardown(envID string) (domain.PreviewEnvironment, bool, error) {
+	nonce, err := randomHex(16)
+	if err != nil {
+		return domain.PreviewEnvironment{}, false, err
+	}
 	now := time.Now()
-	env, claimed, err := e.repo.ClaimPreviewEnvironmentTeardown(envID, now.Add(-composePreviewTeardownStale), now.Add(-composePreviewDeployStale))
+	env, claimed, err := e.repo.ClaimPreviewEnvironmentTeardown(envID, nonce, now.Add(-composePreviewTeardownStale), now.Add(-composePreviewDeployStale))
 	if err != nil || !claimed {
 		current, _ := e.repo.PreviewEnvironment(envID)
 		return current, false, err
 	}
-	go e.teardownPreviewEnvironment(context.Background(), env)
+	go e.teardownPreviewEnvironment(context.Background(), env, nonce)
 	return env, true, nil
 }
 
 // teardownPreviewEnvironment dispatches preview_teardown for a claimed
-// (destroying) environment. Failure leaves it destroying with last_error, so
-// the sweep retries it once the claim goes stale.
-func (e *Engine) teardownPreviewEnvironment(ctx context.Context, env domain.PreviewEnvironment) {
+// (destroying) environment. Failure leaves it destroying with last_error,
+// which the next sweep or a manual retry claims again at once.
+func (e *Engine) teardownPreviewEnvironment(ctx context.Context, env domain.PreviewEnvironment, nonce string) {
 	runnerID := env.RunnerID
 	if runnerID == "" {
 		runnerID = e.ComposePreview().RunnerID
@@ -444,7 +454,7 @@ func (e *Engine) teardownPreviewEnvironment(ctx context.Context, env domain.Prev
 		lastError = "销毁失败：" + err.Error()
 		log.Printf("compose preview teardown %s: %v", env.ID, err)
 	}
-	if ok, finishErr := e.repo.FinishPreviewEnvironmentTeardown(env.ID, err == nil, lastError); finishErr != nil {
+	if ok, finishErr := e.repo.FinishPreviewEnvironmentTeardown(env.ID, nonce, err == nil, lastError); finishErr != nil {
 		log.Printf("compose preview teardown %s: %v", env.ID, finishErr)
 	} else if !ok {
 		log.Printf("compose preview teardown %s: outcome dropped, the environment left destroying meanwhile", env.ID)
@@ -500,9 +510,14 @@ func (e *Engine) previewTeardownDue(env domain.PreviewEnvironment) bool {
 func (e *Engine) SweepPreviewTeardowns() int {
 	started := 0
 	for _, env := range e.repo.LivePreviewEnvironments() {
-		// A teardown that already started is retried once stale (the claim
-		// checks), whatever the requirement's state.
-		if env.Status != domain.PreviewEnvDestroying && !e.previewTeardownDue(env) {
+		// A teardown that already started is retried whatever the
+		// requirement's state, but the sweep waits the stale window after
+		// the last attempt (a manual retry from the card goes at once).
+		if env.Status == domain.PreviewEnvDestroying {
+			if time.Since(env.UpdatedAt) < composePreviewTeardownStale {
+				continue
+			}
+		} else if !e.previewTeardownDue(env) {
 			continue
 		}
 		if _, ok, err := e.StartPreviewTeardown(env.ID); err != nil {

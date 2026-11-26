@@ -500,6 +500,7 @@ type previewEnvironmentRow struct {
 	URL           string     `gorm:"column:url;size:1024;not null;default:''"`
 	AdminPassword string     `gorm:"column:admin_password;size:128;not null;default:''"`
 	LastError     string     `gorm:"column:last_error;type:text"`
+	ClaimNonce    string     `gorm:"column:claim_nonce;size:32;not null;default:''"` // attempt holding the deploying/destroying claim
 	DeployedAt    *time.Time `gorm:"column:deployed_at"`
 	DestroyedAt   *time.Time `gorm:"column:destroyed_at"`
 	Created       *time.Time `gorm:"column:created_at"`

@@ -52,7 +52,7 @@ func TestPreviewEnvHandlersAccessAndTicket(t *testing.T) {
 	solo := domain.PreviewEnvironment{ID: domain.PreviewEnvID("pe-solo-run", "repo"), RepositoryID: "repo", LastRunID: "pe-solo-run", Status: domain.PreviewEnvReady, AdminPassword: "solo-pw"}
 	orphan := domain.PreviewEnvironment{ID: domain.PreviewEnvID("orphan", "repo"), ProjectID: "gone", LastRunID: "pe-solo-run", Status: domain.PreviewEnvReady, AdminPassword: "orphan-pw"}
 	for _, env := range []domain.PreviewEnvironment{ready, deploying, solo, orphan} {
-		if err := st.PutPreviewEnvironment(env); err != nil {
+		if err := repo.SeedPreviewEnvironment(st, env, ""); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -145,6 +145,27 @@ func TestPreviewEnvHandlersAccessAndTicket(t *testing.T) {
 	}
 	if rec := call("pe-owner", h.destroy, http.MethodDelete, deploying.ID); rec.Code != http.StatusAccepted {
 		t.Fatalf("stale deploying delete = %d %s", rec.Code, rec.Body.String())
+	}
+	// A teardown in progress answers 409 with the reason; a failed one is retried at once.
+	busy := domain.PreviewEnvironment{ID: domain.PreviewEnvID("pe-issue", "busy"), ProjectID: "pe-proj", Status: domain.PreviewEnvDestroying}
+	failedTeardown := domain.PreviewEnvironment{ID: domain.PreviewEnvID("pe-issue", "failed"), ProjectID: "pe-proj", Status: domain.PreviewEnvDestroying, LastError: "销毁失败：x"}
+	for _, env := range []domain.PreviewEnvironment{busy, failedTeardown} {
+		if err := repo.SeedPreviewEnvironment(st, env, "t-old"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if rec := call("pe-owner", h.destroy, http.MethodDelete, busy.ID); rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "正在销毁") {
+		t.Fatalf("busy delete = %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := call("pe-owner", h.destroy, http.MethodDelete, failedTeardown.ID); rec.Code != http.StatusAccepted {
+		t.Fatalf("retry of a failed teardown = %d %s", rec.Code, rec.Body.String())
+	}
+	// Project-less environments follow envReader: the run's responsible user, not any writer.
+	if rec := call("pe-outsider", h.destroy, http.MethodDelete, solo.ID); rec.Code != http.StatusForbidden {
+		t.Fatalf("outsider delete of a project-less env = %d", rec.Code)
+	}
+	if rec := call("pe-viewer", h.destroy, http.MethodDelete, solo.ID); rec.Code != http.StatusAccepted {
+		t.Fatalf("responsible user delete of a project-less env = %d %s", rec.Code, rec.Body.String())
 	}
 	rec = call("pe-owner", h.destroy, http.MethodDelete, ready.ID)
 	var destroyed domain.PreviewEnvironment
