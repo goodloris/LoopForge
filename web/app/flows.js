@@ -3,7 +3,33 @@ function workflowPreviewContract(wf){
 }
 const PREVIEW_BUILD_NODE_ID='af-preview-build';
 const PREVIEW_BUILD_AGENT_ID='af-preview-builder';
-function isPreviewBuildNode(id){return id===PREVIEW_BUILD_NODE_ID}
+// Compose previews use a platform deploy node in the same place (internal/domain/preview_deploy.go).
+const PREVIEW_DEPLOY_NODE_ID='af-preview-deploy';
+const PREVIEW_DEFAULT_COMPOSE_FILE='.loopforge/preview/compose.yaml';
+// The canvas has one preview node; it is the static build or the compose deploy step.
+function isPreviewBuildNode(id){return id===PREVIEW_BUILD_NODE_ID||id===PREVIEW_DEPLOY_NODE_ID}
+function workflowPreviewKind(wf){return String(workflowPreviewContract(wf)?.kind||'').trim().toLowerCase()==='compose'?'compose':'static'}
+function previewNodeFor(wf,position){
+  if(workflowPreviewKind(wf)==='compose')return {id:PREVIEW_DEPLOY_NODE_ID,name:'部署预览环境',type:'script',scriptLanguage:'shell',script:'# 平台步骤：部署 Compose 预览环境（由平台执行，不运行此脚本）',executionScope:'run',onFailure:'fail',maxAttempts:1,position};
+  return {id:PREVIEW_BUILD_NODE_ID,name:'构建静态站点',type:'agent',agentId:PREVIEW_BUILD_AGENT_ID,executorId:workflowPreviewExecutor(wf),executionScope:'run',onFailure:'fail',retryStrategy:'targeted_fix',maxAttempts:2,maxReworks:1,position,artifactOutputs:[{name:'frontend-preview',path:'dist/index.html',required:true}]};
+}
+// Switching kinds swaps the preview node in place: same position and edges.
+function setWorkflowPreviewKind(wf,kind){
+  if(!wf)return;
+  const prev=workflowPreviewContract(wf)||{};
+  wf.preview=kind==='compose'
+    ?{...prev,enabled:true,kind:'compose',composeFile:prev.composeFile||PREVIEW_DEFAULT_COMPOSE_FILE}
+    :(({composeFile,...rest})=>({...rest,kind:'static'}))(prev);
+  if(kind!=='compose')ensurePreviewContract();
+  const old=(wf.nodes||[]).find(n=>isPreviewBuildNode(n.id));
+  if(!old)return;
+  const next=previewNodeFor(wf,old.position);
+  if(next.id===old.id)return;
+  wf.nodes=wf.nodes.map(n=>n===old?next:n);
+  wf.edges=(wf.edges||[]).map(e=>({...e,source:e.source===old.id?next.id:e.source,target:e.target===old.id?next.id:e.target}));
+  wf.nodes.forEach(n=>{if(n.rejectTo===old.id)n.rejectTo=next.id});
+  if(state.selectedNode===old.id)state.selectedNode=next.id;
+}
 function workflowPreviewExecutor(wf){
   const preview=workflowPreviewContract(wf);
   const model=preview?.model?.trim();
@@ -39,6 +65,10 @@ function fillPreviewModelSelect(sel, selected, executorId){
 function ensurePreviewContract(){
   const wf=state.workflow;if(!wf)return null;
   const prev=workflowPreviewContract(wf)||{};
+  if(workflowPreviewKind(wf)==='compose'){
+    wf.preview={...prev,enabled:true,kind:'compose',composeFile:prev.composeFile||PREVIEW_DEFAULT_COMPOSE_FILE};
+    return wf.preview;
+  }
   wf.preview={
     ...prev,
     enabled:true,
@@ -76,21 +106,16 @@ function syncPreviewBuildGraph(){
   const sinks=(wf.nodes||[]).filter(n=>!(wf.edges||[]).some(e=>e.source===n.id));
   wf.nodes=wf.nodes||[];
   wf.edges=wf.edges||[];
-  wf.nodes.push({
-    id:PREVIEW_BUILD_NODE_ID,
-    name:'构建静态站点',
-    type:'agent',
-    agentId:PREVIEW_BUILD_AGENT_ID,
-    executorId:workflowPreviewExecutor(wf),
-    executionScope:'run',
-    onFailure:'fail',
-    retryStrategy:'targeted_fix',
-    maxAttempts:2,
-    maxReworks:1,
-    position:previewBuildPosition(wf.nodes),
-    artifactOutputs:[{name:'frontend-preview',path:'dist/index.html',required:true}]
-  });
-  sinks.forEach((n,i)=>wf.edges.push({id:'af-preview-build-edge-'+(i+1),source:n.id,target:PREVIEW_BUILD_NODE_ID,when:'success'}));
+  const node=previewNodeFor(wf,previewBuildPosition(wf.nodes));
+  wf.nodes.push(node);
+  const edgePrefix=node.id===PREVIEW_DEPLOY_NODE_ID?'af-preview-deploy-edge-':'af-preview-build-edge-';
+  sinks.forEach((n,i)=>wf.edges.push({id:edgePrefix+(i+1),source:n.id,target:node.id,when:'success'}));
+}
+// Agent nodes neither upstream nor downstream of the deploy node run beside it.
+function previewDeployParallelAgents(nodes,edges,id){
+  const walk=(from,next)=>{const seen=new Set(),todo=[from];while(todo.length){const cur=todo.pop();edges.forEach(e=>{const to=next(e,cur);if(to&&!seen.has(to)){seen.add(to);todo.push(to)}})}return seen};
+  const up=walk(id,(e,cur)=>e.target===cur?e.source:''),down=walk(id,(e,cur)=>e.source===cur?e.target:'');
+  return nodes.filter(x=>x.type==='agent'&&x.id!==id&&!isPreviewBuildNode(x.id)&&!up.has(x.id)&&!down.has(x.id));
 }
 function flowReadOnly(wf=state.workflow){return !wf||catalogForeign(wf.projectId)||(catalogGeneric(wf)&&!isPlatformAdmin())}
 function flowReadOnlyReason(wf=state.workflow){
@@ -236,8 +261,9 @@ function addNode(type,opts={}){
     if(existing){openNodeDrawer(existing.id);return toast('预览节点已存在，可拖拽连线调整它的位置')}
     flowHistory.record();
     ensurePreviewContract();
-    state.workflow.nodes.push({id:PREVIEW_BUILD_NODE_ID,name:'构建静态站点',type:'agent',agentId:PREVIEW_BUILD_AGENT_ID,executorId:workflowPreviewExecutor(state.workflow),executionScope:'run',onFailure:'fail',retryStrategy:'targeted_fix',maxAttempts:2,maxReworks:1,position:at,artifactOutputs:[{name:'frontend-preview',path:'dist/index.html',required:true}]});
-    dirty();openNodeDrawer(PREVIEW_BUILD_NODE_ID);
+    const node=previewNodeFor(state.workflow,at);
+    state.workflow.nodes.push(node);
+    dirty();openNodeDrawer(node.id);
     return;
   }
   flowHistory.record();
@@ -324,6 +350,7 @@ function flowNodeTint(n){
 function flowNodeEl(id){return document.querySelector(`#nodes .flow-node[data-id="${CSS.escape(id)}"]`)}
 function nodeMeta(n){
   if(isPreviewBuildNode(n.id)){
+    if(workflowPreviewKind(state.workflow)==='compose')return {kind:'preview',subtitle:'Compose 预览环境',tags:[{text:workflowPreviewContract(state.workflow)?.composeFile||PREVIEW_DEFAULT_COMPOSE_FILE}]};
     const model=workflowPreviewModel(state.workflow);
     return {kind:'preview',subtitle:'静态站点构建',tags:model?[{text:model}]:[]};
   }
@@ -432,7 +459,7 @@ function flowDiagnostics(){
   const nodes=state.workflow.nodes||[],edges=state.workflow.edges||[],incoming=new Map(nodes.map(n=>[n.id,0])),items=[];edges.forEach(e=>incoming.has(e.target)&&incoming.set(e.target,incoming.get(e.target)+1));
   const starts=nodes.filter(n=>incoming.get(n.id)===0);items.push({level:!nodes.length?'error':starts.length===1?'ok':'warn',title:'流程入口',detail:!nodes.length?'至少添加一个节点':starts.length===1?`从「${starts[0].name}」开始`:`检测到 ${starts.length} 个入口；这些节点会并行启动`});
   items.push({level:state.data.sandboxes?.some(s=>s.id===state.workflow.sandboxProfileId)?'ok':'error',title:'运行沙箱',detail:state.workflow.sandboxProfileId?`整条流程使用 ${state.workflow.sandboxProfileId}`:'尚未选择 Workflow 运行沙箱'});
-  nodes.forEach(n=>{if(isPreviewBuildNode(n.id)){const inDeg=edges.filter(e=>e.target===n.id).length;items.push({level:inDeg?'ok':'warn',title:n.name,detail:inDeg?`插在流程中间：${workflowPreviewModel(state.workflow)} 构建静态站点，运行成功后归档预览`:'还没有前序依赖，会作为流程入口直接运行；请从上游节点连线到此'});return}if(n.type==='agent'){const missing=[];const agent=workflowAgent(n.agentId);const generic=catalogGeneric(state.workflow);if(!n.agentId)missing.push('角色');else if(!agent)missing.push(generic?'通用模板角色未加载':'角色不属于当前项目或未共享');else if(!generic&&!(agent.executorId||n.executorId))missing.push('角色未选模型');if(!(n.artifactOutputs||[]).length&&!(agent?.artifactOutputs||[]).length)missing.push('角色产物契约');items.push({level:missing.length?'warn':'ok',title:n.name,detail:missing.length?`尚未配置：${missing.join('、')}`:generic?'已绑定通用模板角色；任务书与门禁在角色定义中':'已绑定角色；任务书与门禁在角色定义中'})}if(n.type==='sop'){const missing=[];const wf=sopWorkflowChoices(state.workflow.id).find(w=>w.id===n.sopWorkflowId)||(state.data.workflows||[]).find(w=>w.id===n.sopWorkflowId);if(!n.sopWorkflowId)missing.push('要跑的 SOP');else if(!wf)missing.push('引用的 SOP 不存在');if(n.sopWorkflowId===state.workflow.id)missing.push('不能引用自己');items.push({level:missing.length?'error':'ok',title:n.name,detail:missing.length?`尚未配置：${missing.join('、')}`:`引用「${wf.name}」，产物交给下一步`})}if(n.rejectTo&&!nodes.some(x=>x.id===n.rejectTo))items.push({level:'error',title:n.name,detail:'失败打回目标不存在'})});
+  nodes.forEach(n=>{if(isPreviewBuildNode(n.id)){const inDeg=edges.filter(e=>e.target===n.id).length;items.push({level:inDeg?'ok':'warn',title:n.name,detail:inDeg?(workflowPreviewKind(state.workflow)==='compose'?'插在流程中间：部署 Compose 预览环境，节点输出给出访问地址':`插在流程中间：${workflowPreviewModel(state.workflow)} 构建静态站点，运行成功后归档预览`):'还没有前序依赖，会作为流程入口直接运行；请从上游节点连线到此'});const parallel=workflowPreviewKind(state.workflow)==='compose'?previewDeployParallelAgents(nodes,edges,n.id):[];if(parallel.length)items.push({level:'warn',title:n.name,detail:(names=>typeof lfT==='function'?lfT(`与「${names}」并行：部署会提交并推送整个工作区，可能带上仍在修改的代码；请把它放在所有改代码节点之后的汇合点`,`Runs beside “${names}”: the deploy commits and pushes the whole workspace, which may include code still being changed; place it at the join after every step that changes code`):`与「${names}」并行：部署会提交并推送整个工作区，可能带上仍在修改的代码；请把它放在所有改代码节点之后的汇合点`)(parallel.map(x=>x.name).join('、'))});return}if(n.type==='agent'){const missing=[];const agent=workflowAgent(n.agentId);const generic=catalogGeneric(state.workflow);if(!n.agentId)missing.push('角色');else if(!agent)missing.push(generic?'通用模板角色未加载':'角色不属于当前项目或未共享');else if(!generic&&!(agent.executorId||n.executorId))missing.push('角色未选模型');if(!(n.artifactOutputs||[]).length&&!(agent?.artifactOutputs||[]).length)missing.push('角色产物契约');items.push({level:missing.length?'warn':'ok',title:n.name,detail:missing.length?`尚未配置：${missing.join('、')}`:generic?'已绑定通用模板角色；任务书与门禁在角色定义中':'已绑定角色；任务书与门禁在角色定义中'})}if(n.type==='sop'){const missing=[];const wf=sopWorkflowChoices(state.workflow.id).find(w=>w.id===n.sopWorkflowId)||(state.data.workflows||[]).find(w=>w.id===n.sopWorkflowId);if(!n.sopWorkflowId)missing.push('要跑的 SOP');else if(!wf)missing.push('引用的 SOP 不存在');if(n.sopWorkflowId===state.workflow.id)missing.push('不能引用自己');items.push({level:missing.length?'error':'ok',title:n.name,detail:missing.length?`尚未配置：${missing.join('、')}`:`引用「${wf.name}」，产物交给下一步`})}if(n.rejectTo&&!nodes.some(x=>x.id===n.rejectTo))items.push({level:'error',title:n.name,detail:'失败打回目标不存在'})});
   if(nodes.length>1&&edges.length===0)items.push({level:'warn',title:'成功路径',detail:'多个节点之间没有依赖关系，将同时启动'});if(!items.some(x=>x.level==='error'))items.push({level:'ok',title:'结构校验',detail:'未发现阻止保存或试运行的结构错误'});return items;
 }
 function setFlowView(mode){$$('.canvas-view-toggle button').forEach(b=>b.classList.toggle('active',b.dataset.flowView===mode));$('#canvas').hidden=mode!=='canvas';$('#flowCheckPanel').hidden=mode!=='check';$('#flowStageWrap')?.classList.toggle('check-mode',mode==='check');if(mode==='check')$('#flowCheckPanel').innerHTML=`<div class="page-heading" style="margin-bottom:14px"><div><h1 style="font-size:17px">配置检查</h1><p>运行前检查入口、CLI、产物契约和返工路径。</p></div></div><div class="flow-check-grid">${flowDiagnostics().map(x=>`<div class="flow-check-item ${x.level}"><b>${escapeHTML(x.title)}</b><p>${escapeHTML(x.detail)}</p></div>`).join('')}</div>`;else flowViewport.renderMinimap()}
@@ -1040,18 +1067,51 @@ function flowFold(id,title,sub,body,defaultOpen){
   const open=folds[id]===undefined?defaultOpen:folds[id];
   return `<details class="fd-sec fd-fold" data-fold="${id}" ${open?'open':''}><summary><span class="fd-sec-t">${title}</span>${sub?`<small>${sub}</small>`:''}<span class="fd-chev">${flowPalette.icon('chev',14)}</span></summary><div class="fd-sec-b">${body}</div></details>`;
 }
+function previewKindFieldHTML(kind){
+  return `<div class="fd-field"><label for="previewNodeKind">预览类型</label><select class="select" id="previewNodeKind"><option value="static" ${kind==='static'?'selected':''}>静态站点</option><option value="compose" ${kind==='compose'?'selected':''}>Compose 预览环境</option></select></div>`;
+}
+function bindPreviewKindField(n){
+  const select=$('#previewNodeKind');
+  if(!select)return;
+  select.disabled=flowReadOnly();
+  select.onchange=()=>{
+    flowHistory.record();
+    setWorkflowPreviewKind(state.workflow,select.value);
+    dirty();renderCanvas();
+    openNodeDrawer((state.workflow.nodes||[]).find(x=>isPreviewBuildNode(x.id))?.id||n.id);
+  };
+}
+function renderComposePreviewProperties(host,n){
+  const file=workflowPreviewContract(state.workflow)?.composeFile||PREVIEW_DEFAULT_COMPOSE_FILE;
+  host.innerHTML=`${flowDrawerHead(n,'preview','系统步骤 · 预览环境')}
+    <div class="fd-db">
+      <section class="fd-sec"><div class="fd-sec-h"><span class="fd-sec-t">主配置</span></div><div class="fd-sec-b">
+        <p class="prop-hint">运行到该节点时推送各仓库的工作分支，把含 compose 文件的仓库部署到预览主机，节点输出里给出访问地址；没有 compose 文件的仓库会跳过。需求结束或 MR 合并后自动销毁。它只有成功出口。</p>
+        ${previewKindFieldHTML('compose')}
+        <div class="fd-field"><label for="previewNodeComposeFile">Compose 文件</label><input class="input" id="previewNodeComposeFile" value="${escapeHTML(file)}" placeholder="${escapeHTML(PREVIEW_DEFAULT_COMPOSE_FILE)}" spellcheck="false"><small class="prop-hint">相对每个仓库根目录</small></div>
+      </div></section>
+    </div>
+    <div class="fd-df"><span class="fd-df-hint">从左侧「成功」出口连到下一步；预览节点没有失败出口</span></div>`;
+  bindPreviewKindField(n);
+  const input=$('#previewNodeComposeFile');
+  input.disabled=flowReadOnly();
+  input.onchange=()=>{flowHistory.record();updatePreviewContract({composeFile:input.value.trim()||PREVIEW_DEFAULT_COMPOSE_FILE});dirty();renderCanvas();};
+}
 function renderPreviewBuildProperties(host,n){
+  if(workflowPreviewKind(state.workflow)==='compose')return renderComposePreviewProperties(host,n);
   const spa=state.workflow.preview?.spaFallback!==false;
   host.innerHTML=`${flowDrawerHead(n,'preview','系统步骤 · 前端预览')}
     <div class="fd-db">
       <section class="fd-sec"><div class="fd-sec-h"><span class="fd-sec-t">主配置</span></div><div class="fd-sec-b">
         <p class="prop-hint">运行到该节点时用所选模型构建静态站点，不必再手写脚本节点；Run 成功后平台归档预览。它只有成功出口。</p>
+        ${previewKindFieldHTML('static')}
         <div class="fd-field"><label for="previewNodeExecutor">执行器</label><select class="select" id="previewNodeExecutor">${executorOptions(workflowPreviewExecutor(state.workflow))}</select></div>
         <div class="fd-field"><label for="previewNodeModel">模型</label><select class="select" id="previewNodeModel"></select></div>
         <label class="fd-check"><input type="checkbox" id="previewNodeSpa" ${spa?'checked':''}><span>单页应用回退（找不到路径时返回入口 HTML）</span></label>
       </div></section>
     </div>
     <div class="fd-df"><span class="fd-df-hint">从左侧「成功」出口连到下一步；预览节点没有失败出口</span></div>`;
+  bindPreviewKindField(n);
   const executor=$('#previewNodeExecutor'),sel=$('#previewNodeModel');
   const fill=()=>{
     const model=fillPreviewModelSelect(sel,workflowPreviewModel(state.workflow),executor.value);
@@ -1177,7 +1237,7 @@ async function discardWorkflow(){
 async function saveWorkflow(){
   if(catalogGeneric(state.workflow)&&!isPlatformAdmin()){toast('通用模板为只读，请先「复制到本项目」再修改');throw new Error('generic sop is read-only')}
   if(catalogForeign(state.workflow?.projectId)){toast('这是其他项目的共享 SOP，请先复制到本项目再改');throw new Error('shared sop is read-only')}
-  if(state.workflow?.preview?.enabled&&workflowPreviewExecutor(state.workflow)&&state.workflow.preview.model===''){
+  if(state.workflow?.preview?.enabled&&workflowPreviewKind(state.workflow)==='static'&&workflowPreviewExecutor(state.workflow)&&state.workflow.preview.model===''){
     const workflow=state.workflow;
     await loadExecutorModelCatalogs();
     if(state.workflow!==workflow)throw new Error('SOP 已切换，请重新保存');

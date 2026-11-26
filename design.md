@@ -467,6 +467,7 @@ AI 助手页（`#assistantView`，路由 `#/assistant`）在设置导航「管�
 | `web/app/business-domains.js`、`web/app/business-harness.css` | 业务领域报表页的模板（`businessReportHTML`）、图表 option（`businessDeliveryOption` 等）、`biz-` 图表挂载与释放、静态 SVG 导出与 Harness 样式 |
 | `web/knowledge.js`、`web/knowledge.css` | 知识中心的概览指标（`kbMetricsHTML`）、四个标签的面板与行模板（`kbPanel`、`kbRow`、`kbBadge`）、通用右侧抽屉 |
 | `web/app/runs.js`、`web/product-v4.css`（运行记录列表区段） | 运行记录列表的面板、标签计数、状态徽标和行模板 |
+| `web/app/preview-envs.js`、`web/product-v4.css`（`.preview-env-*`） | Compose 预览环境卡片：运行详情「预览环境」标签与需求详情「代码交付」共用，状态徽标、复制密码、票据打开与销毁 |
 | `web/app.js`（视图切换）、`web/product-v4.css`（`.page-context`） | 按视图是否自带页头切换 `body.view-has-heading`，隐藏重复的顶栏标题 |
 | `web/app/assistant-settings.js`、`web/app/assistant-settings.css` | AI 助手设置页的开关、自定义规则与保存 |
 | `web/app/bots.js`、`web/bots.css` | Bot 管理页的面板头（标签 / 面包屑）、列表行、状态徽标、引导编辑器与记录 |

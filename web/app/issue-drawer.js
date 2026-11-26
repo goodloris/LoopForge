@@ -31,6 +31,7 @@ async function openIssueDetail(id,tab){
     if(localIssue){Object.assign(issue,localIssue,permissions);Object.assign(localIssue,permissions)}
     const task=latestIssueTask(issue);
     const runId=task?.runId||latestIssueRun(issue, task)?.id;
+    const previewEnvsPending=fetchPreviewEnvs('issues',issueId);
     let requirement=null;
     try{requirement=await api(`/api/issues/${encodeURIComponent(issueId)}/requirement`,{silent:true})}catch(e){}
     let run=null;
@@ -49,7 +50,8 @@ async function openIssueDetail(id,tab){
       try{deletionTask=await api(`/api/tasks/${encodeURIComponent(issue.deletionBlock.taskId)}`,{silent:true})}catch(e){}
       if(deletionTask?.issueId!==issueId)deletionTask=null;
     }
-    state.issueDetailData={issue,comments,run,task,requirement,deletionTask};
+    const previewEnvs=await previewEnvsPending;
+    state.issueDetailData={issue,comments,run,task,requirement,deletionTask,previewEnvs};
     const health=issueRunHealth(issue),stage=issueCurrentStage(issue),needsConfirm=clarificationNeedsConfirm(issue);
     state.issueDetailTab=tab||(issueClarifying(issueId)||needsConfirm?'clarify':((health==='attention'||health==='active'||stage.key==='waiting')?'sop':'overview'));
     $$('#issueDetailTabs .drawer-tab').forEach(b=>b.classList.toggle('active',b.dataset.dtab===state.issueDetailTab));
@@ -225,6 +227,7 @@ function renderIssueDetailTab(){
   });
   host.querySelectorAll('[data-clarify-model]').forEach(picker=>bindClarifyModelPicker(picker,issue));
   bindWaitingActions(host);
+  bindPreviewEnvCards(host.querySelector('[data-issue-preview-envs]'),()=>reloadIssuePreviewEnvs(issue.id));
   host.querySelectorAll('[data-verify-gate]').forEach(el=>mountVerifyGateHint(el,el.dataset.workflow,{issueId:issue.id}));
   if(state.issueDetailTab==='clarify'&&issueClarifying(issue.id))restoreIssueClarifyThinking(issue.id);
   if(clarifyDraft)restoreIssueClarifyDraft(host,clarifyDraft);
@@ -862,13 +865,24 @@ function deliveryRepoFacts(issue,repos){
   }).join('');
 }
 // SOP 需求的代码交付。
+// Compose preview environments of the requirement, shown once one exists.
+function issuePreviewEnvSectionHTML(data){
+  if(!data?.previewEnvs?.items?.length)return '';
+  return `<div class="detail-section" data-issue-preview-envs><h3>预览环境<span class="sub">每个仓库一个，需求结束或 MR 合并后自动销毁</span></h3>${previewEnvCardsHTML(data.previewEnvs)}</div>`;
+}
+async function reloadIssuePreviewEnvs(issueId){
+  const list=await fetchPreviewEnvs('issues',issueId);
+  if(state.issueDetailData?.issue?.id!==issueId)return;
+  state.issueDetailData.previewEnvs=list;
+  renderIssueDetailTab();
+}
 function sopDeliveryPane(issue,data){
   const run=data.run,repos=deliveryRepositories(issue,run),frozen=run?.repositories?.length?run.repositories:(run?.repository?.name?[run.repository]:[]);
   const repoFacts=deliveryRepoFacts(issue,repos);
   const frozenBranches=[...new Set(frozen.map(r=>r.baseBranch).filter(Boolean))];
   const ctx=run?.executionContext;
   const runFacts=`<div class="detail-grid">${drawerFact('Run ID',run?run.id.slice(-14):'—')}${drawerFact('Task ID',data.task?data.task.id.slice(-10):'—')}${drawerFact('触发方式',escapeHTML(taskTriggerInfo(data.task).label))}${drawerFact('状态',run?`<span class="status ${runDisplayStatusClass(run)}">${runDisplayStatus(run)}</span>`:'—')}${drawerFact('执行仓库',escapeHTML(frozen.map(r=>r.name).filter(Boolean).join('、')||'—'))}${drawerFact('冻结目标主分支',escapeHTML(frozenBranches.join('、')||'—'))}${drawerFact('Trace ID',ctx?.traceId?ctx.traceId.slice(-14):'—')}</div>`;
-  return `<div class="detail-section"><h3>代码仓库与分支${repos.length>1?`<span class="sub">${repos.length} 个仓库</span>`:''}</h3>${repoFacts}</div><div class="detail-section"><h3>交付运行上下文<span class="sub">发起时冻结的仓库与 Trace 关联</span></h3>${run?runFacts+'<div style="margin-top:10px"><button class="button ghost small" data-open-run="'+escapeHTML(run.id)+'">查看运行详情与产物 →</button></div>':'<div class="detail-empty">尚未发起交付运行</div>'}</div>${run?.input?`<div class="detail-section"><h3>任务输入</h3><div class="detail-desc">${escapeHTML(run.input)}</div></div>`:''}`;
+  return `<div class="detail-section"><h3>代码仓库与分支${repos.length>1?`<span class="sub">${repos.length} 个仓库</span>`:''}</h3>${repoFacts}</div>${issuePreviewEnvSectionHTML(data)}<div class="detail-section"><h3>交付运行上下文<span class="sub">发起时冻结的仓库与 Trace 关联</span></h3>${run?runFacts+'<div style="margin-top:10px"><button class="button ghost small" data-open-run="'+escapeHTML(run.id)+'">查看运行详情与产物 →</button></div>':'<div class="detail-empty">尚未发起交付运行</div>'}</div>${run?.input?`<div class="detail-section"><h3>任务输入</h3><div class="detail-desc">${escapeHTML(run.input)}</div></div>`:''}`;
 }
 // Execution order of a SOP's nodes, same rule as orderNodesByEdges in
 // internal/repo/requirement.go: stable topological sort over the edges, array

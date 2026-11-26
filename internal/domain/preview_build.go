@@ -5,19 +5,23 @@ import (
 	"strings"
 )
 
-// StripPreviewBuild removes the synthetic preview node so the SOP
-// catalog never persists an engine-injected step.
+// StripPreviewBuild removes the synthetic preview nodes (static build and
+// compose deploy) so the SOP catalog never persists an engine-injected step.
 func StripPreviewBuild(wf WorkflowDefinition) WorkflowDefinition {
+	return stripPreviewNodes(wf, func(id string) bool { return IsPreviewBuildNode(id) || IsPreviewDeployNode(id) })
+}
+
+func stripPreviewNodes(wf WorkflowDefinition, drop func(string) bool) WorkflowDefinition {
 	nodes := make([]WorkflowNode, 0, len(wf.Nodes))
 	for _, node := range wf.Nodes {
-		if IsPreviewBuildNode(node.ID) {
+		if drop(node.ID) {
 			continue
 		}
 		nodes = append(nodes, node)
 	}
 	edges := make([]WorkflowEdge, 0, len(wf.Edges))
 	for _, edge := range wf.Edges {
-		if IsPreviewBuildNode(edge.Source) || IsPreviewBuildNode(edge.Target) {
+		if drop(edge.Source) || drop(edge.Target) {
 			continue
 		}
 		edges = append(edges, edge)
@@ -25,6 +29,15 @@ func StripPreviewBuild(wf WorkflowDefinition) WorkflowDefinition {
 	wf.Nodes = nodes
 	wf.Edges = edges
 	return wf
+}
+
+func hasPreviewNode(wf WorkflowDefinition, match func(string) bool) bool {
+	for _, node := range wf.Nodes {
+		if match(node.ID) {
+			return true
+		}
+	}
+	return false
 }
 
 // AttachPreviewBuild guarantees the preview build node exists when the
@@ -39,8 +52,14 @@ func AttachPreviewBuild(wf WorkflowDefinition) (WorkflowDefinition, error) {
 	if err := wf.Preview.Validate(); err != nil {
 		return wf, err
 	}
+	if wf.Preview.Compose() {
+		return attachPreviewDeploy(wf), nil
+	}
 	if !wf.Preview.Static() {
 		return StripPreviewBuild(wf), nil
+	}
+	if hasPreviewNode(wf, IsPreviewDeployNode) {
+		wf = stripPreviewNodes(wf, IsPreviewDeployNode)
 	}
 	for i, node := range wf.Nodes {
 		if IsPreviewBuildNode(node.ID) {

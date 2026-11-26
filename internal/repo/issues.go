@@ -110,6 +110,14 @@ func (r *IssuesRepo) Issues() []domain.Issue {
 	return out
 }
 
+// IssueExists tells a missing issue apart from a failed lookup, for callers
+// that must not treat a database error as a deletion.
+func (r *IssuesRepo) IssueExists(id string) (bool, error) {
+	var n int64
+	err := r.DB.Model(&issueRow{}).Where("id = ?", id).Count(&n).Error
+	return n > 0, err
+}
+
 func (r *IssuesRepo) Issue(id string) (domain.Issue, bool) {
 	var row issueRow
 	if err := r.DB.Where("id = ?", id).Take(&row).Error; err != nil {

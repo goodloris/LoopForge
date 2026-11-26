@@ -93,6 +93,8 @@ type Engine struct {
 	platformMCPToken string
 
 	preview *preview.Service
+	// composePreview configures compose preview environments; zero is off.
+	composePreview ComposePreviewConfig
 
 	obsMu      sync.Mutex
 	obsPending []pendingObservation
@@ -127,6 +129,7 @@ func (e *Engine) StartMaintenance(ctx context.Context) {
 		go e.reclaimSandboxes()
 		go e.sandboxSweep(ctx)
 		go e.observationFlushLoop(ctx)
+		go e.previewTeardownLoop(ctx)
 	})
 }
 

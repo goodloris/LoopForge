@@ -15,6 +15,7 @@ postgres/
   041_builtin_roles_default_executor.sql  # 内置角色改为跟随默认执行器，手动执行（见下表 041）
   042_bagel_builtin_labels.sql  # 体验项目名与内置 SOP 作者标签改为 Bagel，手动执行（见下表 042）
   044_loopool_builtin_labels.sql  # 体验项目名与内置 SOP 作者标签改为 LooPool，手动执行（见下表 044）
+  046_preview_environments.sql    # Compose 预览环境表，可选 DDL，AutoMigrate 也会建
   seed/
     001_public_catalog.sql      # 公共目录，等价于 ../seed/001_public_catalog.sql
     002_welcome_project.sql     # 体验项目，等价于 ../seed/002_welcome_project.sql

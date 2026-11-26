@@ -409,6 +409,11 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 		e.waitApproval(runID, node, reason)
 		return
 	}
+	if domain.IsPreviewDeployNode(node.ID) {
+		// Platform step: no sandbox, the preview runner does the work.
+		e.executeComposePreviewNode(ctx, runID, node, executionAttempt, executionGeneration)
+		return
+	}
 	current, _ := e.repo.RunState(runID)
 	current, err := e.bindPoolRunner(ctx, current, node.ID)
 	if err != nil {
