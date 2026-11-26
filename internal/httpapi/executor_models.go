@@ -28,12 +28,19 @@ type executorEffortOption struct {
 // executorModelCatalog is the per-CLI model and effort catalog used by the
 // agent wizard. CustomModel marks CLIs that accept free-form model IDs
 // (custom base URLs); Credits is only surfaced for CodeBuddy.
+//
+// Codex and Claude Code always carry Source and Availability on the
+// signed-in catalog (verified | unverified | none, see
+// executor_model_availability.go) plus a Notice when not verified; other
+// CLIs leave both empty.
 type executorModelCatalog struct {
-	Source      string                 `json:"source,omitempty"`
-	Default     string                 `json:"default,omitempty"`
-	CustomModel bool                   `json:"customModel,omitempty"`
-	Models      []executorModelInfo    `json:"models"`
-	Efforts     []executorEffortOption `json:"efforts"`
+	Source       string                 `json:"source,omitempty"`
+	Availability string                 `json:"availability,omitempty"`
+	Notice       string                 `json:"notice,omitempty"`
+	Default      string                 `json:"default,omitempty"`
+	CustomModel  bool                   `json:"customModel,omitempty"`
+	Models       []executorModelInfo    `json:"models"`
+	Efforts      []executorEffortOption `json:"efforts"`
 }
 
 type builtinExecutorModel struct {
@@ -243,40 +250,70 @@ func (h *catalogHandlers) executorModels(c *gin.Context) {
 		catalogs[runtime.AgentCLIAntigravity] = catalog
 	}
 	for _, engine := range append([]string{assistantEngineCodeBuddy}, assistantCLIEngines()...) {
-		models, _ := assistantDiscoveredModelsFor(c.Request.Context(), user, engine)
-		if len(models) == 0 {
-			continue
-		}
 		id := engine
 		if engine == assistantEngineClaude {
 			id = "claude"
 		}
 		catalog := catalogs[id]
-		catalog.Source = "personal"
-		catalog.Models = make([]executorModelInfo, 0, len(models))
-		personal := cliModelsOf(models)
-		for _, model := range models {
-			if model.ID == assistantDefaultModel || (engine == assistantEngineCodeBuddy && codeBuddyIsDefaultModel(model.ID)) {
-				continue
+		if _, filtered := availabilityEngine(id); filtered {
+			// Codex / Claude Code list only what the editor can verify; the
+			// built-in list is never presented as supported (see
+			// executor_model_availability.go).
+			availability := resolveExecutorModelAvailability(c.Request.Context(), user, h.repo, engine)
+			state := availability.State
+			if state == executorModelsVerified {
+				if models := personalCatalogModels(availability.Models, engine, kimiBaseURL); len(models) > 0 {
+					catalog.Source, catalog.Availability, catalog.Models = "personal", executorModelsVerified, models
+					catalogs[id] = catalog
+					continue
+				}
+				// Every listed entry was the CLI default: nothing to verify.
+				state = executorModelsUnverified
 			}
-			name := strings.TrimSpace(model.Name)
-			if name == "" {
-				name = model.ID
+			catalog.Availability, catalog.Notice = state, executorModelNotice(state, engine)
+			if state == executorModelsNone {
+				catalog.Source, catalog.Models = "none", []executorModelInfo{}
+			} else {
+				catalog.Source = "builtin"
 			}
-			modelID := model.ID
-			if engine != assistantEngineCodeBuddy {
-				modelID = engine + ":" + modelID
-			}
-			catalog.Models = append(catalog.Models, executorModelInfo{
-				ID:      model.ID,
-				Name:    name,
-				Family:  assistantModelFamily(model.ID, engine),
-				Efforts: effortOptions(assistantModelEffortsForBaseURL(modelID, personal, kimiBaseURL)),
-			})
+			catalogs[id] = catalog
+			continue
 		}
-		if len(catalog.Models) > 0 {
+		models, _ := assistantDiscoveredModelsFor(c.Request.Context(), user, engine)
+		if len(models) == 0 {
+			continue
+		}
+		if personal := personalCatalogModels(models, engine, kimiBaseURL); len(personal) > 0 {
+			catalog.Source, catalog.Models = "personal", personal
 			catalogs[id] = catalog
 		}
 	}
 	c.JSON(http.StatusOK, catalogs)
+}
+
+// personalCatalogModels turns a discovered or saved model list into role
+// catalog entries, dropping the CLI default.
+func personalCatalogModels(models []assistantDiscoveredModel, engine, kimiBaseURL string) []executorModelInfo {
+	out := make([]executorModelInfo, 0, len(models))
+	personal := cliModelsOf(models)
+	for _, model := range models {
+		if model.ID == assistantDefaultModel || (engine == assistantEngineCodeBuddy && codeBuddyIsDefaultModel(model.ID)) {
+			continue
+		}
+		name := strings.TrimSpace(model.Name)
+		if name == "" {
+			name = model.ID
+		}
+		modelID := model.ID
+		if engine != assistantEngineCodeBuddy {
+			modelID = engine + ":" + modelID
+		}
+		out = append(out, executorModelInfo{
+			ID:      model.ID,
+			Name:    name,
+			Family:  assistantModelFamily(model.ID, engine),
+			Efforts: effortOptions(assistantModelEffortsForBaseURL(modelID, personal, kimiBaseURL)),
+		})
+	}
+	return out
 }

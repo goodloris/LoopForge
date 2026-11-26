@@ -2,6 +2,14 @@
 
 Platform releases use `vX.Y.Z` tags. This fork (goodloris/LoopForge) publishes `ghcr.io/goodloris/loopforge` from 0.5.0 on; 0.4.0 and earlier were published upstream as `ghcr.io/tencent/loopforge`. LoopForge Local packages use `local-vX.Y.Z` tags and are published by manually running the `release-local` workflow.
 
+## Unreleased
+
+### Changes
+
+- 角色向导的 Codex / Claude Code 模型下拉只列出当前用户可用的模型。`GET /api/executor-models` 的 `codex`、`claude` 新增 `availability`（`verified` / `unverified` / `none`）和 `notice`，`source` 必定有值：用户保存了模型目录或 Base URL 探测成功时只列这些模型（`verified`）；只有官方端点 Key，或有一台报告了该 CLI 且使用账号登录的执行机器时，列出内置清单并逐项标「（未验证）」，不预选模型（`unverified`）；两者都没有（含未登录）时返回空列表和配置引导（`none`），仍可手动输入模型 ID。这是行为变化：以前无凭据用户也会拿到完整内置清单。`?builtin=1` 和其他 CLI 不变。
+- 保存角色（`PUT /api/agents`、通用模板 `PUT /api/workflows/:id/agents`）时校验 Codex / Claude Code 模型：保存人有已验证清单而模型不在其中时返回 400，除非请求体带 `customModel: true`（手动输入，不入库）；无法验证时照常保存。两种情况都会在响应里多一个 `warnings` 数组，向导会弹出提示。已有角色的执行器和模型不变时不再校验，存量 SOP 不受影响。新填写的模型 ID 还要满足字符规则（非空、不超过 128 个字符、不以 `-` 开头、不含空白/引号/反斜杠）。校验只针对保存人自己的凭据；运行时用的是 SOP 责任人的凭据，「已验证」也不保证额度或网关一定放行。
+- No data migration and no SQL to run.
+
 ## 0.9.0 — Self-hosted GitLab delivery, Kiro credits and Loopool
 
 **Upgrading an existing installation (from 0.8.0)**:
