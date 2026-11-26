@@ -17,6 +17,7 @@ import (
 
 	"agentflow/internal/domain"
 	"agentflow/internal/gitwork"
+	"agentflow/internal/procwatch"
 )
 
 // Runner side of compose preview environments (preview_deploy /
@@ -60,7 +61,7 @@ func (d *Daemon) lockPreview(envID string) func() {
 }
 
 func (d *Daemon) executePreviewDeploy(ctx context.Context, task domain.RunnerTask) execResult {
-	return d.executePreviewTask(ctx, task, func(spec domain.RunnerPreviewSpec) (domain.RunnerPreviewResult, error) {
+	return d.executePreviewTask(ctx, task, func(ctx context.Context, spec domain.RunnerPreviewSpec) (domain.RunnerPreviewResult, error) {
 		if !previewHostPattern.MatchString(spec.Host) {
 			return domain.RunnerPreviewResult{}, fmt.Errorf("preview host %q is invalid", spec.Host)
 		}
@@ -69,22 +70,53 @@ func (d *Daemon) executePreviewDeploy(ctx context.Context, task domain.RunnerTas
 }
 
 func (d *Daemon) executePreviewTeardown(ctx context.Context, task domain.RunnerTask) execResult {
-	return d.executePreviewTask(ctx, task, func(spec domain.RunnerPreviewSpec) (domain.RunnerPreviewResult, error) {
+	return d.executePreviewTask(ctx, task, func(ctx context.Context, spec domain.RunnerPreviewSpec) (domain.RunnerPreviewResult, error) {
 		return d.previewTeardown(ctx, spec.EnvID)
 	})
 }
 
-func (d *Daemon) executePreviewTask(ctx context.Context, task domain.RunnerTask, run func(domain.RunnerPreviewSpec) (domain.RunnerPreviewResult, error)) execResult {
+func (d *Daemon) executePreviewTask(ctx context.Context, task domain.RunnerTask, run func(context.Context, domain.RunnerPreviewSpec) (domain.RunnerPreviewResult, error)) execResult {
 	if err := d.client.StartTask(ctx, task.ID); err != nil {
 		return execResult{status: domain.RunnerTaskFailed, errMsg: fmt.Sprintf("start: %v", err)}
 	}
 	if task.Preview == nil || !previewEnvIDPattern.MatchString(task.Preview.EnvID) {
 		return execResult{status: domain.RunnerTaskFailed, exitCode: 1, errMsg: "preview task needs a valid preview.envId"}
 	}
+	// ctx already ends on a cancel seen by lease renewal; also follow the
+	// control channel so a pushed cancel stops compose and git at once.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go func(control <-chan string) {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case state := <-control:
+				if strings.EqualFold(state, domain.RunnerTaskDesiredCancel) {
+					log.Printf("task %s: cancel requested by platform", task.ID)
+					cancel()
+					return
+				}
+			}
+		}
+	}(d.taskControl(task.ID))
 	defer d.lockPreview(task.Preview.EnvID)()
-	result, err := run(*task.Preview)
+	result, err := run(ctx, *task.Preview)
+	return previewExecResult(ctx, result, err)
+}
+
+// previewExecResult reports a run stopped by cancellation as canceled, not
+// failed, so the control plane does not treat it as a deploy error.
+func previewExecResult(ctx context.Context, result domain.RunnerPreviewResult, err error) execResult {
 	body, _ := json.Marshal(result)
-	if err != nil {
+	switch {
+	case ctx.Err() != nil:
+		msg := "canceled"
+		if err != nil {
+			msg = "canceled: " + err.Error()
+		}
+		return execResult{status: domain.RunnerTaskCanceled, result: string(body), errMsg: msg}
+	case err != nil:
 		return execResult{status: domain.RunnerTaskFailed, exitCode: 1, result: string(body), errMsg: err.Error()}
 	}
 	return execResult{status: domain.RunnerTaskSuccess, result: string(body)}
@@ -425,16 +457,25 @@ func writePreviewState(path string, state previewState) {
 // and returns combined output. env nil inherits the runner environment, for
 // commands that interpolate nothing from the repository.
 func previewDocker(ctx context.Context, env []string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "docker", args...)
-	cmd.Env = env
+	cmd := previewDockerCommand(ctx, env, args)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }
 
-// previewDockerStdout keeps stdout clean for JSON; stderr goes into the error.
-func previewDockerStdout(ctx context.Context, env []string, args ...string) (string, error) {
+// previewDockerCommand kills the whole process group on cancel: `docker
+// compose` runs the compose plugin (and buildx for builds) as child processes
+// that would otherwise keep building and starting containers after the docker
+// CLI died. BuildKit in the daemon stops the build when its client session goes.
+func previewDockerCommand(ctx context.Context, env []string, args []string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, "docker", args...)
 	cmd.Env = env
+	procwatch.KillGroup(cmd)
+	return cmd
+}
+
+// previewDockerStdout keeps stdout clean for JSON; stderr goes into the error.
+func previewDockerStdout(ctx context.Context, env []string, args ...string) (string, error) {
+	cmd := previewDockerCommand(ctx, env, args)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()

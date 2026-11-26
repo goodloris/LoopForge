@@ -44,6 +44,14 @@ type observerKey struct{}
 
 // WithObserver attaches the observer that Run reports to. Callers that do not
 // attach one still get the watchdog, timeout and short errors.
+// KillGroup makes cancelling cmd's context kill its whole process group and
+// stops Wait from blocking on helpers that still hold the output pipes.
+// Callers must build cmd with exec.CommandContext.
+func KillGroup(cmd *exec.Cmd) {
+	killGroup(cmd)
+	cmd.WaitDelay = waitDelay
+}
+
 func WithObserver(ctx context.Context, observer Observer) context.Context {
 	return context.WithValue(ctx, observerKey{}, observer)
 }

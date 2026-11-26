@@ -81,6 +81,8 @@ func command(ctx context.Context, workspace string, sshEnv map[string]string, ar
 	credential, host, urlHost := httpCredentialForCommand(ctx, args)
 	authArgs := scopedHTTPAuthArgs(credential)
 	cmd := exec.CommandContext(ctx, "git", append(authArgs, args...)...)
+	// A cancel must also stop git-remote-https/ssh, not only git itself.
+	procwatch.KillGroup(cmd)
 	cmd.Dir = dir
 	cmd.Env = WithEnvValue(Env(""), "PWD", dir)
 	if len(sshEnv) == 0 {
