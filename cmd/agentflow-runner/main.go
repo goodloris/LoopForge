@@ -61,6 +61,11 @@ func main() {
 		DisableAutoUpdate:      !*autoUpdate,
 		ManagedCLIRoot:         strings.TrimSpace(os.Getenv("AGENTFLOW_MANAGED_CLI_ROOT")),
 		DisableRunSandboxReuse: !*reuseSandbox,
+		PreviewRoot:            os.Getenv("LOOPFORGE_PREVIEW_ROOT"),
+		PreviewCaddy:           os.Getenv("LOOPFORGE_PREVIEW_CADDY"),
+		PreviewAuthAddr:        os.Getenv("LOOPFORGE_PREVIEW_AUTH_ADDR"),
+		PreviewSecret:          os.Getenv("LOOPFORGE_PREVIEW_SECRET"),
+		PreviewAuthUpstream:    os.Getenv("LOOPFORGE_PREVIEW_AUTH_UPSTREAM"),
 	}
 	cfg.MaxConcurrency = concurrencyFromEnv(cfg.MaxConcurrency)
 	cfg.Labels = parseLabels(*labels)
