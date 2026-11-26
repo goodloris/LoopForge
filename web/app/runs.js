@@ -745,6 +745,20 @@ function workspacePaneHTML(run){
 function runPreviewDeclared(run){
   return !!(run?.workflowSnapshot?.preview&&run.workflowSnapshot.preview.enabled);
 }
+function runPreviewIsCompose(run){
+  return runPreviewDeclared(run)&&String(run.workflowSnapshot.preview.kind||'').toLowerCase()==='compose';
+}
+// Compose previews list environments instead of the static archive.
+async function loadRunPreviewEnvs(run,silent){
+  if(!silent){state.runPreviewEnvs={runId:run.id,list:null};renderPreviewPane(run)}
+  const list=await fetchPreviewEnvs('runs',run.id);
+  if(state.activeRun?.id!==run.id)return;
+  state.runPreviewEnvs={runId:run.id,list};
+  const items=list?.items||[];
+  const busy=items.some(e=>e.status==='deploying'||e.status==='destroying')||(!items.length&&['queued','running'].includes(run.status));
+  schedulePreviewPoll(run.id,busy?'pending':'ready');
+  renderPreviewPane(state.activeRun||run);
+}
 function shouldPatchRunLive(run){
   const host=$('#runDetail');
   if(!host||host.dataset.runId!==run?.id)return false;
@@ -800,6 +814,7 @@ async function resolvePreviewSessionURL(rawUrl){
   }
 }
 function previewPaneHTML(run){
+  if(runPreviewIsCompose(run))return previewEnvCardsHTML(state.runPreviewEnvs?.runId===run.id?state.runPreviewEnvs.list:null);
   const pv=state.runPreview;
   if(!runPreviewDeclared(run)&&!(pv&&pv.runId===run.id&&pv.info)){
     return `<div class="workspace-unavailable"><span>◇</span><b>该 SOP 未开启前端预览</b><p>在流程编辑页左侧「流程步骤」面板添加「预览」节点并连线到需要构建的位置，运行时自动构建静态站点并归档。</p></div>`;
@@ -859,6 +874,7 @@ function persistPreviewBackend(runId, value){
 }
 async function loadRunPreview(runId,opts){
   const run=state.activeRun;if(!run||run.id!==runId)return;
+  if(runPreviewIsCompose(run))return loadRunPreviewEnvs(run,!!opts?.silent);
   const silent=!!opts?.silent;
   if(state.runPreview?.runId===runId&&state.runPreview.loading)return;
   const prior=state.runPreview?.runId===runId?state.runPreview:null;
@@ -913,6 +929,7 @@ function renderPreviewPane(run){
 }
 function bindPreviewPane(run,pane){
   if(!pane)return;
+  if(runPreviewIsCompose(run)){bindPreviewEnvCards(pane,()=>loadRunPreview(run.id));return}
   pane.querySelector('[data-preview-download]')?.addEventListener('click',event=>downloadRunPreview(run.id,event.currentTarget));
   pane.querySelector('[data-preview-refresh]')?.addEventListener('click',()=>{stopPreviewPoll();state.runPreview=null;loadRunPreview(run.id)});
   pane.querySelector('[data-preview-copy]')?.addEventListener('click',()=>{const url=state.runPreview?.session?.url;if(url)copyText(url,'预览地址已复制')});
@@ -1305,7 +1322,7 @@ function renderRunDetail(r){
   if(previewEnabled)allowedTabs.splice(4,0,'preview');
   const runDetailTab=allowedTabs.includes(state.runDetailTab)?state.runDetailTab:'overview';
   const runTabs=['overview:概览','trace:实时轨迹','logs:Worker日志','workspace:工作区'];
-  if(previewEnabled)runTabs.push('preview:前端预览');
+  if(previewEnabled)runTabs.push(runPreviewIsCompose(r)?'preview:预览环境':'preview:前端预览');
   runTabs.push('eval:智能评测');
   const runTitle = ctx.issue?.title || wf.name || '';
   const runDescription = ctx.issue?.description || r.input;

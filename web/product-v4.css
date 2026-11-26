@@ -1682,6 +1682,14 @@ html[data-theme="dark"] .agent-studio-v2{box-shadow:0 18px 56px rgba(0,0,0,.42),
   flex:1 1 auto;
   min-height:520px;
 }
+/* Compose preview environment cards (app/preview-envs.js): run tab and requirement drawer. */
+.preview-env-list{display:flex;flex-direction:column;gap:12px;padding:4px 0}
+.preview-env-card{border:1px solid var(--hui-border);border-radius:12px;background:var(--hui-surface);padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+.preview-env-card>header{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.preview-env-card .detail-fact b{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.preview-env-url{overflow-wrap:anywhere}
+.preview-env-error{margin:0;color:var(--hui-error);font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}
+.preview-env-actions{display:flex;gap:8px;justify-content:flex-end}
 #runsView .worker-log-section{
   flex:1 1 auto;
   min-height:0;

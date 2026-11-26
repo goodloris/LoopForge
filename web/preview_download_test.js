@@ -54,6 +54,7 @@ async function testDownload({status = 200, type = 'application/zip', message = '
   const context = {
     state: {runPreview: {runId: 'run-1', info: {status: 'ready', fileCount: 3}, session: {url: 'https://preview.test/'}}},
     runPreviewDeclared: () => true,
+    runPreviewIsCompose: () => false,
     escapeHTML: value => String(value),
     window: {location: {protocol: 'http:'}}
   };
@@ -66,6 +67,12 @@ async function testDownload({status = 200, type = 'application/zip', message = '
     context.state.runPreview.info.status = status;
     assert.doesNotMatch(context.previewPaneHTML(run), /data-preview-download/, status);
   }
+  context.runPreviewIsCompose = () => true;
+  context.previewEnvCardsHTML = list => `cards:${list ? list.items.length : 'loading'}`;
+  assert.equal(context.previewPaneHTML(run), 'cards:loading');
+  context.state.runPreviewEnvs = {runId: 'run-1', list: {items: [{}]}};
+  assert.equal(context.previewPaneHTML(run), 'cards:1', 'compose runs list environments instead of the static archive');
+  context.runPreviewIsCompose = () => false;
   let result = await testDownload();
   assert.deepEqual(result.calls.slice(1), [
     ['click', 'blob:download', 'preview-run?test.zip'], ['remove'], ['revoke', 'blob:download']

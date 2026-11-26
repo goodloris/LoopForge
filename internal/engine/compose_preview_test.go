@@ -303,3 +303,33 @@ func TestComposePreviewTeardownSweep(t *testing.T) {
 		t.Fatalf("second sweep started %d", started)
 	}
 }
+
+func TestExecuteComposePreviewNodeOutcome(t *testing.T) {
+	e, _ := cvEEngine(t)
+	node := domain.PreviewDeployNode(domain.Position{})
+	put := func(id string) {
+		t.Helper()
+		run := domain.Run{ID: id, Status: "running", WorkflowSnapshot: domain.WorkflowDefinition{Preview: &domain.PreviewContract{Enabled: true, Kind: domain.PreviewKindCompose}, Nodes: []domain.WorkflowNode{node}},
+			Nodes: map[string]*domain.NodeRun{node.ID: {Status: "running", Attempt: 1}}}
+		if err := e.repo.PutRun(run); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Disabled config fails the node with the missing variable names.
+	put("run-node-off")
+	e.executeComposePreviewNode(context.Background(), "run-node-off", node, 1, 0)
+	if r, _ := e.repo.RunState("run-node-off"); r.Nodes[node.ID].Status != "failed" || !strings.Contains(r.Nodes[node.ID].Error, "AGENTFLOW_COMPOSE_PREVIEW_RUNNER_ID") {
+		t.Fatalf("disabled node = %+v", r.Nodes[node.ID])
+	}
+	// No pushable repositories: nothing to deploy, the node succeeds.
+	cfg := previewTestConfig()
+	e.SetComposePreview(cfg)
+	if err := e.repo.PutRunner(domain.Runner{ID: cfg.RunnerID, Status: domain.RunnerStatusOnline, RunnerVersion: domain.RunnerVersionComposePreview}); err != nil {
+		t.Fatal(err)
+	}
+	put("run-node-empty")
+	e.executeComposePreviewNode(context.Background(), "run-node-empty", node, 1, 0)
+	if r, _ := e.repo.RunState("run-node-empty"); r.Nodes[node.ID].Status != "succeeded" || !strings.Contains(r.Nodes[node.ID].Output, "没有可部署的代码仓库") {
+		t.Fatalf("empty node = %+v", r.Nodes[node.ID])
+	}
+}
