@@ -62,3 +62,25 @@ func TestAttachPreviewDeploy(t *testing.T) {
 		t.Fatal("disabled preview kept the deploy node")
 	}
 }
+
+func TestAttachPreviewDeployKeepsManualPlacement(t *testing.T) {
+	compose := &PreviewContract{Enabled: true, Kind: PreviewKindCompose}
+	// A → node → B, placed by hand, for both kinds of preview node.
+	for _, placed := range []string{PreviewBuildNodeID, PreviewDeployNodeID} {
+		wf := WorkflowDefinition{
+			Preview: compose,
+			Nodes:   []WorkflowNode{{ID: "a", Type: "agent"}, {ID: placed, Type: "script", Script: "x", Position: Position{X: 333, Y: 44}}, {ID: "b", Type: "approval"}},
+			Edges:   []WorkflowEdge{{ID: "in", Source: "a", Target: placed}, {ID: "out", Source: placed, Target: "b"}},
+		}
+		got, err := AttachPreviewBuild(wf)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got.Nodes) != 3 || got.Nodes[1].ID != PreviewDeployNodeID || got.Nodes[1].Position != (Position{X: 333, Y: 44}) {
+			t.Fatalf("%s: nodes = %+v", placed, got.Nodes)
+		}
+		if len(got.Edges) != 2 || got.Edges[0].Source != "a" || got.Edges[0].Target != PreviewDeployNodeID || got.Edges[1].Source != PreviewDeployNodeID || got.Edges[1].Target != "b" {
+			t.Fatalf("%s: B lost its upstream: %+v", placed, got.Edges)
+		}
+	}
+}
