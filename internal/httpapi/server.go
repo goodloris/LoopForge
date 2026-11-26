@@ -80,20 +80,21 @@ type Server struct {
 	projects        *projectsHandlers
 	insights        *insightsHandlers
 	businessDomains *businessDomainsHandlers
-	catalog         *catalogHandlers  // catalog.go
-	mcp             *mcpHandlers      // mcp.go
-	market          *marketHandlers   // mcp_market.go
-	skillhub        *skillhubHandlers // skillhub_market.go
-	issues          *issuesHandlers   // issues.go（依赖 tasks/stream）
-	tasks           *tasksHandlers    // tasks.go
-	runs            *runsHandlers     // runs.go
-	previews        *previewsHandlers // run_preview.go
-	browser         *browserHandlers  // browser.go
-	stream          *streamHandlers   // stream.go
-	runners         *runnersHandlers  // runners.go
-	schedule        *scheduleHandlers // schedule.go（align.go 并入）
-	tokens          *tokenHandlers    // auth_tokens.go
-	syncAPI         *syncHandlers     // tracker.go
+	catalog         *catalogHandlers    // catalog.go
+	mcp             *mcpHandlers        // mcp.go
+	market          *marketHandlers     // mcp_market.go
+	skillhub        *skillhubHandlers   // skillhub_market.go
+	issues          *issuesHandlers     // issues.go（依赖 tasks/stream）
+	tasks           *tasksHandlers      // tasks.go
+	runs            *runsHandlers       // runs.go
+	previews        *previewsHandlers   // run_preview.go
+	previewEnvs     *previewEnvHandlers // preview_envs.go
+	browser         *browserHandlers    // browser.go
+	stream          *streamHandlers     // stream.go
+	runners         *runnersHandlers    // runners.go
+	schedule        *scheduleHandlers   // schedule.go（align.go 并入）
+	tokens          *tokenHandlers      // auth_tokens.go
+	syncAPI         *syncHandlers       // tracker.go
 	notifications   *notificationHandlers
 	botInteractions *botInteractionHandlers
 	botIdentities   *botIdentityHandlers
@@ -177,6 +178,7 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 		tasks:           tasks,
 		runs:            &runsHandlers{deps: d, runnerControls: runnerControls, evalJobs: newRunEvalHub()},
 		previews:        &previewsHandlers{deps: d},
+		previewEnvs:     &previewEnvHandlers{deps: d},
 		browser:         &browserHandlers{deps: d, runnerControls: runnerControls},
 		stream:          stream,
 		runners:         &runnersHandlers{deps: d, runnerWaiters: newRunnerWaiterRegistry(), runnerControls: runnerControls, runnerBindCodes: map[string]runnerBindCode{}},
@@ -598,6 +600,10 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 	g.POST("/api/runs/:id/preview/session", api.previews.runPreviewSession)
 	g.DELETE("/api/runs/:id/preview/session/:sid", api.previews.deletePreviewSession)
 	g.DELETE("/api/runs/:id/preview", api.previews.deletePreview)
+	g.GET("/api/runs/:id/preview-envs", api.previewEnvs.runEnvs)
+	g.GET("/api/issues/:id/preview-envs", api.previewEnvs.issueEnvs)
+	g.POST("/api/preview-envs/:id/ticket", api.previewEnvs.ticket)
+	g.DELETE("/api/preview-envs/:id", api.previewEnvs.destroy)
 	g.GET("/api/runs/:id/stream", api.stream.streamRun)
 
 	// --- sync & schedule ---

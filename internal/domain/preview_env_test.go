@@ -49,8 +49,8 @@ func TestPreviewContractCompose(t *testing.T) {
 		t.Error("unknown kind accepted")
 	}
 	wf, err := AttachPreviewBuild(WorkflowDefinition{Preview: &PreviewContract{Enabled: true, Kind: "compose"}})
-	if err != nil || len(wf.Nodes) != 0 {
-		t.Fatalf("compose must not inject the static build node: %v %+v", err, wf.Nodes)
+	if err != nil || len(wf.Nodes) != 1 || wf.Nodes[0].ID != PreviewDeployNodeID {
+		t.Fatalf("compose must inject only the deploy node: %v %+v", err, wf.Nodes)
 	}
 }
 

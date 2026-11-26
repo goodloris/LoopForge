@@ -2822,6 +2822,81 @@ paths:
           description: Preview has expired or been deleted
         "500":
           $ref: "#/components/responses/ServerError"
+  /api/runs/{runId}/preview-envs:
+    parameters:
+      - $ref: "#/components/parameters/RunId"
+    get:
+      tags: [Runs]
+      operationId: listRunPreviewEnvironments
+      description: Compose preview environments last deployed by this run. Readable by signed-in users; items include the generated admin password of the `preview` application account.
+      responses:
+        "200":
+          $ref: "#/components/responses/PreviewEnvironmentList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/issues/{issueId}/preview-envs:
+    parameters:
+      - $ref: "#/components/parameters/IssueId"
+    get:
+      tags: [Issues]
+      operationId: listIssuePreviewEnvironments
+      description: Compose preview environments of this requirement, one per repository, including destroyed ones.
+      responses:
+        "200":
+          $ref: "#/components/responses/PreviewEnvironmentList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/preview-envs/{envId}/ticket:
+    parameters:
+      - $ref: "#/components/parameters/PreviewEnvId"
+    post:
+      tags: [Runs]
+      operationId: createPreviewEnvironmentTicket
+      description: Mint a one-time ticket (valid 120 seconds) and return the environment URL that carries it. The preview gateway exchanges the ticket for an 8-hour cookie scoped to that environment host. Requires project read access; the environment must be ready.
+      responses:
+        "200":
+          description: URL that opens the preview
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [url]
+                properties:
+                  url: {type: string, description: "<environment URL>/?__lf=<ticket>"}
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "503":
+          description: Compose previews are not configured on this instance
+  /api/preview-envs/{envId}:
+    parameters:
+      - $ref: "#/components/parameters/PreviewEnvId"
+    delete:
+      tags: [Runs]
+      operationId: deletePreviewEnvironment
+      description: Start tearing the environment down on the preview runner (preview_teardown) and return it as destroying. Requires project write access. Environments are also torn down automatically once the requirement's MRs are merged or closed or the requirement is done, cancelled or closed.
+      responses:
+        "202":
+          description: Teardown started, or the environment as it already is (destroying/destroyed)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PreviewEnvironment"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: The environment is still deploying
   /api/runs/{runId}/telemetry:
     parameters:
       - $ref: "#/components/parameters/RunId"
@@ -3963,6 +4038,13 @@ components:
       required: true
       schema:
         type: string
+    PreviewEnvId:
+      name: envId
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: "^pe-[0-9a-f]{10}$"
     ArtifactId:
       name: artifactId
       in: path
@@ -4145,6 +4227,21 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+    PreviewEnvironmentList:
+      description: Compose preview environments
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [enabled, adminUser, items]
+            properties:
+              enabled: {type: boolean, description: Whether compose previews are configured on this instance}
+              reason: {type: string, description: Why compose previews are disabled}
+              adminUser: {type: string, description: Application account the admin password belongs to (preview)}
+              items:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PreviewEnvironment"
     SkillhubUnavailable:
       description: SkillHub rejected the package (422), rate limited (429), is unavailable (502) or timed out (504)
       content:
@@ -4275,6 +4372,26 @@ components:
             items:
               $ref: "#/components/schemas/ScheduleJob"
   schemas:
+    PreviewEnvironment:
+      type: object
+      required: [id, projectId, repositoryId, runnerId, status, createdAt, updatedAt]
+      properties:
+        id: {type: string, description: "pe- plus 10 hex of sha256(issueId or runId, repositoryId); stable across reruns"}
+        projectId: {type: string}
+        issueId: {type: string}
+        repositoryId: {type: string}
+        runnerId: {type: string}
+        lastRunId: {type: string}
+        branch: {type: string}
+        sha: {type: string}
+        status: {type: string, enum: [deploying, ready, failed, destroying, destroyed]}
+        url: {type: string}
+        adminPassword: {type: string, description: "Password of the preview application account, injected as PREVIEW_ADMIN_PASSWORD"}
+        lastError: {type: string}
+        deployedAt: {type: string, format: date-time}
+        destroyedAt: {type: string, format: date-time}
+        createdAt: {type: string, format: date-time}
+        updatedAt: {type: string, format: date-time}
     AssistantDefaults:
       type: object
       properties:

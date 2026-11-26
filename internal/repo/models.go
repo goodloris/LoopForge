@@ -485,6 +485,29 @@ type runPreviewRow struct {
 
 func (runPreviewRow) TableName() string { return "run_previews" }
 
+// previewEnvironmentRow is one compose preview environment (requirement ×
+// repository). ponytail: admin_password is plain text, sandbox previews only.
+type previewEnvironmentRow struct {
+	ID            string     `gorm:"column:id;primaryKey;size:64"`
+	ProjectID     string     `gorm:"column:project_id;size:64;not null;default:''"`
+	IssueID       string     `gorm:"column:issue_id;index:idx_preview_envs_issue;size:64;not null;default:''"`
+	RepositoryID  string     `gorm:"column:repository_id;size:64;not null;default:''"`
+	RunnerID      string     `gorm:"column:runner_id;size:64;not null;default:''"`
+	LastRunID     string     `gorm:"column:last_run_id;index:idx_preview_envs_run;size:64;not null;default:''"`
+	Branch        string     `gorm:"column:branch;size:255;not null;default:''"`
+	SHA           string     `gorm:"column:sha;size:64;not null;default:''"`
+	Status        string     `gorm:"column:status;index:idx_preview_envs_status;size:32;not null;default:''"`
+	URL           string     `gorm:"column:url;size:1024;not null;default:''"`
+	AdminPassword string     `gorm:"column:admin_password;size:128;not null;default:''"`
+	LastError     string     `gorm:"column:last_error;type:text"`
+	DeployedAt    *time.Time `gorm:"column:deployed_at"`
+	DestroyedAt   *time.Time `gorm:"column:destroyed_at"`
+	Created       *time.Time `gorm:"column:created_at"`
+	Updated       *time.Time `gorm:"column:updated_at"`
+}
+
+func (previewEnvironmentRow) TableName() string { return "preview_environments" }
+
 type previewSessionRow struct {
 	ID             string     `gorm:"column:id;primaryKey;size:64"`
 	PreviewID      string     `gorm:"column:preview_id;index:idx_preview_sessions_preview;size:64"`
@@ -771,7 +794,7 @@ func allModels() []any {
 		workflowRow{}, syncConfigRow{}, scheduleJobRow{}, scheduleJobExecutionRow{}, scheduleJobExecutionStatRow{}, sharedScheduleVersionRow{},
 		issueRow{}, issueCommentRow{}, taskRow{},
 		runAdmissionLockRow{}, runRow{}, runNodeRow{}, runEventRow{}, runTelemetryRow{}, runLogRow{}, runArtifactRow{}, runEvalRow{},
-		runPreviewRow{}, previewSessionRow{}, previewBlobRow{}, WorkspaceCheckpoint{}, workspaceCheckpointChunk{},
+		runPreviewRow{}, previewSessionRow{}, previewBlobRow{}, previewEnvironmentRow{}, WorkspaceCheckpoint{}, workspaceCheckpointChunk{},
 		mrDeliveryStateRow{}, definitionRevisionRow{},
 		runnerRow{}, runnerTaskRow{}, runnerTaskEventRow{}, userRunnerPrefRow{},
 		assistantSessionRow{}, assistantTaskRow{}, assistantGenerationRow{}, assistantSessionReadRow{}, assistantPreferenceRow{}, assistantDiagnosticsRow{},

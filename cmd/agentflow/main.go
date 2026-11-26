@@ -414,6 +414,13 @@ func resolveWorkspaceRoot(override string) (string, error) {
 func attachPreviewStore(e *engine.Engine, s *repo.Store) {
 	cfg := preview.LoadConfig()
 	e.SetPreview(preview.NewService(s, preview.NewDBStore(s), cfg))
+	compose := engine.LoadComposePreviewConfig()
+	e.SetComposePreview(compose)
+	if problem := compose.Problem(); problem != "" {
+		log.Printf("compose preview: %s", problem)
+	} else {
+		log.Printf("compose preview runner=%s base=%s", compose.RunnerID, compose.BaseURL)
+	}
 	if cfg.PublicHost != "" {
 		log.Printf("preview gateway path=/preview/{token}/ public=%s://%s", cfg.PublicScheme, cfg.PublicHost)
 	} else {

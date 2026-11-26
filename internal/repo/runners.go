@@ -37,6 +37,7 @@ type runnerTaskPayload struct {
 	Command           string                           `json:"command,omitempty"`
 	Action            string                           `json:"action,omitempty"`
 	PreviewArchive    *domain.RunnerPreviewArchiveSpec `json:"previewArchive,omitempty"`
+	Preview           *domain.RunnerPreviewSpec        `json:"preview,omitempty"`
 	WorkBranchMessage string                           `json:"workBranchMessage,omitempty"`
 	IntegrationLabel  string                           `json:"integrationLabel,omitempty"`
 	// Artifacts holds artifact content uploaded by the runner at completion
@@ -121,6 +122,7 @@ func runnerTaskFromRow(row runnerTaskRow) domain.RunnerTask {
 		t.Command = p.Command
 		t.Action = p.Action
 		t.PreviewArchive = p.PreviewArchive
+		t.Preview = p.Preview
 		t.WorkBranchMessage = p.WorkBranchMessage
 		t.IntegrationLabel = p.IntegrationLabel
 		t.Artifacts = p.Artifacts
@@ -141,7 +143,7 @@ func runnerTaskPayloadBytes(v domain.RunnerTask) []byte {
 		Result: v.Result, Error: v.Error, StartedAt: newRunnerTaskTime(v.StartedAt),
 		CompletedAt: newRunnerTaskTime(v.CompletedAt), RunID: v.RunID, NodeID: v.NodeID,
 		Invocation: v.Invocation, Sandbox: v.Sandbox, Command: v.Command, Action: v.Action,
-		PreviewArchive: v.PreviewArchive, WorkBranchMessage: v.WorkBranchMessage, Artifacts: v.Artifacts,
+		PreviewArchive: v.PreviewArchive, Preview: v.Preview, WorkBranchMessage: v.WorkBranchMessage, Artifacts: v.Artifacts,
 		Outputs: v.Outputs, IntegrationLabel: v.IntegrationLabel,
 	})
 }
