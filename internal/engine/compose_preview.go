@@ -32,7 +32,7 @@ const (
 	composePreviewTeardownStale = 15 * time.Minute
 	// A deploy still deploying after this long lost its deployer (restart,
 	// crash) and may be claimed again by a deploy, the sweep or DELETE.
-	composePreviewDeployStale = composePreviewDeployTimeout + 10*time.Minute
+	composePreviewDeployStale   = composePreviewDeployTimeout + 10*time.Minute
 	composePreviewSweepInterval = time.Minute
 	// PreviewAdminUser is the application account the injected password belongs to.
 	PreviewAdminUser = "preview"
