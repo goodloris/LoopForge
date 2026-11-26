@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"path"
+	"slices"
 	"strings"
 	"time"
 )
@@ -48,11 +50,12 @@ const (
 // the preview before the run itself finishes.
 type PreviewContract struct {
 	Enabled      bool   `json:"enabled"`
-	Kind         string `json:"kind"`                 // static; later service/environment
-	ExecutorID   string `json:"executorId,omitempty"` // empty follows the run's responsible user
-	Model        string `json:"model,omitempty"`      // model ID on the selected CLI
-	SourcePath   string `json:"sourcePath,omitempty"` // relative to the run workspace; default dist
-	IndexFile    string `json:"indexFile,omitempty"`  // default index.html
+	Kind         string `json:"kind"`                  // static (default) or compose
+	ComposeFile  string `json:"composeFile,omitempty"` // compose only; relative to each repository root
+	ExecutorID   string `json:"executorId,omitempty"`  // empty follows the run's responsible user
+	Model        string `json:"model,omitempty"`       // model ID on the selected CLI
+	SourcePath   string `json:"sourcePath,omitempty"`  // relative to the run workspace; default dist
+	IndexFile    string `json:"indexFile,omitempty"`   // default index.html
 	SPAFallback  bool   `json:"spaFallback,omitempty"`
 	Required     bool   `json:"required,omitempty"`
 	CaptureShot  bool   `json:"captureScreenshot,omitempty"`
@@ -66,6 +69,21 @@ func (c *PreviewContract) Static() bool {
 	}
 	kind := strings.TrimSpace(c.Kind)
 	return kind == "" || strings.EqualFold(kind, PreviewKindStatic)
+}
+
+// Compose reports whether this contract deploys compose preview environments.
+func (c *PreviewContract) Compose() bool {
+	return c != nil && c.Enabled && strings.EqualFold(strings.TrimSpace(c.Kind), PreviewKindCompose)
+}
+
+// ComposeFileOrDefault returns the compose file relative to a repository root.
+func (c *PreviewContract) ComposeFileOrDefault() string {
+	if c != nil {
+		if file := strings.Trim(strings.ReplaceAll(strings.TrimSpace(c.ComposeFile), "\\", "/"), "/"); file != "" {
+			return file
+		}
+	}
+	return PreviewDefaultComposeFile
 }
 
 func (c *PreviewContract) Index() string {
@@ -139,6 +157,11 @@ func (c *PreviewContract) Normalize() {
 	if c == nil || !c.Enabled {
 		return
 	}
+	if c.Compose() {
+		c.Kind = PreviewKindCompose
+		c.ComposeFile = c.ComposeFileOrDefault()
+		return
+	}
 	c.Kind = c.KindOrStatic()
 	c.ExecutorID = c.SelectedExecutorID()
 	if c.ExecutorID == "" {
@@ -158,8 +181,18 @@ func (c *PreviewContract) Validate() error {
 		return nil
 	}
 	c.Normalize()
+	if c.Compose() {
+		// ComposeFileOrDefault already dropped leading slashes; reject paths
+		// that name the repository root, escape it, or carry a drive letter.
+		file := c.ComposeFile
+		drive := len(file) >= 2 && file[1] == ':' && ('a' <= file[0]|0x20 && file[0]|0x20 <= 'z')
+		if drive || path.Clean(file) == "." || slices.Contains(strings.Split(file, "/"), "..") {
+			return fmt.Errorf("compose preview composeFile %q is invalid", c.ComposeFile)
+		}
+		return nil
+	}
 	if !c.Static() {
-		return fmt.Errorf("frontend preview currently supports static sites only")
+		return fmt.Errorf("frontend preview supports static sites or compose environments only")
 	}
 	if strings.Contains(c.SourcePath, "..") || strings.HasPrefix(c.SourcePath, "/") {
 		return fmt.Errorf("frontend preview sourcePath %q is invalid", c.SourcePath)
